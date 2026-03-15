@@ -7,6 +7,10 @@
 #define ICM42688_CS_PIN      BSP_IO_PORT_02_PIN_05  // 假设 CS 接在 P103，请按需修改
 #define ICM_SPI_INSTANCE     g_spi0                  // 对应 FSP 中的 SPI 实例名
 
+/* --- SCI用户硬件定义：请根据实际接线修改 --- */
+#define ICM42688_SCI_CS_PIN      BSP_IO_PORT_02_PIN_10  // 假设 CS 接在 P103，请按需修改
+#define ICM_SCI_SPI_INSTANCE     g_spi1                  // 对应 FSP 中的 SPI 实例名
+
 /* --- ICM42688 寄存器完整映射定义 --- */
 
 // ==========================================
@@ -193,8 +197,12 @@ typedef struct
 #define ICM42688_ID              0x47
 /* --- 函数原型 --- */
 fsp_err_t bsp_Icm42688Init(void);
+fsp_err_t bsp_Icm42688SciInit(void);
 void bsp_IcmGetRawData(icm42688RawData_t *accData, icm42688RawData_t *GyroData);
+void bsp_IcmSciGetRawData(icm42688RawData_t *accData, icm42688RawData_t *GyroData);
 void bsp_IcmGetScaledData(icm42688Float3_t *accData, icm42688Float3_t *gyroData);
+void bsp_IcmSciGetScaledData(icm42688Float3_t *accData, icm42688Float3_t *gyroData);
 void bsp_IcmGetTemperature(float* pTemp);
-
+uint32_t imu_read_timestamp();
+void bsp_IcmGetScaledDataWithTimestamp(icm42688Float3_t *accData, icm42688Float3_t *gyroData, uint32_t *timestamp);
 #endif

@@ -1,8 +1,10 @@
-zed/drivers/drv_uart.o: ../zed/drivers/drv_uart.c \
- ../zed/drivers/drv_uart.h D:/SOFYWARE/renesas/IMU/ra_gen/hal_data.h \
+ra/fsp/src/r_sci_spi/r_sci_spi.o: ../ra/fsp/src/r_sci_spi/r_sci_spi.c \
+ D:/SOFYWARE/renesas/IMU/ra/fsp/inc/instances/r_sci_spi.h \
+ D:/SOFYWARE/renesas/IMU/ra/fsp/inc/api/r_spi_api.h \
  D:/SOFYWARE/renesas/IMU/ra/fsp/inc/api/bsp_api.h \
  D:/SOFYWARE/renesas/IMU/ra/fsp/inc/api/fsp_common_api.h \
  D:/SOFYWARE/renesas/IMU/ra/fsp/inc/fsp_version.h \
+ D:/SOFYWARE/renesas/IMU/ra/fsp/inc/api/bsp_api.h \
  D:/SOFYWARE/renesas/IMU/ra_cfg/fsp_cfg/bsp/bsp_cfg.h \
  D:/SOFYWARE/renesas/IMU/ra_gen/bsp_clock_cfg.h \
  D:/SOFYWARE/renesas/IMU/ra_cfg/fsp_cfg/bsp/bsp_mcu_family_cfg.h \
@@ -39,41 +41,14 @@ zed/drivers/drv_uart.o: ../zed/drivers/drv_uart.c \
  d:\sofyware\renesas\imu\ra\fsp\src\bsp\mcu\all\bsp_compiler_support.h \
  d:\sofyware\renesas\imu\ra\fsp\src\bsp\mcu\all\bsp_delay.h \
  d:\sofyware\renesas\imu\ra\fsp\src\bsp\mcu\all\bsp_mcu_api.h \
- D:/SOFYWARE/renesas/IMU/ra_gen/common_data.h \
- D:/SOFYWARE/renesas/IMU/ra/fsp/inc/instances/r_icu.h \
- D:/SOFYWARE/renesas/IMU/ra/fsp/inc/api/r_external_irq_api.h \
- D:/SOFYWARE/renesas/IMU/ra/fsp/inc/api/bsp_api.h \
- D:/SOFYWARE/renesas/IMU/ra/fsp/inc/instances/r_elc.h \
- D:/SOFYWARE/renesas/IMU/ra_cfg/fsp_cfg/r_elc_cfg.h \
- D:/SOFYWARE/renesas/IMU/ra/fsp/inc/api/r_elc_api.h \
- D:/SOFYWARE/renesas/IMU/ra/fsp/inc/instances/r_ioport.h \
- D:/SOFYWARE/renesas/IMU/ra/fsp/inc/api/r_ioport_api.h \
- D:/SOFYWARE/renesas/IMU/ra_cfg/fsp_cfg/r_ioport_cfg.h \
- D:/SOFYWARE/renesas/IMU/ra_cfg/fsp_cfg/bsp/bsp_pin_cfg.h \
- D:/SOFYWARE/renesas/IMU/ra/fsp/inc/instances/r_dtc.h \
  D:/SOFYWARE/renesas/IMU/ra/fsp/inc/api/r_transfer_api.h \
- D:/SOFYWARE/renesas/IMU/ra_cfg/fsp_cfg/r_dtc_cfg.h \
- D:/SOFYWARE/renesas/IMU/ra/fsp/inc/instances/r_sci_spi.h \
- D:/SOFYWARE/renesas/IMU/ra/fsp/inc/api/r_spi_api.h \
- D:/SOFYWARE/renesas/IMU/ra/fsp/inc/api/r_transfer_api.h \
- D:/SOFYWARE/renesas/IMU/ra/fsp/inc/instances/r_agt.h \
- D:/SOFYWARE/renesas/IMU/ra_cfg/fsp_cfg/r_agt_cfg.h \
- D:/SOFYWARE/renesas/IMU/ra/fsp/inc/api/r_timer_api.h \
- D:/SOFYWARE/renesas/IMU/ra/fsp/inc/instances/r_gpt.h \
- D:/SOFYWARE/renesas/IMU/ra/fsp/inc/instances/r_spi.h \
- D:/SOFYWARE/renesas/IMU/ra/fsp/inc/instances/r_dmac.h \
- D:/SOFYWARE/renesas/IMU/ra/fsp/inc/instances/r_adc.h \
- D:/SOFYWARE/renesas/IMU/ra_cfg/fsp_cfg/r_adc_cfg.h \
- D:/SOFYWARE/renesas/IMU/ra/fsp/inc/api/r_adc_api.h \
- D:/SOFYWARE/renesas/IMU/ra/fsp/inc/api/r_elc_api.h \
- D:/SOFYWARE/renesas/IMU/ra/fsp/inc/instances/r_sci_uart.h \
- D:/SOFYWARE/renesas/IMU/ra/fsp/inc/api/r_uart_api.h \
- D:/SOFYWARE/renesas/IMU/ra_cfg/fsp_cfg/r_sci_uart_cfg.h
-../zed/drivers/drv_uart.h:
-D:/SOFYWARE/renesas/IMU/ra_gen/hal_data.h:
+ D:/SOFYWARE/renesas/IMU/ra_cfg/fsp_cfg/r_sci_spi_cfg.h
+D:/SOFYWARE/renesas/IMU/ra/fsp/inc/instances/r_sci_spi.h:
+D:/SOFYWARE/renesas/IMU/ra/fsp/inc/api/r_spi_api.h:
 D:/SOFYWARE/renesas/IMU/ra/fsp/inc/api/bsp_api.h:
 D:/SOFYWARE/renesas/IMU/ra/fsp/inc/api/fsp_common_api.h:
 D:/SOFYWARE/renesas/IMU/ra/fsp/inc/fsp_version.h:
+D:/SOFYWARE/renesas/IMU/ra/fsp/inc/api/bsp_api.h:
 D:/SOFYWARE/renesas/IMU/ra_cfg/fsp_cfg/bsp/bsp_cfg.h:
 D:/SOFYWARE/renesas/IMU/ra_gen/bsp_clock_cfg.h:
 D:/SOFYWARE/renesas/IMU/ra_cfg/fsp_cfg/bsp/bsp_mcu_family_cfg.h:
@@ -110,33 +85,5 @@ D:/SOFYWARE/renesas/IMU/ra/fsp/inc/api/fsp_common_api.h:
 d:\sofyware\renesas\imu\ra\fsp\src\bsp\mcu\all\bsp_compiler_support.h:
 d:\sofyware\renesas\imu\ra\fsp\src\bsp\mcu\all\bsp_delay.h:
 d:\sofyware\renesas\imu\ra\fsp\src\bsp\mcu\all\bsp_mcu_api.h:
-D:/SOFYWARE/renesas/IMU/ra_gen/common_data.h:
-D:/SOFYWARE/renesas/IMU/ra/fsp/inc/instances/r_icu.h:
-D:/SOFYWARE/renesas/IMU/ra/fsp/inc/api/r_external_irq_api.h:
-D:/SOFYWARE/renesas/IMU/ra/fsp/inc/api/bsp_api.h:
-D:/SOFYWARE/renesas/IMU/ra/fsp/inc/instances/r_elc.h:
-D:/SOFYWARE/renesas/IMU/ra_cfg/fsp_cfg/r_elc_cfg.h:
-D:/SOFYWARE/renesas/IMU/ra/fsp/inc/api/r_elc_api.h:
-D:/SOFYWARE/renesas/IMU/ra/fsp/inc/instances/r_ioport.h:
-D:/SOFYWARE/renesas/IMU/ra/fsp/inc/api/r_ioport_api.h:
-D:/SOFYWARE/renesas/IMU/ra_cfg/fsp_cfg/r_ioport_cfg.h:
-D:/SOFYWARE/renesas/IMU/ra_cfg/fsp_cfg/bsp/bsp_pin_cfg.h:
-D:/SOFYWARE/renesas/IMU/ra/fsp/inc/instances/r_dtc.h:
 D:/SOFYWARE/renesas/IMU/ra/fsp/inc/api/r_transfer_api.h:
-D:/SOFYWARE/renesas/IMU/ra_cfg/fsp_cfg/r_dtc_cfg.h:
-D:/SOFYWARE/renesas/IMU/ra/fsp/inc/instances/r_sci_spi.h:
-D:/SOFYWARE/renesas/IMU/ra/fsp/inc/api/r_spi_api.h:
-D:/SOFYWARE/renesas/IMU/ra/fsp/inc/api/r_transfer_api.h:
-D:/SOFYWARE/renesas/IMU/ra/fsp/inc/instances/r_agt.h:
-D:/SOFYWARE/renesas/IMU/ra_cfg/fsp_cfg/r_agt_cfg.h:
-D:/SOFYWARE/renesas/IMU/ra/fsp/inc/api/r_timer_api.h:
-D:/SOFYWARE/renesas/IMU/ra/fsp/inc/instances/r_gpt.h:
-D:/SOFYWARE/renesas/IMU/ra/fsp/inc/instances/r_spi.h:
-D:/SOFYWARE/renesas/IMU/ra/fsp/inc/instances/r_dmac.h:
-D:/SOFYWARE/renesas/IMU/ra/fsp/inc/instances/r_adc.h:
-D:/SOFYWARE/renesas/IMU/ra_cfg/fsp_cfg/r_adc_cfg.h:
-D:/SOFYWARE/renesas/IMU/ra/fsp/inc/api/r_adc_api.h:
-D:/SOFYWARE/renesas/IMU/ra/fsp/inc/api/r_elc_api.h:
-D:/SOFYWARE/renesas/IMU/ra/fsp/inc/instances/r_sci_uart.h:
-D:/SOFYWARE/renesas/IMU/ra/fsp/inc/api/r_uart_api.h:
-D:/SOFYWARE/renesas/IMU/ra_cfg/fsp_cfg/r_sci_uart_cfg.h:
+D:/SOFYWARE/renesas/IMU/ra_cfg/fsp_cfg/r_sci_spi_cfg.h:

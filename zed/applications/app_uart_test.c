@@ -6,42 +6,82 @@
 #include "drv_uart.h"
 #include "hal_data.h"
 #include "icm42688.h"
+#include "drv_MG996.h"
 #include <math.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
-#include "drv_MG996.h"
+
 /**********************************************************************************************************************
  * Macro definitions
  **********************************************************************************************************************/
+/* 包络检测使用的滑动平均窗口长度。 */
 #define ENVELOPE_BUFFER_SIZE          16
-#define IMU_SAMPLE_DT_SEC            0.01f
-#define MAHONY_KP                    2.5f
-#define MAHONY_KI                    0.08f
-#define IMU_CALIBRATION_SAMPLES      200U
-#define IMU_CALIBRATION_MAX_ATTEMPTS 400U
-#define IMU_STATIC_ACC_MIN_G         0.85f
-#define IMU_STATIC_ACC_MAX_G         1.15f
-#define IMU_CORRECTION_ACC_MIN_G     0.70f
-#define IMU_CORRECTION_ACC_MAX_G     1.30f
-#define IMU_POLL_INTERVAL_MS         10U
-#define IMU_IRQ_WAIT_TIMEOUT_MS      20U
+/* IMU 主循环期望采样周期：10ms，对应 100Hz。 */
+#define IMU_SAMPLE_DT_SEC             0.01f
+/* Mahony 互补滤波比例项增益，决定姿态误差校正强度。 */
+#define MAHONY_KP                     2.5f
+/* Mahony 互补滤波积分项增益，用于慢速消除陀螺零偏。 */
+#define MAHONY_KI                     0.08f
+/* 陀螺零偏标定时，目标有效样本数。 */
+#define IMU_CALIBRATION_SAMPLES       200U
+/* 标定最多尝试次数，防止长期等不到满足静止条件的数据。 */
+#define IMU_CALIBRATION_MAX_ATTEMPTS  400U
+/* 判定“静止标定可用”的加速度模长范围，单位 g。 */
+#define IMU_STATIC_ACC_MIN_G          0.85f
+#define IMU_STATIC_ACC_MAX_G          1.15f
+/* 姿态修正时使用加速度的可信区间，避免剧烈运动时被线性加速度误导。 */
+#define IMU_CORRECTION_ACC_MIN_G      0.70f
+#define IMU_CORRECTION_ACC_MAX_G      1.30f
+/* 等待 Data Ready 中断的最长时间，超时后仍会读一次，退化为近似轮询。 */
+#define IMU_IRQ_WAIT_TIMEOUT_MS       20U
+
+/**********************************************************************************************************************
+ * Typedef definitions
+ **********************************************************************************************************************/
+/* 
+ * 每颗 IMU 的运行时状态。
+ * 这里把姿态解算需要长期保存的量都放在一起，便于一套逻辑同时服务两颗 IMU：
+ * - quat: 当前姿态四元数
+ * - gyro_bias: 上电静止标定得到的陀螺零偏
+ * - mahony_integral: Mahony 算法积分项
+ * - data_ready: 对应外部中断置位的数据就绪标志
+ */
+typedef struct st_imu_runtime
+{
+    Quaternion_t     quat;
+    icm42688Float3_t gyro_bias;
+    icm42688Float3_t mahony_integral;
+    volatile bool    data_ready;
+} imu_runtime_t;
+
+/* 读取一颗 IMU 的函数入口抽象。
+ * 通过传入不同函数，可以让同一套上层逻辑同时兼容 g_spi0 和 g_spi1/SCI_SPI。
+ */
+typedef void (*imu_read_sample_fn_t)(icm42688Float3_t *acc_g, icm42688Float3_t *gyro_rad_s);
 
 /***********************************************************************************************************************
  * Private function prototypes
  **********************************************************************************************************************/
-static float get_envelope(float sample);
-static float vector_norm(icm42688Float3_t const * v);
-static void quaternion_normalize(Quaternion_t * q);
-static void mahony_reset(void);
-static void mahony_update(icm42688Float3_t const *acc_g, icm42688Float3_t const *gyro_rad_s, float dt_sec);
-static uint32_t imu_collect_gyro_bias(icm42688Float3_t *gyro_bias);
-static void imu_read_sample(icm42688Float3_t *acc_g, icm42688Float3_t *gyro_rad_s);
+static float    get_envelope(float sample);
+static float    vector_norm(icm42688Float3_t const * p_vector);
+static void     quaternion_normalize(Quaternion_t * p_quat);
+static void     mahony_reset(imu_runtime_t * p_imu);
+static void     mahony_update(imu_runtime_t * p_imu,
+                              icm42688Float3_t const * p_acc_g,
+                              icm42688Float3_t const * p_gyro_rad_s,
+                              float dt_sec);
+static uint32_t imu_collect_gyro_bias(imu_runtime_t * p_imu, imu_read_sample_fn_t read_sample);
+static void     imu_read_sample(imu_runtime_t * p_imu,
+                                imu_read_sample_fn_t read_sample,
+                                icm42688Float3_t * p_acc_g,
+                                icm42688Float3_t * p_gyro_rad_s);
+static void     imu_fail_stop(uint32_t step, fsp_err_t err);
 static uint16_t crc16_ccitt(uint8_t const *data, uint16_t length);
-static void pack_u16_le(uint8_t *buffer, uint16_t value);
-static void pack_u32_le(uint8_t *buffer, uint32_t value);
-static void pack_f32_le(uint8_t *buffer, float value);
-static void send_telemetry_frame(Quaternion_t const *upper_quat, Quaternion_t const *lower_quat);
+static void     pack_u16_le(uint8_t *buffer, uint16_t value);
+static void     pack_u32_le(uint8_t *buffer, uint32_t value);
+static void     pack_f32_le(uint8_t *buffer, float value);
+static void     send_telemetry_frame(Quaternion_t const *upper_quat, Quaternion_t const *lower_quat);
 
 /***********************************************************************************************************************
  * Private global variables
@@ -49,23 +89,79 @@ static void send_telemetry_frame(Quaternion_t const *upper_quat, Quaternion_t co
 uint16_t g_adc_buffer[1] = {0};
 volatile uint16_t g_adc_flag = 0;
 
+/* app_test 中做包络检测时用到的滑动窗口缓存。 */
 static float envelope_buffer[ENVELOPE_BUFFER_SIZE];
-static int envelope_index = 0;
-static float envelope_sum = 0;
+static int   envelope_index = 0;
+static float envelope_sum = 0.0f;
 
-static Quaternion_t s_quat = {1.0f, 0.0f, 0.0f, 0.0f};
-static Quaternion_t s_quat_reserved = {1.0f, 0.0f, 0.0f, 0.0f};
-static icm42688Float3_t s_gyro_bias = {0.0f, 0.0f, 0.0f};
-static icm42688Float3_t s_mahony_integral = {0.0f, 0.0f, 0.0f};
-static volatile bool s_imu_data_ready = false;
+/* 上臂 IMU（肱三头肌外侧）的运行时状态。 */
+static imu_runtime_t s_upper_imu =
+{
+    .quat =
+    {
+        .q0 = 1.0f,
+        .q1 = 0.0f,
+        .q2 = 0.0f,
+        .q3 = 0.0f,
+    },
+    .gyro_bias =
+    {
+        .x = 0.0f,
+        .y = 0.0f,
+        .z = 0.0f,
+    },
+    .mahony_integral =
+    {
+        .x = 0.0f,
+        .y = 0.0f,
+        .z = 0.0f,
+    },
+    .data_ready = false,
+};
+
+/* 手腕 IMU 的运行时状态。 */
+static imu_runtime_t s_lower_imu =
+{
+    .quat =
+    {
+        .q0 = 1.0f,
+        .q1 = 0.0f,
+        .q2 = 0.0f,
+        .q3 = 0.0f,
+    },
+    .gyro_bias =
+    {
+        .x = 0.0f,
+        .y = 0.0f,
+        .z = 0.0f,
+    },
+    .mahony_integral =
+    {
+        .x = 0.0f,
+        .y = 0.0f,
+        .z = 0.0f,
+    },
+    .data_ready = false,
+};
+
+/* telemetry 帧的序号与软件时间戳。 */
 static uint16_t s_frame_sequence = 0U;
 static uint32_t s_frame_timestamp_ms = 0U;
+/* 调试辅助变量：
+ * - s_imu_fail_step: 记录 imu_test 失败在第几步
+ * - s_imu_last_error: 记录对应的 FSP 错误码
+ * - s_imu_uart_ready: 串口是否已经成功打开，决定能否打印错误信息
+ */
+static volatile uint32_t  s_imu_fail_step = 0U;
+static volatile fsp_err_t s_imu_last_error = FSP_SUCCESS;
+static volatile bool      s_imu_uart_ready = false;
 
 /***********************************************************************************************************************
  * Functions
  **********************************************************************************************************************/
 static float get_envelope(float sample)
 {
+    /* 先减去窗口中最旧的值，再加上当前值，实现 O(1) 的滑动平均。 */
     envelope_sum -= envelope_buffer[envelope_index];
     envelope_sum += sample;
     envelope_buffer[envelope_index] = sample;
@@ -77,13 +173,16 @@ static float get_envelope(float sample)
 
 void app_test(void)
 {
+    /* 这是另一个测试入口，用于 ADC 采样和包络检测。 */
     adcdrvinit();
+
     while (1)
     {
         float filtered_value;
         float envelope_value;
 
         ADCDrvRead(g_adc_buffer, 1);
+        /* 先进行数字滤波，再计算包络。 */
         filtered_value = Filter((float) g_adc_buffer[0]);
         envelope_value = get_envelope(fabsf(filtered_value));
         printf("Filtered: %.2f, %.2f\r\n", filtered_value, envelope_value);
@@ -92,160 +191,256 @@ void app_test(void)
 
 void icu8_callback(external_irq_callback_args_t *p_args)
 {
+    /* IRQ8 对应上臂 IMU 的 Data Ready。 */
     if ((NULL != p_args) && (8 == p_args->channel))
     {
-        s_imu_data_ready = true;
+        s_upper_imu.data_ready = true;
     }
+}
+
+void icu9_callback(external_irq_callback_args_t *p_args)
+{
+    /* IRQ9 对应手腕 IMU 的 Data Ready。 */
+    if ((NULL != p_args) && (9 == p_args->channel))
+    {
+        s_lower_imu.data_ready = true;
+    }
+}
+
+void botton6_callback(external_irq_callback_args_t *p_args)
+{
+    /* 当前按钮中断未使用，先显式忽略参数。 */
+    FSP_PARAMETER_NOT_USED(p_args);
 }
 
 void imu_test(void)
 {
     fsp_err_t err;
-    uint32_t valid_calibration_samples;
+    uint32_t  upper_calibration_samples;
+    uint32_t  lower_calibration_samples;
 
+    /* 1. 打开 UART7，用于将双 IMU 姿态结果发送到上位机。 */
     err = g_uart7.p_api->open(g_uart7.p_ctrl, g_uart7.p_cfg);
     if ((FSP_SUCCESS != err) && (FSP_ERR_ALREADY_OPEN != err))
     {
-        return;
+        imu_fail_stop(1U, err);
     }
+    s_imu_uart_ready = true;
 
+    /* 2. 初始化上臂 IMU（硬件 SPI0）。 */
     err = bsp_Icm42688Init();
     if (FSP_SUCCESS != err)
     {
-        return;
+        imu_fail_stop(2U, err);
     }
 
+    /* 3. 初始化手腕 IMU（SCI_SPI / g_spi1）。 */
+    err = bsp_Icm42688SciInit();
+    if (FSP_SUCCESS != err)
+    {
+        imu_fail_stop(3U, err);
+    }
+
+    /* 4. 打开并使能上臂 IMU 的外部中断。 */
     err = R_ICU_ExternalIrqOpen(g_external_irq8.p_ctrl, g_external_irq8.p_cfg);
     if ((FSP_SUCCESS != err) && (FSP_ERR_ALREADY_OPEN != err))
     {
-        return;
+        imu_fail_stop(4U, err);
     }
 
     err = R_ICU_ExternalIrqEnable(g_external_irq8.p_ctrl);
     if (FSP_SUCCESS != err)
     {
-        return;
+        imu_fail_stop(5U, err);
     }
 
-    s_imu_data_ready = false;
+    /* 5. 打开并使能手腕 IMU 的外部中断。 */
+    err = R_ICU_ExternalIrqOpen(g_external_irq9.p_ctrl, g_external_irq9.p_cfg);
+    if ((FSP_SUCCESS != err) && (FSP_ERR_ALREADY_OPEN != err))
+    {
+        imu_fail_stop(6U, err);
+    }
+
+    err = R_ICU_ExternalIrqEnable(g_external_irq9.p_ctrl);
+    if (FSP_SUCCESS != err)
+    {
+        imu_fail_stop(7U, err);
+    }
+
+    /* 6. 清空上电状态，保证本次运行不受上次结果影响。 */
+    s_upper_imu.data_ready = false;
+    s_lower_imu.data_ready = false;
+    s_upper_imu.gyro_bias.x = 0.0f;
+    s_upper_imu.gyro_bias.y = 0.0f;
+    s_upper_imu.gyro_bias.z = 0.0f;
+    s_lower_imu.gyro_bias.x = 0.0f;
+    s_lower_imu.gyro_bias.y = 0.0f;
+    s_lower_imu.gyro_bias.z = 0.0f;
     s_frame_sequence = 0U;
     s_frame_timestamp_ms = 0U;
-    mahony_reset();
+    mahony_reset(&s_upper_imu);
+    mahony_reset(&s_lower_imu);
 
-    valid_calibration_samples = imu_collect_gyro_bias(&s_gyro_bias);
-    (void) valid_calibration_samples;
+    /* 7. 分别采集两颗 IMU 的静止数据，估计陀螺零偏。 */
+    upper_calibration_samples = imu_collect_gyro_bias(&s_upper_imu, bsp_IcmGetScaledData);
+    lower_calibration_samples = imu_collect_gyro_bias(&s_lower_imu, bsp_IcmSciGetScaledData);
+    (void) upper_calibration_samples;
+    (void) lower_calibration_samples;
 
+    /* 8. 主循环：
+     *    - 等待/读取上臂 IMU
+     *    - 等待/读取手腕 IMU
+     *    - 分别扣除各自陀螺零偏
+     *    - 分别执行 Mahony 姿态更新
+     *    - 将两套四元数打包发给上位机
+     */
     while (1)
     {
-        icm42688Float3_t acc_g = {0.0f, 0.0f, 0.0f};
-        icm42688Float3_t gyro_rad_s = {0.0f, 0.0f, 0.0f};
+        icm42688Float3_t upper_acc_g = {0.0f, 0.0f, 0.0f};
+        icm42688Float3_t upper_gyro_rad_s = {0.0f, 0.0f, 0.0f};
+        icm42688Float3_t lower_acc_g = {0.0f, 0.0f, 0.0f};
+        icm42688Float3_t lower_gyro_rad_s = {0.0f, 0.0f, 0.0f};
 
-        imu_read_sample(&acc_g, &gyro_rad_s);
+        /* 分别从两颗 IMU 读取当前一帧加速度和角速度。 */
+        imu_read_sample(&s_upper_imu, bsp_IcmGetScaledData, &upper_acc_g, &upper_gyro_rad_s);
+        imu_read_sample(&s_lower_imu, bsp_IcmSciGetScaledData, &lower_acc_g, &lower_gyro_rad_s);
 
-        gyro_rad_s.x -= s_gyro_bias.x;
-        gyro_rad_s.y -= s_gyro_bias.y;
-        gyro_rad_s.z -= s_gyro_bias.z;
+        /* 扣除上电标定得到的静态零偏。 */
+        upper_gyro_rad_s.x -= s_upper_imu.gyro_bias.x;
+        upper_gyro_rad_s.y -= s_upper_imu.gyro_bias.y;
+        upper_gyro_rad_s.z -= s_upper_imu.gyro_bias.z;
 
-        mahony_update(&acc_g, &gyro_rad_s, IMU_SAMPLE_DT_SEC);
-        send_telemetry_frame(&s_quat, &s_quat_reserved);
+        lower_gyro_rad_s.x -= s_lower_imu.gyro_bias.x;
+        lower_gyro_rad_s.y -= s_lower_imu.gyro_bias.y;
+        lower_gyro_rad_s.z -= s_lower_imu.gyro_bias.z;
+
+        /* 两颗 IMU 各自独立做姿态解算。 */
+        mahony_update(&s_upper_imu, &upper_acc_g, &upper_gyro_rad_s, IMU_SAMPLE_DT_SEC);
+        mahony_update(&s_lower_imu, &lower_acc_g, &lower_gyro_rad_s, IMU_SAMPLE_DT_SEC);
+
+        /* 按既有协议发送 upper/lower 两套四元数。 */
+        send_telemetry_frame(&s_upper_imu.quat, &s_lower_imu.quat);
     }
 }
 
-static float vector_norm(icm42688Float3_t const * v)
+static float vector_norm(icm42688Float3_t const * p_vector)
 {
-    return sqrtf((v->x * v->x) + (v->y * v->y) + (v->z * v->z));
+    /* 计算三维向量的欧氏范数。 */
+    return sqrtf((p_vector->x * p_vector->x) + (p_vector->y * p_vector->y) + (p_vector->z * p_vector->z));
 }
 
-static void quaternion_normalize(Quaternion_t * q)
+static void quaternion_normalize(Quaternion_t * p_quat)
 {
-    float norm = sqrtf((q->q0 * q->q0) + (q->q1 * q->q1) + (q->q2 * q->q2) + (q->q3 * q->q3));
+    /* 四元数积分后会因为浮点误差偏离单位模，因此每次更新后都要归一化。 */
+    float norm = sqrtf((p_quat->q0 * p_quat->q0) + (p_quat->q1 * p_quat->q1) +
+                       (p_quat->q2 * p_quat->q2) + (p_quat->q3 * p_quat->q3));
 
     if (norm <= 0.0f)
     {
-        q->q0 = 1.0f;
-        q->q1 = 0.0f;
-        q->q2 = 0.0f;
-        q->q3 = 0.0f;
+        /* 极端情况下退回单位四元数，避免出现 NaN 或无效姿态。 */
+        p_quat->q0 = 1.0f;
+        p_quat->q1 = 0.0f;
+        p_quat->q2 = 0.0f;
+        p_quat->q3 = 0.0f;
         return;
     }
 
-    q->q0 /= norm;
-    q->q1 /= norm;
-    q->q2 /= norm;
-    q->q3 /= norm;
+    p_quat->q0 /= norm;
+    p_quat->q1 /= norm;
+    p_quat->q2 /= norm;
+    p_quat->q3 /= norm;
 }
 
-static void mahony_reset(void)
+static void mahony_reset(imu_runtime_t * p_imu)
 {
-    s_quat.q0 = 1.0f;
-    s_quat.q1 = 0.0f;
-    s_quat.q2 = 0.0f;
-    s_quat.q3 = 0.0f;
+    /* 将姿态重置为“无旋转”，并清空积分项。 */
+    p_imu->quat.q0 = 1.0f;
+    p_imu->quat.q1 = 0.0f;
+    p_imu->quat.q2 = 0.0f;
+    p_imu->quat.q3 = 0.0f;
 
-    s_mahony_integral.x = 0.0f;
-    s_mahony_integral.y = 0.0f;
-    s_mahony_integral.z = 0.0f;
+    p_imu->mahony_integral.x = 0.0f;
+    p_imu->mahony_integral.y = 0.0f;
+    p_imu->mahony_integral.z = 0.0f;
 }
 
-static void mahony_update(icm42688Float3_t const *acc_g, icm42688Float3_t const *gyro_rad_s, float dt_sec)
+static void mahony_update(imu_runtime_t * p_imu,
+                          icm42688Float3_t const * p_acc_g,
+                          icm42688Float3_t const * p_gyro_rad_s,
+                          float dt_sec)
 {
+    /* 先以陀螺积分值为基础，再根据加速度给出姿态校正。 */
     float acc_norm;
-    float gx = gyro_rad_s->x;
-    float gy = gyro_rad_s->y;
-    float gz = gyro_rad_s->z;
+    float gx = p_gyro_rad_s->x;
+    float gy = p_gyro_rad_s->y;
+    float gz = p_gyro_rad_s->z;
 
-    acc_norm = vector_norm(acc_g);
+    /* 只有在加速度模长接近 1g 时，才认为当前重力方向可靠，可用于校正姿态。 */
+    acc_norm = vector_norm(p_acc_g);
     if ((acc_norm >= IMU_CORRECTION_ACC_MIN_G) && (acc_norm <= IMU_CORRECTION_ACC_MAX_G))
     {
-        float ax = acc_g->x / acc_norm;
-        float ay = acc_g->y / acc_norm;
-        float az = acc_g->z / acc_norm;
-        float vx = 2.0f * ((s_quat.q1 * s_quat.q3) - (s_quat.q0 * s_quat.q2));
-        float vy = 2.0f * ((s_quat.q0 * s_quat.q1) + (s_quat.q2 * s_quat.q3));
-        float vz = (s_quat.q0 * s_quat.q0) - (s_quat.q1 * s_quat.q1) - (s_quat.q2 * s_quat.q2) + (s_quat.q3 * s_quat.q3);
+        /* 将测得的加速度方向归一化，视为当前“重力方向测量值”。 */
+        float ax = p_acc_g->x / acc_norm;
+        float ay = p_acc_g->y / acc_norm;
+        float az = p_acc_g->z / acc_norm;
+        /* 由当前四元数估计出机体系下的重力方向。 */
+        float vx = 2.0f * ((p_imu->quat.q1 * p_imu->quat.q3) - (p_imu->quat.q0 * p_imu->quat.q2));
+        float vy = 2.0f * ((p_imu->quat.q0 * p_imu->quat.q1) + (p_imu->quat.q2 * p_imu->quat.q3));
+        float vz = (p_imu->quat.q0 * p_imu->quat.q0) - (p_imu->quat.q1 * p_imu->quat.q1) -
+                   (p_imu->quat.q2 * p_imu->quat.q2) + (p_imu->quat.q3 * p_imu->quat.q3);
+        /* 两个方向向量叉乘得到姿态误差。 */
         float ex = (ay * vz) - (az * vy);
         float ey = (az * vx) - (ax * vz);
         float ez = (ax * vy) - (ay * vx);
 
-        s_mahony_integral.x += MAHONY_KI * ex * dt_sec;
-        s_mahony_integral.y += MAHONY_KI * ey * dt_sec;
-        s_mahony_integral.z += MAHONY_KI * ez * dt_sec;
+        /* 积分项可逐步吸收慢速零偏。 */
+        p_imu->mahony_integral.x += MAHONY_KI * ex * dt_sec;
+        p_imu->mahony_integral.y += MAHONY_KI * ey * dt_sec;
+        p_imu->mahony_integral.z += MAHONY_KI * ez * dt_sec;
 
-        gx += (MAHONY_KP * ex) + s_mahony_integral.x;
-        gy += (MAHONY_KP * ey) + s_mahony_integral.y;
-        gz += (MAHONY_KP * ez) + s_mahony_integral.z;
+        /* 用比例项 + 积分项修正陀螺角速度。 */
+        gx += (MAHONY_KP * ex) + p_imu->mahony_integral.x;
+        gy += (MAHONY_KP * ey) + p_imu->mahony_integral.y;
+        gz += (MAHONY_KP * ez) + p_imu->mahony_integral.z;
     }
 
     {
-        float q0 = s_quat.q0;
-        float q1 = s_quat.q1;
-        float q2 = s_quat.q2;
-        float q3 = s_quat.q3;
+        /* 使用修正后的角速度积分四元数微分方程。 */
+        float q0 = p_imu->quat.q0;
+        float q1 = p_imu->quat.q1;
+        float q2 = p_imu->quat.q2;
+        float q3 = p_imu->quat.q3;
         float half_dt = 0.5f * dt_sec;
 
-        s_quat.q0 += (-q1 * gx - q2 * gy - q3 * gz) * half_dt;
-        s_quat.q1 += (q0 * gx + q2 * gz - q3 * gy) * half_dt;
-        s_quat.q2 += (q0 * gy - q1 * gz + q3 * gx) * half_dt;
-        s_quat.q3 += (q0 * gz + q1 * gy - q2 * gx) * half_dt;
+        p_imu->quat.q0 += (-q1 * gx - q2 * gy - q3 * gz) * half_dt;
+        p_imu->quat.q1 += (q0 * gx + q2 * gz - q3 * gy) * half_dt;
+        p_imu->quat.q2 += (q0 * gy - q1 * gz + q3 * gx) * half_dt;
+        p_imu->quat.q3 += (q0 * gz + q1 * gy - q2 * gx) * half_dt;
     }
 
-    quaternion_normalize(&s_quat);
+    quaternion_normalize(&p_imu->quat);
 }
 
-static uint32_t imu_collect_gyro_bias(icm42688Float3_t *gyro_bias)
+static uint32_t imu_collect_gyro_bias(imu_runtime_t * p_imu, imu_read_sample_fn_t read_sample)
 {
-    uint32_t attempts = 0;
-    uint32_t valid_samples = 0;
+    /* 标定思想：
+     * 在静止阶段多次采样，当加速度模长接近 1g 时，认为样本可信，
+     * 对陀螺角速度取平均，作为该 IMU 的上电静态零偏。
+     */
+    uint32_t         attempts = 0U;
+    uint32_t         valid_samples = 0U;
     icm42688Float3_t gyro_sum = {0.0f, 0.0f, 0.0f};
 
     while ((attempts < IMU_CALIBRATION_MAX_ATTEMPTS) && (valid_samples < IMU_CALIBRATION_SAMPLES))
     {
         icm42688Float3_t acc_g = {0.0f, 0.0f, 0.0f};
         icm42688Float3_t gyro_rad_s = {0.0f, 0.0f, 0.0f};
-        float acc_norm;
+        float            acc_norm;
 
-        imu_read_sample(&acc_g, &gyro_rad_s);
+        imu_read_sample(p_imu, read_sample, &acc_g, &gyro_rad_s);
         attempts++;
+
+        /* 只有静止样本才用于估计零偏。 */
         acc_norm = vector_norm(&acc_g);
         if ((acc_norm < IMU_STATIC_ACC_MIN_G) || (acc_norm > IMU_STATIC_ACC_MAX_G))
         {
@@ -260,40 +455,61 @@ static uint32_t imu_collect_gyro_bias(icm42688Float3_t *gyro_bias)
 
     if (0U == valid_samples)
     {
-        gyro_bias->x = 0.0f;
-        gyro_bias->y = 0.0f;
-        gyro_bias->z = 0.0f;
+        /* 如果一帧有效样本都没有，就退化成零偏为 0。 */
+        p_imu->gyro_bias.x = 0.0f;
+        p_imu->gyro_bias.y = 0.0f;
+        p_imu->gyro_bias.z = 0.0f;
         return 0U;
     }
 
-    gyro_bias->x = gyro_sum.x / (float) valid_samples;
-    gyro_bias->y = gyro_sum.y / (float) valid_samples;
-    gyro_bias->z = gyro_sum.z / (float) valid_samples;
+    p_imu->gyro_bias.x = gyro_sum.x / (float) valid_samples;
+    p_imu->gyro_bias.y = gyro_sum.y / (float) valid_samples;
+    p_imu->gyro_bias.z = gyro_sum.z / (float) valid_samples;
 
     return valid_samples;
 }
 
-static void imu_read_sample(icm42688Float3_t *acc_g, icm42688Float3_t *gyro_rad_s)
+static void imu_read_sample(imu_runtime_t * p_imu,
+                            imu_read_sample_fn_t read_sample,
+                            icm42688Float3_t * p_acc_g,
+                            icm42688Float3_t * p_gyro_rad_s)
 {
-    uint32_t wait_ms = 0;
+    /* 优先等待 Data Ready 中断，避免盲读重复数据。 */
+    uint32_t wait_ms = 0U;
 
-    while ((!s_imu_data_ready) && (wait_ms < IMU_IRQ_WAIT_TIMEOUT_MS))
+    while ((!p_imu->data_ready) && (wait_ms < IMU_IRQ_WAIT_TIMEOUT_MS))
     {
         R_BSP_SoftwareDelay(1U, BSP_DELAY_UNITS_MILLISECONDS);
         wait_ms++;
     }
 
-    s_imu_data_ready = false;
-    bsp_IcmGetScaledData(acc_g, gyro_rad_s);
+    /* 读完一帧后清掉标志，等待下一次外部中断再次置位。 */
+    p_imu->data_ready = false;
+    read_sample(p_acc_g, p_gyro_rad_s);
+}
 
-    if (wait_ms < IMU_IRQ_WAIT_TIMEOUT_MS)
+static void imu_fail_stop(uint32_t step, fsp_err_t err)
+{
+    /* 把失败现场保存在全局变量里，方便直接在调试器窗口观察。 */
+    s_imu_fail_step = step;
+    s_imu_last_error = err;
+
+    /* 如果 UART 已经成功打开，则顺手把失败信息打到串口。 */
+    if (s_imu_uart_ready)
     {
-        R_BSP_SoftwareDelay(IMU_POLL_INTERVAL_MS, BSP_DELAY_UNITS_MILLISECONDS);
+        printf("imu_test failed: step=%lu err=%d\r\n", (unsigned long) step, (int) err);
+    }
+
+    /* 停在这里，不再 return 回 main，避免又掉回 Reset_Handler 的死循环。 */
+    while (1)
+    {
+        R_BSP_SoftwareDelay(100U, BSP_DELAY_UNITS_MILLISECONDS);
     }
 }
 
 static uint16_t crc16_ccitt(uint8_t const *data, uint16_t length)
 {
+    /* 对 telemetry 数据帧做 CRC16-CCITT 校验。 */
     uint16_t crc = 0xFFFFU;
     uint16_t i;
 
@@ -320,12 +536,14 @@ static uint16_t crc16_ccitt(uint8_t const *data, uint16_t length)
 
 static void pack_u16_le(uint8_t *buffer, uint16_t value)
 {
+    /* 按小端序打包 16bit 数据。 */
     buffer[0] = (uint8_t) (value & 0xFFU);
     buffer[1] = (uint8_t) ((value >> 8) & 0xFFU);
 }
 
 static void pack_u32_le(uint8_t *buffer, uint32_t value)
 {
+    /* 按小端序打包 32bit 数据。 */
     buffer[0] = (uint8_t) (value & 0xFFU);
     buffer[1] = (uint8_t) ((value >> 8) & 0xFFU);
     buffer[2] = (uint8_t) ((value >> 16) & 0xFFU);
@@ -334,6 +552,7 @@ static void pack_u32_le(uint8_t *buffer, uint32_t value)
 
 static void pack_f32_le(uint8_t *buffer, float value)
 {
+    /* 将 float 的二进制表示原样拷贝，再按小端序写入缓冲区。 */
     uint32_t raw = 0U;
 
     memcpy(&raw, &value, sizeof(raw));
@@ -342,7 +561,18 @@ static void pack_f32_le(uint8_t *buffer, float value)
 
 static void send_telemetry_frame(Quaternion_t const *upper_quat, Quaternion_t const *lower_quat)
 {
-    uint8_t frame[48] = {0};
+    /* 
+     * 数据帧格式：
+     * [0..1]   帧头 0xA5 0x5A
+     * [2..3]   协议版本/类型
+     * [4..5]   帧序号
+     * [6..9]   时间戳(ms)
+     * [10..25] 上臂四元数 q0~q3
+     * [26..41] 手腕四元数 q0~q3
+     * [42..45] 预留字段
+     * [46..47] CRC16
+     */
+    uint8_t  frame[48] = {0};
     uint16_t crc;
 
     frame[0] = 0xA5U;
@@ -372,58 +602,49 @@ static void send_telemetry_frame(Quaternion_t const *upper_quat, Quaternion_t co
 
     if (FSP_SUCCESS == g_uart7.p_api->write(g_uart7.p_ctrl, frame, sizeof(frame)))
     {
+        /* 阻塞等待发送完成，确保帧不会在下一次写入时被覆盖。 */
         drv_uart_wait_for_tx();
     }
 
+    /* 软件维护序号与时间戳，便于上位机按时序还原数据。 */
     s_frame_sequence = (uint16_t) (s_frame_sequence + 1U);
     s_frame_timestamp_ms += (uint32_t) (IMU_SAMPLE_DT_SEC * 1000.0f);
 }
 
-//******机械臂测试******//
-
+/* 机械臂测试相关的全局节拍计数。 */
 volatile uint16_t g_agt_tick_count = 0;
+
 void g_timer_agt1_callback(timer_callback_args_t *p_args)
 {
-    // 检查中断事件类型是否为周期结束 (Timer 溢出)
+    /* AGT 周期中断里驱动舵机任务调度。 */
     if (TIMER_EVENT_CYCLE_END == p_args->event)
     {
         g_agt_tick_count++;
-        // 调用舵机刷新任务
         Servo_Update_Task();
     }
 }
-void MG996_test()
+
+void MG996_test(void)
 {
+    /* 这是舵机测试入口，与 IMU 功能相互独立。 */
     printf("OK");
-    /* 1. 初始化所有硬件 */
-        // 初始化 6 个舵机的 PWM 输出 (开启前面配置的 3 个 GPT)
-        Servo_Init_All();
-        printf("OK");
-        // 初始化并开启我们刚刚配置的 AGT 定时器
-        R_AGT_Open(g_timer_agt1.p_ctrl, g_timer_agt1.p_cfg);
-        R_AGT_Start(g_timer_agt1.p_ctrl);
+    Servo_Init_All();
+    printf("OK");
+    R_AGT_Open(g_timer_agt1.p_ctrl, g_timer_agt1.p_cfg);
+    R_AGT_Start(g_timer_agt1.p_ctrl);
 
-        /* 2. 发送运动指令 (非阻塞式) */
-        // 让底座(舵机0)以 0.5 度的步长缓慢转到 135 度
-        Servo_SetTargetAngle(5, 120, 0.5f);
-        Servo_SetTargetAngle(4, 80, 0.5f);
-        Servo_SetTargetAngle(3, 80, 0.5f);
-        Servo_SetTargetAngle(2, 82, 0.5f);
-        Servo_SetTargetAngle(1, 30.0f, 0.5f);
-        // 让机械爪(舵机0)以 2.0 度的步长快速闭合到 30 度
-        Servo_SetTargetAngle(0, 50, 0.5f);
-        printf("OK111");
+    Servo_SetTargetAngle(5, 120.0f, 0.5f);
+    Servo_SetTargetAngle(4, 80.0f, 0.5f);
+    Servo_SetTargetAngle(3, 80.0f, 0.5f);
+    Servo_SetTargetAngle(2, 82.0f, 0.5f);
+    Servo_SetTargetAngle(1, 30.0f, 0.5f);
+    Servo_SetTargetAngle(0, 50.0f, 0.5f);
+    printf("OK111");
 
-        /* 3. 主循环 */
-        while (1)
-        {
-            // 现在的 while(1) 里面什么都不用管了！非常清爽！
-            // 机械臂会在后台按照指令自己平滑移动。
-            // 您可以在这里做其他任何事情，比如：
-            // 1. 处理串口/蓝牙发来的上位机指令
-            // 2. 刷新 OLED 屏幕显示当前各个关节的角度
-            // 3. 运行复杂的逆运动学(IK)解算逻辑
-            printf("AGT Tick: %d\r\n", g_agt_tick_count);
-            R_BSP_SoftwareDelay(10, BSP_DELAY_UNITS_MILLISECONDS); // 随便给个延时让CPU喘口气
-        }
+    /* 主循环里持续输出节拍，便于观察 AGT 和舵机任务是否正常运行。 */
+    while (1)
+    {
+        printf("AGT Tick: %d\r\n", g_agt_tick_count);
+        R_BSP_SoftwareDelay(10U, BSP_DELAY_UNITS_MILLISECONDS);
+    }
 }

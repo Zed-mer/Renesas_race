@@ -6,7 +6,7 @@
         #endif
 /* Number of interrupts allocated */
 #ifndef VECTOR_DATA_IRQ_COUNT
-#define VECTOR_DATA_IRQ_COUNT    (11)
+#define VECTOR_DATA_IRQ_COUNT    (17)
 #endif
 /* ISR prototypes */
 void sci_uart_rxi_isr(void);
@@ -20,6 +20,10 @@ void spi_tei_isr(void);
 void spi_eri_isr(void);
 void r_icu_isr(void);
 void agt_int_isr(void);
+void sci_spi_rxi_isr(void);
+void sci_spi_txi_isr(void);
+void sci_spi_tei_isr(void);
+void sci_spi_eri_isr(void);
 
 /* Vector table allocations */
 #define VECTOR_NUMBER_SCI7_RXI ((IRQn_Type) 0) /* SCI7 RXI (Received data full) */
@@ -44,6 +48,18 @@ void agt_int_isr(void);
 #define ICU_IRQ8_IRQn          ((IRQn_Type) 9) /* ICU IRQ8 (External pin interrupt 8) */
 #define VECTOR_NUMBER_AGT0_INT ((IRQn_Type) 10) /* AGT0 INT (AGT interrupt) */
 #define AGT0_INT_IRQn          ((IRQn_Type) 10) /* AGT0 INT (AGT interrupt) */
+#define VECTOR_NUMBER_ICU_IRQ6 ((IRQn_Type) 11) /* ICU IRQ6 (External pin interrupt 6) */
+#define ICU_IRQ6_IRQn          ((IRQn_Type) 11) /* ICU IRQ6 (External pin interrupt 6) */
+#define VECTOR_NUMBER_SCI2_RXI ((IRQn_Type) 12) /* SCI2 RXI (Received data full) */
+#define SCI2_RXI_IRQn          ((IRQn_Type) 12) /* SCI2 RXI (Received data full) */
+#define VECTOR_NUMBER_SCI2_TXI ((IRQn_Type) 13) /* SCI2 TXI (Transmit data empty) */
+#define SCI2_TXI_IRQn          ((IRQn_Type) 13) /* SCI2 TXI (Transmit data empty) */
+#define VECTOR_NUMBER_SCI2_TEI ((IRQn_Type) 14) /* SCI2 TEI (Transmit end) */
+#define SCI2_TEI_IRQn          ((IRQn_Type) 14) /* SCI2 TEI (Transmit end) */
+#define VECTOR_NUMBER_SCI2_ERI ((IRQn_Type) 15) /* SCI2 ERI (Receive error) */
+#define SCI2_ERI_IRQn          ((IRQn_Type) 15) /* SCI2 ERI (Receive error) */
+#define VECTOR_NUMBER_ICU_IRQ9 ((IRQn_Type) 16) /* ICU IRQ9 (External pin interrupt 9) */
+#define ICU_IRQ9_IRQn          ((IRQn_Type) 16) /* ICU IRQ9 (External pin interrupt 9) */
 #ifdef __cplusplus
         }
         #endif
