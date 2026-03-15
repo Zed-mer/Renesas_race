@@ -38,7 +38,15 @@
 /* 等待 Data Ready 中断的最长时间，超时后仍会读一次，退化为近似轮询。 */
 #define IMU_IRQ_WAIT_TIMEOUT_MS       20U
 #define IMU_IDLE_POLL_DELAY_US        200U
-#define TELEMETRY_MIN_INTERVAL_US     10000U
+#define TELEMETRY_MIN_INTERVAL_US     20000U
+#define IMU_BUTTON_DEBOUNCE_US        250000U
+#define IMU_LED_BLINK_HALF_PERIOD_US  500000U
+#define IMU_LED_FLASH_ON_US           100000U
+#define IMU_LED_FLASH_GAP_US          100000U
+#define IMU_LED_FLASH_TOTAL_US        ((2U * IMU_LED_FLASH_ON_US) + (2U * IMU_LED_FLASH_GAP_US))
+#define IMU_EULER_SINGULARITY_EPSILON 0.9999999f
+#define IMU_RAD_TO_DEG                57.295779513082320876f
+#define IMU_STATUS_LED_PIN            BSP_IO_PORT_04_PIN_00
 
 /**********************************************************************************************************************
  * Typedef definitions
@@ -65,12 +73,37 @@ typedef struct st_imu_runtime
  */
 typedef void (*imu_read_sample_fn_t)(icm42688Float3_t *acc_g, icm42688Float3_t *gyro_rad_s);
 
+typedef struct st_imu_servo_pose
+{
+    uint16_t hY_deg;
+    uint16_t hZ_deg;
+    uint16_t eZ_deg;
+    uint16_t wX_deg;
+    uint8_t  grip_percent;
+} imu_servo_pose_t;
+
+typedef struct st_imu_calibration_runtime
+{
+    Quaternion_t upper_offset;
+    Quaternion_t lower_offset;
+    uint32_t     last_button_time_us;
+    uint32_t     led_flash_start_us;
+    volatile bool button_pending;
+    bool         is_calibrated;
+    bool         led_flash_active;
+} imu_calibration_runtime_t;
+
 /***********************************************************************************************************************
  * Private function prototypes
  **********************************************************************************************************************/
 static float    get_envelope(float sample);
 static float    vector_norm(icm42688Float3_t const * p_vector);
+static float    clampf(float value, float min_value, float max_value);
 static void     quaternion_normalize(Quaternion_t * p_quat);
+static void     quaternion_identity(Quaternion_t * p_quat);
+static Quaternion_t quaternion_multiply(Quaternion_t const * p_left, Quaternion_t const * p_right);
+static Quaternion_t quaternion_inverse(Quaternion_t const * p_quat);
+static void     quaternion_to_euler_yxz(Quaternion_t const * p_quat, float * p_x_rad, float * p_y_rad, float * p_z_rad);
 static void     imu_timebase_init(void);
 static uint32_t imu_time_now_us(void);
 static float    imu_calc_dt_sec(imu_runtime_t * p_imu, uint32_t sample_time_us);
@@ -89,14 +122,16 @@ static bool     imu_try_read_sample(imu_runtime_t * p_imu,
                                     icm42688Float3_t * p_acc_g,
                                     icm42688Float3_t * p_gyro_rad_s,
                                     uint32_t * p_sample_time_us);
+static int32_t  imu_clamp_int32(int32_t value, int32_t min_value, int32_t max_value);
+static void     imu_set_status_led(bool led_on);
+static void     imu_update_status_led(uint32_t now_us);
+static void     imu_calibration_reset(void);
+static void     imu_capture_tpose_calibration(uint32_t now_us);
+static void     imu_handle_button_event(uint32_t now_us);
+static uint8_t  imu_get_grip_percent(void);
+static bool     imu_try_build_servo_pose(imu_servo_pose_t * p_pose);
 static void     imu_fail_stop(uint32_t step, fsp_err_t err);
-static uint16_t crc16_ccitt(uint8_t const *data, uint16_t length);
-static void     pack_u16_le(uint8_t *buffer, uint16_t value);
-static void     pack_u32_le(uint8_t *buffer, uint32_t value);
-static void     pack_f32_le(uint8_t *buffer, float value);
-static void     send_telemetry_frame(Quaternion_t const *upper_quat,
-                                     Quaternion_t const *lower_quat,
-                                     uint32_t timestamp_ms);
+static void     send_pose_frame(imu_servo_pose_t const * p_pose);
 
 /***********************************************************************************************************************
  * Private global variables
@@ -161,13 +196,11 @@ static imu_runtime_t s_lower_imu =
     .data_ready = false,
 };
 
-/* telemetry 帧的序号与软件时间戳。 */
-static uint16_t s_frame_sequence = 0U;
-static uint32_t s_imu_stream_start_time_us = 0U;
 static uint32_t s_imu_time_cycles_per_us = 1U;
 static uint32_t s_imu_last_cycle_count = 0U;
 static uint64_t s_imu_cycle_accumulator = 0U;
 static uint32_t s_last_telemetry_time_us = 0U;
+static imu_calibration_runtime_t s_imu_calibration = {0};
 /* 调试辅助变量：
  * - s_imu_fail_step: 记录 imu_test 失败在第几步
  * - s_imu_last_error: 记录对应的 FSP 错误码
@@ -287,8 +320,10 @@ void icu9_callback(external_irq_callback_args_t *p_args)
 
 void botton6_callback(external_irq_callback_args_t *p_args)
 {
-    /* 当前按钮中断未使用，先显式忽略参数。 */
-    FSP_PARAMETER_NOT_USED(p_args);
+    if ((NULL != p_args) && (6 == p_args->channel))
+    {
+        s_imu_calibration.button_pending = true;
+    }
 }
 
 void imu_test(void)
@@ -355,9 +390,10 @@ void imu_test(void)
     s_lower_imu.gyro_bias.x = 0.0f;
     s_lower_imu.gyro_bias.y = 0.0f;
     s_lower_imu.gyro_bias.z = 0.0f;
-    s_frame_sequence = 0U;
     mahony_reset(&s_upper_imu);
     mahony_reset(&s_lower_imu);
+    imu_calibration_reset();
+    imu_update_status_led(imu_time_now_us());
 
     /* 7. 分别采集两颗 IMU 的静止数据，估计陀螺零偏。 */
     upper_calibration_samples = imu_collect_gyro_bias(&s_upper_imu, bsp_IcmGetScaledData);
@@ -366,15 +402,30 @@ void imu_test(void)
     (void) lower_calibration_samples;
     s_upper_imu.data_ready = false;
     s_lower_imu.data_ready = false;
-    s_imu_stream_start_time_us = imu_time_now_us();
     s_last_telemetry_time_us = 0U;
 
-    /* 8. 主循环：
+    /* 8. 打开并使能用户按键中断，用于执行 T-Pose 一键标定。 */
+    err = R_ICU_ExternalIrqOpen(g_external_irq6.p_ctrl, g_external_irq6.p_cfg);
+    if ((FSP_SUCCESS != err) && (FSP_ERR_ALREADY_OPEN != err))
+    {
+        imu_fail_stop(8U, err);
+    }
+
+    err = R_ICU_ExternalIrqEnable(g_external_irq6.p_ctrl);
+    if (FSP_SUCCESS != err)
+    {
+        imu_fail_stop(9U, err);
+    }
+
+    s_imu_calibration.button_pending = false;
+
+    /* 9. 主循环：
      *    - 等待/读取上臂 IMU
      *    - 等待/读取手腕 IMU
      *    - 分别扣除各自陀螺零偏
      *    - 分别执行 Mahony 姿态更新
-     *    - 将两套四元数打包发给上位机
+     *    - 响应按键采样并执行 T-Pose 固连标定
+     *    - 校准完成后发送 POSE 文本协议
      */
     while (1)
     {
@@ -385,6 +436,7 @@ void imu_test(void)
         uint32_t         upper_sample_time_us = 0U;
         uint32_t         lower_sample_time_us = 0U;
         uint32_t         frame_sample_time_us = 0U;
+        uint32_t         loop_time_us;
         bool             upper_updated = false;
         bool             lower_updated = false;
 
@@ -428,17 +480,24 @@ void imu_test(void)
             }
         }
 
-        /* 两颗 IMU 各自独立做姿态解算。 */
+        loop_time_us = (upper_updated || lower_updated) ? frame_sample_time_us : imu_time_now_us();
 
-        /* 按既有协议发送 upper/lower 两套四元数。 */
+        imu_handle_button_event(loop_time_us);
+        imu_update_status_led(loop_time_us);
+
+        /* 校准完成后，按网页协议发送姿态文本。 */
         if ((upper_updated || lower_updated) &&
+            s_imu_calibration.is_calibrated &&
             ((0U == s_last_telemetry_time_us) ||
-             ((frame_sample_time_us - s_last_telemetry_time_us) >= TELEMETRY_MIN_INTERVAL_US)))
+             ((loop_time_us - s_last_telemetry_time_us) >= TELEMETRY_MIN_INTERVAL_US)))
         {
-            send_telemetry_frame(&s_upper_imu.quat,
-                                 &s_lower_imu.quat,
-                                 (frame_sample_time_us - s_imu_stream_start_time_us) / 1000U);
-            s_last_telemetry_time_us = frame_sample_time_us;
+            imu_servo_pose_t pose = {0U, 0U, 0U, 0U, 0U};
+
+            if (imu_try_build_servo_pose(&pose))
+            {
+                send_pose_frame(&pose);
+                s_last_telemetry_time_us = loop_time_us;
+            }
         }
         else
         {
@@ -451,6 +510,21 @@ static float vector_norm(icm42688Float3_t const * p_vector)
 {
     /* 计算三维向量的欧氏范数。 */
     return sqrtf((p_vector->x * p_vector->x) + (p_vector->y * p_vector->y) + (p_vector->z * p_vector->z));
+}
+
+static float clampf(float value, float min_value, float max_value)
+{
+    if (value < min_value)
+    {
+        return min_value;
+    }
+
+    if (value > max_value)
+    {
+        return max_value;
+    }
+
+    return value;
 }
 
 static void quaternion_normalize(Quaternion_t * p_quat)
@@ -473,6 +547,104 @@ static void quaternion_normalize(Quaternion_t * p_quat)
     p_quat->q1 /= norm;
     p_quat->q2 /= norm;
     p_quat->q3 /= norm;
+}
+
+static void quaternion_identity(Quaternion_t * p_quat)
+{
+    if (NULL == p_quat)
+    {
+        return;
+    }
+
+    p_quat->q0 = 1.0f;
+    p_quat->q1 = 0.0f;
+    p_quat->q2 = 0.0f;
+    p_quat->q3 = 0.0f;
+}
+
+static Quaternion_t quaternion_multiply(Quaternion_t const * p_left, Quaternion_t const * p_right)
+{
+    Quaternion_t result = {0.0f, 0.0f, 0.0f, 0.0f};
+
+    result.q0 = (p_left->q0 * p_right->q0) - (p_left->q1 * p_right->q1) -
+                (p_left->q2 * p_right->q2) - (p_left->q3 * p_right->q3);
+    result.q1 = (p_left->q0 * p_right->q1) + (p_left->q1 * p_right->q0) +
+                (p_left->q2 * p_right->q3) - (p_left->q3 * p_right->q2);
+    result.q2 = (p_left->q0 * p_right->q2) - (p_left->q1 * p_right->q3) +
+                (p_left->q2 * p_right->q0) + (p_left->q3 * p_right->q1);
+    result.q3 = (p_left->q0 * p_right->q3) + (p_left->q1 * p_right->q2) -
+                (p_left->q2 * p_right->q1) + (p_left->q3 * p_right->q0);
+    quaternion_normalize(&result);
+
+    return result;
+}
+
+static Quaternion_t quaternion_inverse(Quaternion_t const * p_quat)
+{
+    Quaternion_t result = {0.0f, 0.0f, 0.0f, 0.0f};
+
+    result.q0 = p_quat->q0;
+    result.q1 = -p_quat->q1;
+    result.q2 = -p_quat->q2;
+    result.q3 = -p_quat->q3;
+    quaternion_normalize(&result);
+
+    return result;
+}
+
+static void quaternion_to_euler_yxz(Quaternion_t const * p_quat, float * p_x_rad, float * p_y_rad, float * p_z_rad)
+{
+    float x = p_quat->q1;
+    float y = p_quat->q2;
+    float z = p_quat->q3;
+    float w = p_quat->q0;
+    float xx = x * x;
+    float yy = y * y;
+    float zz = z * z;
+    float xy = x * y;
+    float xz = x * z;
+    float yz = y * z;
+    float wx = w * x;
+    float wy = w * y;
+    float wz = w * z;
+    float m11 = 1.0f - (2.0f * (yy + zz));
+    float m13 = 2.0f * (xz + wy);
+    float m21 = 2.0f * (xy + wz);
+    float m22 = 1.0f - (2.0f * (xx + zz));
+    float m23 = 2.0f * (yz - wx);
+    float m31 = 2.0f * (xz - wy);
+    float m33 = 1.0f - (2.0f * (xx + yy));
+    float x_rad;
+    float y_rad;
+    float z_rad;
+
+    x_rad = asinf(-clampf(m23, -1.0f, 1.0f));
+
+    if (fabsf(m23) < IMU_EULER_SINGULARITY_EPSILON)
+    {
+        y_rad = atan2f(m13, m33);
+        z_rad = atan2f(m21, m22);
+    }
+    else
+    {
+        y_rad = atan2f(-m31, m11);
+        z_rad = 0.0f;
+    }
+
+    if (NULL != p_x_rad)
+    {
+        *p_x_rad = x_rad;
+    }
+
+    if (NULL != p_y_rad)
+    {
+        *p_y_rad = y_rad;
+    }
+
+    if (NULL != p_z_rad)
+    {
+        *p_z_rad = z_rad;
+    }
 }
 
 static void mahony_reset(imu_runtime_t * p_imu)
@@ -561,6 +733,8 @@ static uint32_t imu_collect_gyro_bias(imu_runtime_t * p_imu, imu_read_sample_fn_
         icm42688Float3_t acc_g = {0.0f, 0.0f, 0.0f};
         icm42688Float3_t gyro_rad_s = {0.0f, 0.0f, 0.0f};
         float            acc_norm;
+
+        imu_update_status_led(imu_time_now_us());
 
         imu_read_sample(p_imu, read_sample, &acc_g, &gyro_rad_s);
         attempts++;
@@ -654,109 +828,194 @@ static void imu_fail_stop(uint32_t step, fsp_err_t err)
     }
 }
 
-static uint16_t crc16_ccitt(uint8_t const *data, uint16_t length)
+static int32_t imu_clamp_int32(int32_t value, int32_t min_value, int32_t max_value)
 {
-    /* 对 telemetry 数据帧做 CRC16-CCITT 校验。 */
-    uint16_t crc = 0xFFFFU;
-    uint16_t i;
-
-    for (i = 0; i < length; i++)
+    if (value < min_value)
     {
-        uint8_t bit;
+        return min_value;
+    }
 
-        crc ^= (uint16_t) (data[i] << 8);
-        for (bit = 0; bit < 8U; bit++)
+    if (value > max_value)
+    {
+        return max_value;
+    }
+
+    return value;
+}
+
+static void imu_set_status_led(bool led_on)
+{
+    (void) R_IOPORT_PinWrite(&g_ioport_ctrl,
+                             IMU_STATUS_LED_PIN,
+                             led_on ? BSP_IO_LEVEL_HIGH : BSP_IO_LEVEL_LOW);
+}
+
+static void imu_update_status_led(uint32_t now_us)
+{
+    bool led_on = false;
+
+    if (s_imu_calibration.led_flash_active)
+    {
+        uint32_t elapsed_us = now_us - s_imu_calibration.led_flash_start_us;
+
+        if (elapsed_us < IMU_LED_FLASH_TOTAL_US)
         {
-            if (0U != (crc & 0x8000U))
+            if (elapsed_us < IMU_LED_FLASH_ON_US)
             {
-                crc = (uint16_t) ((crc << 1) ^ 0x1021U);
+                led_on = true;
+            }
+            else if (elapsed_us < (IMU_LED_FLASH_ON_US + IMU_LED_FLASH_GAP_US))
+            {
+                led_on = false;
+            }
+            else if (elapsed_us < ((2U * IMU_LED_FLASH_ON_US) + IMU_LED_FLASH_GAP_US))
+            {
+                led_on = true;
             }
             else
             {
-                crc <<= 1;
+                led_on = false;
             }
+
+            imu_set_status_led(led_on);
+            return;
+        }
+
+        s_imu_calibration.led_flash_active = false;
+    }
+
+    if (s_imu_calibration.is_calibrated)
+    {
+        led_on = true;
+    }
+    else
+    {
+        led_on = (((now_us / IMU_LED_BLINK_HALF_PERIOD_US) % 2U) == 0U);
+    }
+
+    imu_set_status_led(led_on);
+}
+
+static void imu_calibration_reset(void)
+{
+    quaternion_identity(&s_imu_calibration.upper_offset);
+    quaternion_identity(&s_imu_calibration.lower_offset);
+    s_imu_calibration.button_pending = false;
+    s_imu_calibration.is_calibrated = false;
+    s_imu_calibration.led_flash_active = false;
+    s_imu_calibration.led_flash_start_us = 0U;
+}
+
+static void imu_capture_tpose_calibration(uint32_t now_us)
+{
+    s_imu_calibration.upper_offset = quaternion_inverse(&s_upper_imu.quat);
+    s_imu_calibration.lower_offset = quaternion_inverse(&s_lower_imu.quat);
+    s_imu_calibration.is_calibrated = true;
+    s_imu_calibration.led_flash_active = true;
+    s_imu_calibration.led_flash_start_us = now_us;
+    s_last_telemetry_time_us = 0U;
+}
+
+static void imu_handle_button_event(uint32_t now_us)
+{
+    if (!s_imu_calibration.button_pending)
+    {
+        return;
+    }
+
+    s_imu_calibration.button_pending = false;
+
+    if ((now_us - s_imu_calibration.last_button_time_us) < IMU_BUTTON_DEBOUNCE_US)
+    {
+        return;
+    }
+
+    s_imu_calibration.last_button_time_us = now_us;
+
+    if ((0U == s_upper_imu.last_sample_time_us) || (0U == s_lower_imu.last_sample_time_us))
+    {
+        return;
+    }
+
+    /* 单键动作改为“T-Pose 一键重标定”：每次短按都以当前姿态重新建立固连偏差。 */
+    imu_capture_tpose_calibration(now_us);
+}
+
+static uint8_t imu_get_grip_percent(void)
+{
+    return 0U;
+}
+
+static bool imu_try_build_servo_pose(imu_servo_pose_t * p_pose)
+{
+    Quaternion_t upper_bone;
+    Quaternion_t lower_bone;
+    Quaternion_t upper_bone_inverse;
+    Quaternion_t relative_bone;
+    float        upper_y_rad = 0.0f;
+    float        upper_z_rad = 0.0f;
+    float        relative_x_rad = 0.0f;
+    float        relative_z_rad = 0.0f;
+    int32_t      hY_deg;
+    int32_t      hZ_deg;
+    int32_t      eZ_deg;
+    int32_t      wX_deg;
+
+    if ((NULL == p_pose) || !s_imu_calibration.is_calibrated)
+    {
+        return false;
+    }
+
+    upper_bone = quaternion_multiply(&s_upper_imu.quat, &s_imu_calibration.upper_offset);
+    lower_bone = quaternion_multiply(&s_lower_imu.quat, &s_imu_calibration.lower_offset);
+    upper_bone_inverse = quaternion_inverse(&upper_bone);
+    relative_bone = quaternion_multiply(&upper_bone_inverse, &lower_bone);
+
+    quaternion_to_euler_yxz(&upper_bone, NULL, &upper_y_rad, &upper_z_rad);
+    quaternion_to_euler_yxz(&relative_bone, &relative_x_rad, NULL, &relative_z_rad);
+
+    /* 协议仍使用 0~180 的人体角表示，因此对带符号角做 +90 平移。 */
+    hY_deg = (int32_t) roundf((upper_y_rad * IMU_RAD_TO_DEG) + 90.0f);
+    hZ_deg = (int32_t) roundf((upper_z_rad * IMU_RAD_TO_DEG) + 90.0f);
+    /* 协议定义 eZ 为肘部绕 Z 轴角度，因此这里取相对姿态的 Z 分量。 */
+    eZ_deg = (int32_t) roundf(relative_z_rad * IMU_RAD_TO_DEG);
+    wX_deg = (int32_t) roundf((relative_x_rad * IMU_RAD_TO_DEG) + 90.0f);
+
+    p_pose->hY_deg = (uint16_t) imu_clamp_int32(hY_deg, 0, 180);
+    p_pose->hZ_deg = (uint16_t) imu_clamp_int32(hZ_deg, 0, 180);
+    p_pose->eZ_deg = (uint16_t) imu_clamp_int32(eZ_deg, 0, 180);
+    p_pose->wX_deg = (uint16_t) imu_clamp_int32(wX_deg, 0, 180);
+    p_pose->grip_percent = (uint8_t) imu_clamp_int32((int32_t) imu_get_grip_percent(), 0, 100);
+
+    return true;
+}
+
+static void send_pose_frame(imu_servo_pose_t const * p_pose)
+{
+    char frame[32] = {0};
+    int  frame_len;
+
+    if (NULL == p_pose)
+    {
+        return;
+    }
+
+    frame_len = snprintf(frame,
+                         sizeof(frame),
+                         "POSE,%u,%u,%u,%u,%u\r\n",
+                         (unsigned int) p_pose->hY_deg,
+                         (unsigned int) p_pose->hZ_deg,
+                         (unsigned int) p_pose->eZ_deg,
+                         (unsigned int) p_pose->wX_deg,
+                         (unsigned int) p_pose->grip_percent);
+
+    if ((frame_len > 0) && ((size_t) frame_len < sizeof(frame)))
+    {
+        if (FSP_SUCCESS == g_uart7.p_api->write(g_uart7.p_ctrl, (uint8_t const *) frame, (uint32_t) frame_len))
+        {
+            drv_uart_wait_for_tx();
         }
     }
-
-    return crc;
-}
-
-static void pack_u16_le(uint8_t *buffer, uint16_t value)
-{
-    /* 按小端序打包 16bit 数据。 */
-    buffer[0] = (uint8_t) (value & 0xFFU);
-    buffer[1] = (uint8_t) ((value >> 8) & 0xFFU);
-}
-
-static void pack_u32_le(uint8_t *buffer, uint32_t value)
-{
-    /* 按小端序打包 32bit 数据。 */
-    buffer[0] = (uint8_t) (value & 0xFFU);
-    buffer[1] = (uint8_t) ((value >> 8) & 0xFFU);
-    buffer[2] = (uint8_t) ((value >> 16) & 0xFFU);
-    buffer[3] = (uint8_t) ((value >> 24) & 0xFFU);
-}
-
-static void pack_f32_le(uint8_t *buffer, float value)
-{
-    /* 将 float 的二进制表示原样拷贝，再按小端序写入缓冲区。 */
-    uint32_t raw = 0U;
-
-    memcpy(&raw, &value, sizeof(raw));
-    pack_u32_le(buffer, raw);
-}
-
-static void send_telemetry_frame(Quaternion_t const *upper_quat,
-                                 Quaternion_t const *lower_quat,
-                                 uint32_t timestamp_ms)
-{
-    /* 
-     * 数据帧格式：
-     * [0..1]   帧头 0xA5 0x5A
-     * [2..3]   协议版本/类型
-     * [4..5]   帧序号
-     * [6..9]   时间戳(ms)
-     * [10..25] 上臂四元数 q0~q3
-     * [26..41] 手腕四元数 q0~q3
-     * [42..45] 预留字段
-     * [46..47] CRC16
-     */
-    uint8_t  frame[48] = {0};
-    uint16_t crc;
-
-    frame[0] = 0xA5U;
-    frame[1] = 0x5AU;
-    frame[2] = 0x01U;
-    frame[3] = 0x01U;
-
-    pack_u16_le(&frame[4], s_frame_sequence);
-    pack_u32_le(&frame[6], timestamp_ms);
-
-    pack_f32_le(&frame[10], upper_quat->q0);
-    pack_f32_le(&frame[14], upper_quat->q1);
-    pack_f32_le(&frame[18], upper_quat->q2);
-    pack_f32_le(&frame[22], upper_quat->q3);
-
-    pack_f32_le(&frame[26], lower_quat->q0);
-    pack_f32_le(&frame[30], lower_quat->q1);
-    pack_f32_le(&frame[34], lower_quat->q2);
-    pack_f32_le(&frame[38], lower_quat->q3);
-
-    frame[42] = 0U;
-    frame[43] = 0U;
-    pack_u16_le(&frame[44], 0U);
-
-    crc = crc16_ccitt(frame, 46U);
-    pack_u16_le(&frame[46], crc);
-
-    if (FSP_SUCCESS == g_uart7.p_api->write(g_uart7.p_ctrl, frame, sizeof(frame)))
-    {
-        /* 阻塞等待发送完成，确保帧不会在下一次写入时被覆盖。 */
-        drv_uart_wait_for_tx();
-    }
-
-    /* 软件维护序号与时间戳，便于上位机按时序还原数据。 */
-    s_frame_sequence = (uint16_t) (s_frame_sequence + 1U);
 }
 
 /* 机械臂测试相关的全局节拍计数。 */
