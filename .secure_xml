@@ -69,6 +69,12 @@
       <configSetting altId="adc0.an02.p002" configurationId="adc0.an02" isUsedByDriver="true"/>
       <configSetting altId="debug0.swclk.p300" configurationId="debug0.swclk" isUsedByDriver="true"/>
       <configSetting altId="debug0.swdio.p108" configurationId="debug0.swdio" isUsedByDriver="true"/>
+      <configSetting altId="gpt0.gtioca.p512" configurationId="gpt0.gtioca" isUsedByDriver="true"/>
+      <configSetting altId="gpt0.gtiocb.p511" configurationId="gpt0.gtiocb" isUsedByDriver="true"/>
+      <configSetting altId="gpt4.gtioca.p302" configurationId="gpt4.gtioca" isUsedByDriver="true"/>
+      <configSetting altId="gpt4.gtiocb.p301" configurationId="gpt4.gtiocb" isUsedByDriver="true"/>
+      <configSetting altId="gpt5.gtioca.p700" configurationId="gpt5.gtioca" isUsedByDriver="true"/>
+      <configSetting altId="gpt5.gtiocb.p701" configurationId="gpt5.gtiocb" isUsedByDriver="true"/>
       <configSetting altId="irq0.irq08.p415" configurationId="irq0.irq08" isUsedByDriver="true"/>
       <configSetting altId="p205.output.high" configurationId="p205"/>
       <configSetting altId="sci7.rxd.p614" configurationId="sci7.rxd" isUsedByDriver="true"/>

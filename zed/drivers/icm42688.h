@@ -173,6 +173,13 @@ typedef struct {
 
 typedef struct
 {
+    float x;
+    float y;
+    float z;
+} icm42688Float3_t;
+
+typedef struct
+{
     float q0;
     float q1;
     float q2;
@@ -187,6 +194,7 @@ typedef struct
 /* --- 函数原型 --- */
 fsp_err_t bsp_Icm42688Init(void);
 void bsp_IcmGetRawData(icm42688RawData_t *accData, icm42688RawData_t *GyroData);
+void bsp_IcmGetScaledData(icm42688Float3_t *accData, icm42688Float3_t *gyroData);
 void bsp_IcmGetTemperature(float* pTemp);
 
 #endif

@@ -56,6 +56,7 @@ SUBDIRS := \
 ra/fsp/src/bsp/cmsis/Device/RENESAS/Source \
 ra/fsp/src/bsp/mcu/all \
 ra/fsp/src/r_adc \
+ra/fsp/src/r_agt \
 ra/fsp/src/r_dmac \
 ra/fsp/src/r_elc \
 ra/fsp/src/r_gpt \

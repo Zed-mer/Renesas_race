@@ -21,6 +21,7 @@ RM := rm -rf
 -include ra/fsp/src/r_gpt/subdir.mk
 -include ra/fsp/src/r_elc/subdir.mk
 -include ra/fsp/src/r_dmac/subdir.mk
+-include ra/fsp/src/r_agt/subdir.mk
 -include ra/fsp/src/r_adc/subdir.mk
 -include ra/fsp/src/bsp/mcu/all/subdir.mk
 -include ra/fsp/src/bsp/cmsis/Device/RENESAS/Source/subdir.mk
@@ -88,32 +89,32 @@ endif
 
 # Add inputs and outputs from these tool invocations to the build variables 
 SECONDARY_FLASH += \
-ra6m5_eeg_imu.srec \
+IMU.srec \
 
 SECONDARY_SIZE += \
-ra6m5_eeg_imu.siz \
+IMU.siz \
 
 
 # All Target
-all: ra6m5_eeg_imu.elf secondary-outputs
+all: IMU.elf secondary-outputs
 
 # Tool invocations
-ra6m5_eeg_imu.elf: $(OBJS) $(USER_OBJS) $(LINKER_SCRIPT)
-	$(file > ra6m5_eeg_imu.elf.in,-mcpu=cortex-m33 -mthumb -mfloat-abi=hard -mfpu=fpv5-sp-d16 -O2 -fmessage-length=0 -fsigned-char -ffunction-sections -fdata-sections -Wunused -Wuninitialized -Wall -Wextra -Wmissing-declarations -Wconversion -Wpointer-arith -Wshadow -Wlogical-op -Waggregate-return -Wfloat-equal  -g -gdwarf-4 -T "fsp.ld" -Xlinker --gc-sections -L "C:\\Users\\user\\e2_studio\\workspace\\ra6m5_eeg_imu/script" -Wl,-Map,"ra6m5_eeg_imu.map" -Xlinker --print-map --specs=nano.specs -u _printf_float -u _scanf_float -o "ra6m5_eeg_imu.elf" -Wl,--start-group $(OBJS) $(USER_OBJS) $(LIBS) -Wl,--end-group)
-	@echo Building target: $@ && arm-none-eabi-gcc @"ra6m5_eeg_imu.elf.in"
+IMU.elf: $(OBJS) $(USER_OBJS) $(LINKER_SCRIPT)
+	$(file > IMU.elf.in,-mcpu=cortex-m33 -mthumb -mfloat-abi=hard -mfpu=fpv5-sp-d16 -O2 -fmessage-length=0 -fsigned-char -ffunction-sections -fdata-sections -Wunused -Wuninitialized -Wall -Wextra -Wmissing-declarations -Wconversion -Wpointer-arith -Wshadow -Wlogical-op -Waggregate-return -Wfloat-equal  -g -gdwarf-4 -T "fsp.ld" -Xlinker --gc-sections -L "D:\\SOFYWARE\\renesas\\IMU/script" -Wl,-Map,"IMU.map" -Xlinker --print-map --specs=nano.specs -u _printf_float -u _scanf_float -o "IMU.elf" -Wl,--start-group $(OBJS) $(USER_OBJS) $(LIBS) -Wl,--end-group)
+	@echo Building target: $@ && arm-none-eabi-gcc @"IMU.elf.in"
 
-ra6m5_eeg_imu.srec: ra6m5_eeg_imu.elf
-	arm-none-eabi-objcopy -O srec "ra6m5_eeg_imu.elf"  "ra6m5_eeg_imu.srec"
+IMU.srec: IMU.elf
+	arm-none-eabi-objcopy -O srec "IMU.elf"  "IMU.srec"
 
-ra6m5_eeg_imu.siz: ra6m5_eeg_imu.elf
-	arm-none-eabi-size --format=berkeley "ra6m5_eeg_imu.elf"
+IMU.siz: IMU.elf
+	arm-none-eabi-size --format=berkeley "IMU.elf"
 
 # Other Targets
 clean:
 	-$(file > clean_file.tmp,  $(JMP_DEPS)  $(FSY_DEPS)  $(C_UPPER_DEPS)  $(SECONDARY_SIZE)  $(SRC_UPPER_DEPS)  $(P_UPPER_DEPS)  $(S_DEPS)  $(PP_UPPER_DEPS)  $(P_DEPS)  $(FSY_UPPER_DEPS)  $(C_DEPS)  $(SRC_DEPS)  $(JMP_UPPER_DEPS)  $(PP_DEPS)  $(ASM_UPPER_DEPS)  $(SX_DEPS)  $(SX_UPPER_DEPS)  $(OBJS)  $(SECONDARY_FLASH)  $(ASM_DEPS)  $(SREC)  $(S_UPPER_DEPS)  $(MAP) )
 	-@ xargs -P 2 -s 32000 -t -a clean_file.tmp $(RM)
 	-@$(RM) clean_file.tmp
-	-$(RM)  ra6m5_eeg_imu.elf
+	-$(RM)  IMU.elf
 	-@echo ' '
 
 secondary-outputs: $(SECONDARY_FLASH) $(SECONDARY_SIZE)

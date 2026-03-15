@@ -15,6 +15,7 @@ void hal_entry(void)
     /* TODO: add your own code here */
 //    app_test();
     imu_test();
+//    imu_test();
 #if BSP_TZ_SECURE_BUILD
     /* Enter non-secure code */
     R_BSP_NonSecureEnter();

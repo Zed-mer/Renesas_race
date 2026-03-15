@@ -14,6 +14,7 @@
             [7] = spi_tei_isr, /* SPI0 TEI (Transmission complete event) */
             [8] = spi_eri_isr, /* SPI0 ERI (Error) */
             [9] = r_icu_isr, /* ICU IRQ8 (External pin interrupt 8) */
+            [10] = agt_int_isr, /* AGT0 INT (AGT interrupt) */
         };
         const bsp_interrupt_event_t g_interrupt_event_link_select[BSP_ICU_VECTOR_MAX_ENTRIES] =
         {
@@ -27,5 +28,6 @@
             [7] = BSP_PRV_IELS_ENUM(EVENT_SPI0_TEI), /* SPI0 TEI (Transmission complete event) */
             [8] = BSP_PRV_IELS_ENUM(EVENT_SPI0_ERI), /* SPI0 ERI (Error) */
             [9] = BSP_PRV_IELS_ENUM(EVENT_ICU_IRQ8), /* ICU IRQ8 (External pin interrupt 8) */
+            [10] = BSP_PRV_IELS_ENUM(EVENT_AGT0_INT), /* AGT0 INT (AGT interrupt) */
         };
         #endif

@@ -152,8 +152,8 @@ FSP Configuration
       P213 H14 - - - - Disabled - - "ADC1: ADTRG1; AGT2: AGTEE2; CGC0: XTAL; GPT_POEG2: GTETRGC; GPT0: GTIOC0A; ICU0: IRQ02; SCI1: SDA1; SCI1: TXD1" - None - - 
       P214 A10 - - - - Disabled - - "AGT5: AGTO5; DEBUG_TRACE0: TCLK; ETHERC_MII0: ET0_MDC; ETHERC_RMII0: ET0_MDC; GPT_OPS0: GTIU; QSPI0: QSPCLK; SDHI0: SD0CLK" - None - - 
       P300 C4 DEBUG0_SWCLK - Low - "Peripheral mode" CMOS None "DEBUG0: SWCLK; DEBUG0: TCK; GPT_OPS0: GTOUUP; GPT0: GTIOC0A; SPI0: SSLA1" - IO - - 
-      P301 A2 - - - - Disabled - - "AGT0: AGTIO0; BUS_ASYNCH0: A06; GPT_OPS0: GTOULO; GPT4: GTIOC4B; ICU0: IRQ06; SCI2: RXD2; SCI2: SCL2; SCI9: CTSRTS9; SPI0: SSLA2" - None - - 
-      P302 B3 - - - - Disabled - - "BUS_ASYNCH0: A07; GPT_OPS0: GTOUUP; GPT4: GTIOC4A; ICU0: IRQ05; SCI2: SDA2; SCI2: TXD2; SPI0: SSLA3" - None - - 
+      P301 A2 GPT4_GTIOC4B - Low None "Peripheral mode" CMOS None "AGT0: AGTIO0; BUS_ASYNCH0: A06; GPT_OPS0: GTOULO; GPT4: GTIOC4B; ICU0: IRQ06; SCI2: RXD2; SCI2: SCL2; SCI9: CTSRTS9; SPI0: SSLA2" - IO - - 
+      P302 B3 GPT4_GTIOC4A - Low None "Peripheral mode" CMOS None "BUS_ASYNCH0: A07; GPT_OPS0: GTOUUP; GPT4: GTIOC4A; ICU0: IRQ05; SCI2: SDA2; SCI2: TXD2; SPI0: SSLA3" - IO - - 
       P303 A3 - - - - Disabled - - "BUS_ASYNCH0: A08; GPT7: GTIOC7B; SCI9: CTS9" - None - - 
       P304 B4 - - - - Disabled - - "AGT2: AGTEE2; BUS_ASYNCH0: A09; GPT_OPS0: GTOWLO; GPT7: GTIOC7A; ICU0: IRQ09; SCI6: RXD6; SCI6: SCL6" - None - - 
       P305 B5 - - - - Disabled - - "AGT2: AGTOB2; BUS_ASYNCH0: A10; GPT_OPS0: GTOWUP; ICU0: IRQ08; QSPI0: QSPCLK; SCI6: SDA6; SCI6: TXD6" - None - - 
@@ -192,8 +192,8 @@ FSP Configuration
       P506 R5 - - - - Disabled - - "ADC1: AN122; ICU0: IRQ15; SCI6: SDA6; SCI6: TXD6" - None - - 
       P507 N6 - - - - Disabled - - "ADC1: AN123; SCI5: SCK5; SCI6: SCK6" - None - - 
       P508 R6 - - - - Disabled - - "ADC1: AN124; SCI5: CTSRTS5" - None - - 
-      P511 P13 - - - - Disabled - - "CAN1: CRX1; GPT0: GTIOC0B; ICU0: IRQ15; IIC1: SDA1; SCI4: RXD4; SCI4: SCL4" - None - - 
-      P512 R14 - - - - Disabled - - "CAN1: CTX1; GPT0: GTIOC0A; ICU0: IRQ14; IIC1: SCL1; SCI4: SDA4; SCI4: TXD4" - None - - 
+      P511 P13 GPT0_GTIOC0B - Low None "Peripheral mode" CMOS None "CAN1: CRX1; GPT0: GTIOC0B; ICU0: IRQ15; IIC1: SDA1; SCI4: RXD4; SCI4: SCL4" - IO - - 
+      P512 R14 GPT0_GTIOC0A - Low None "Peripheral mode" CMOS None "CAN1: CTX1; GPT0: GTIOC0A; ICU0: IRQ14; IIC1: SCL1; SCI4: SDA4; SCI4: TXD4" - IO - - 
       P513 N12 - - - - Disabled - - "SCI5: RXD5; SCI5: SCL5" - None - - 
       P600 L1 - - - - Disabled - - "AGT3: AGTIO3; BUS_ASYNCH0: RD; CAC0: CACREF; CGC0: CLKOUT; GPT6: GTIOC6B; OSPI0: OMSIO4; SCI9: SCK9" - None - - 
       P601 K2 - - - - Disabled - - "AGT3: AGTEE3; BUS_ASYNCH0: WR; GPT6: GTIOC6A; OSPI0: OMSIO2; SCI9: RXD9; SCI9: SCL9" - None - - 
@@ -211,8 +211,8 @@ FSP Configuration
       P613 F4 SCI7_TXD7 - Low - "Peripheral mode" CMOS None "AGT1: AGTO1; BUS_ASYNCH0: D09; SCI7: SDA7; SCI7: TXD7" - IO - - 
       P614 F2 SCI7_RXD7 - Low - "Peripheral mode" CMOS None "AGT0: AGTO0; BUS_ASYNCH0: D10; SCI7: RXD7; SCI7: SCL7" - IO - - 
       P615 F1 - - - - Disabled - - "ICU0: IRQ07; USB_FS0: USB_VBUSEN" - None - - 
-      P700 N15 - - - - Disabled - - "AGT4: AGTO4; ETHERC_MII0: ET0_ETXD1; ETHERC_RMII0: RMII_TXD0; GPT5: GTIOC5A; SPI0: MISOA" - None - - 
-      P701 M14 - - - - Disabled - - "AGT3: AGTO3; ETHERC_MII0: ET0_ETXD0; ETHERC_RMII0: REF50CK; GPT5: GTIOC5B; SPI0: MOSIA" - None - - 
+      P700 N15 GPT5_GTIOC5A - Low - "Peripheral mode" CMOS None "AGT4: AGTO4; ETHERC_MII0: ET0_ETXD1; ETHERC_RMII0: RMII_TXD0; GPT5: GTIOC5A; SPI0: MISOA" - IO - - 
+      P701 M14 GPT5_GTIOC5B - Low - "Peripheral mode" CMOS None "AGT3: AGTO3; ETHERC_MII0: ET0_ETXD0; ETHERC_RMII0: REF50CK; GPT5: GTIOC5B; SPI0: MOSIA" - IO - - 
       P702 L12 - - - - Disabled - - "AGT2: AGTO2; ETHERC_MII0: ET0_ERXD1; ETHERC_RMII0: RMII_RXD0; GPT6: GTIOC6A; SPI0: RSPCKA" - None - - 
       P703 M15 - - - - Disabled - - "AGT1: AGTO1; ETHERC_MII0: ET0_ERXD0; ETHERC_RMII0: RMII_RXD1; GPT6: GTIOC6B; SPI0: SSLA0" - None - - 
       P704 L13 - - - - Disabled - - "AGT0: AGTO0; CAN0: CTX0; ETHERC_MII0: ET0_RX_CLK; ETHERC_RMII0: RMII_RX_ER; SPI0: SSLA1" - None - - 
@@ -296,7 +296,7 @@ FSP Configuration
     
   Module "Timer, General PWM (r_gpt)"
     Parameter Checking: Default (BSP)
-    Pin Output Support: Disabled
+    Pin Output Support: Enabled
     Write Protect Enable: Disabled
     Clock Source: PCLKD
     
@@ -319,6 +319,11 @@ FSP Configuration
     
   Module "External IRQ (r_icu)"
     Parameter Checking: Default (BSP)
+    
+  Module "Timer, Low-Power (r_agt)"
+    Parameter Checking: Default (BSP)
+    Pin Output Support: Disabled
+    Pin Input Support: Disabled
     
   HAL
     Instance "g_ioport I/O Port (r_ioport)"
@@ -500,4 +505,167 @@ FSP Configuration
       Digital Filtering Sample Clock (Only valid when Digital Filtering is Enabled): PCLK / 64
       Callback: icu8_callback
       Pin Interrupt Priority: Priority 10
+      
+    Instance "g_timer1 Timer, General PWM (r_gpt)"
+      General: Name: g_timer1
+      General: Channel: 0
+      General: Mode: PWM
+      General: Period: 20
+      General: Period Unit: Milliseconds
+      Output: Custom Waveform: GTIOA: Initial Output Level: Pin Level Low
+      Output: Custom Waveform: GTIOA: Cycle End Output Level: Pin Level Retain
+      Output: Custom Waveform: GTIOA: Compare Match Output Level: Pin Level Retain
+      Output: Custom Waveform: GTIOA: Retain Output Level at Count Stop: Disabled
+      Output: Custom Waveform: GTIOB: Initial Output Level: Pin Level Low
+      Output: Custom Waveform: GTIOB: Cycle End Output Level: Pin Level Retain
+      Output: Custom Waveform: GTIOB: Compare Match Output Level: Pin Level Retain
+      Output: Custom Waveform: GTIOB: Retain Output Level at Count Stop: Disabled
+      Output: Custom Waveform: Custom Waveform Enable: Disabled
+      Output: Duty Cycle Percent (only applicable in PWM mode): 7.5
+      Output: GTIOCA Output Enabled: True
+      Output: GTIOCA Stop Level: Pin Level Low
+      Output: GTIOCB Output Enabled: True
+      Output: GTIOCB Stop Level: Pin Level Low
+      Input: Count Up Source: 
+      Input: Count Down Source: 
+      Input: Start Source: 
+      Input: Stop Source: 
+      Input: Clear Source: 
+      Input: Capture A Source: 
+      Input: Capture B Source: 
+      Input: Noise Filter A Sampling Clock Select: No Filter
+      Input: Noise Filter B Sampling Clock Select: No Filter
+      Interrupts: Callback: NULL
+      Interrupts: Overflow/Crest Interrupt Priority: Disabled
+      Interrupts: Capture A Interrupt Priority: Disabled
+      Interrupts: Capture B Interrupt Priority: Disabled
+      Interrupts: Underflow/Trough Interrupt Priority: Disabled
+      Extra Features: Extra Features: Disabled
+      Extra Features: Output Disable: POEG Link: POEG Channel 0
+      Extra Features: Output Disable: Output Disable POEG Trigger: 
+      Extra Features: ADC Trigger: Start Event Trigger (Channels with GTINTAD only): 
+      Extra Features: Dead Time (Value range varies with Channel): Dead Time Count Up (Raw Counts): 0
+      Extra Features: Dead Time (Value range varies with Channel): Dead Time Count Down (Raw Counts) (Channels with GTDVD only): 0
+      Extra Features: ADC Trigger (Channels with GTADTRA only): ADC A Compare Match (Raw Counts): 0
+      Extra Features: ADC Trigger (Channels with GTADTRB only): ADC B Compare Match (Raw Counts): 0
+      Extra Features: Interrupt Skipping (Channels with GTITC only): Interrupt to Count: None
+      Extra Features: Interrupt Skipping (Channels with GTITC only): Interrupt Skip Count: 0
+      Extra Features: Interrupt Skipping (Channels with GTITC only): Skip ADC Events: None
+      Extra Features: Output Disable: GTIOCA Disable Setting: Disable Prohibited
+      Extra Features: Output Disable: GTIOCB Disable Setting: Disable Prohibited
+      
+    Instance "g_timer2 Timer, General PWM (r_gpt)"
+      General: Name: g_timer2
+      General: Channel: 4
+      General: Mode: Periodic
+      General: Period: 20
+      General: Period Unit: Milliseconds
+      Output: Custom Waveform: GTIOA: Initial Output Level: Pin Level Low
+      Output: Custom Waveform: GTIOA: Cycle End Output Level: Pin Level Retain
+      Output: Custom Waveform: GTIOA: Compare Match Output Level: Pin Level Retain
+      Output: Custom Waveform: GTIOA: Retain Output Level at Count Stop: Disabled
+      Output: Custom Waveform: GTIOB: Initial Output Level: Pin Level Low
+      Output: Custom Waveform: GTIOB: Cycle End Output Level: Pin Level Retain
+      Output: Custom Waveform: GTIOB: Compare Match Output Level: Pin Level Retain
+      Output: Custom Waveform: GTIOB: Retain Output Level at Count Stop: Disabled
+      Output: Custom Waveform: Custom Waveform Enable: Disabled
+      Output: Duty Cycle Percent (only applicable in PWM mode): 7.5
+      Output: GTIOCA Output Enabled: True
+      Output: GTIOCA Stop Level: Pin Level Low
+      Output: GTIOCB Output Enabled: True
+      Output: GTIOCB Stop Level: Pin Level Low
+      Input: Count Up Source: 
+      Input: Count Down Source: 
+      Input: Start Source: 
+      Input: Stop Source: 
+      Input: Clear Source: 
+      Input: Capture A Source: 
+      Input: Capture B Source: 
+      Input: Noise Filter A Sampling Clock Select: No Filter
+      Input: Noise Filter B Sampling Clock Select: No Filter
+      Interrupts: Callback: NULL
+      Interrupts: Overflow/Crest Interrupt Priority: Disabled
+      Interrupts: Capture A Interrupt Priority: Disabled
+      Interrupts: Capture B Interrupt Priority: Disabled
+      Interrupts: Underflow/Trough Interrupt Priority: Disabled
+      Extra Features: Extra Features: Disabled
+      Extra Features: Output Disable: POEG Link: POEG Channel 0
+      Extra Features: Output Disable: Output Disable POEG Trigger: 
+      Extra Features: ADC Trigger: Start Event Trigger (Channels with GTINTAD only): 
+      Extra Features: Dead Time (Value range varies with Channel): Dead Time Count Up (Raw Counts): 0
+      Extra Features: Dead Time (Value range varies with Channel): Dead Time Count Down (Raw Counts) (Channels with GTDVD only): 0
+      Extra Features: ADC Trigger (Channels with GTADTRA only): ADC A Compare Match (Raw Counts): 0
+      Extra Features: ADC Trigger (Channels with GTADTRB only): ADC B Compare Match (Raw Counts): 0
+      Extra Features: Interrupt Skipping (Channels with GTITC only): Interrupt to Count: None
+      Extra Features: Interrupt Skipping (Channels with GTITC only): Interrupt Skip Count: 0
+      Extra Features: Interrupt Skipping (Channels with GTITC only): Skip ADC Events: None
+      Extra Features: Output Disable: GTIOCA Disable Setting: Disable Prohibited
+      Extra Features: Output Disable: GTIOCB Disable Setting: Disable Prohibited
+      
+    Instance "g_timer3 Timer, General PWM (r_gpt)"
+      General: Name: g_timer3
+      General: Channel: 5
+      General: Mode: Periodic
+      General: Period: 20
+      General: Period Unit: Milliseconds
+      Output: Custom Waveform: GTIOA: Initial Output Level: Pin Level Low
+      Output: Custom Waveform: GTIOA: Cycle End Output Level: Pin Level Retain
+      Output: Custom Waveform: GTIOA: Compare Match Output Level: Pin Level Retain
+      Output: Custom Waveform: GTIOA: Retain Output Level at Count Stop: Disabled
+      Output: Custom Waveform: GTIOB: Initial Output Level: Pin Level Low
+      Output: Custom Waveform: GTIOB: Cycle End Output Level: Pin Level Retain
+      Output: Custom Waveform: GTIOB: Compare Match Output Level: Pin Level Retain
+      Output: Custom Waveform: GTIOB: Retain Output Level at Count Stop: Disabled
+      Output: Custom Waveform: Custom Waveform Enable: Disabled
+      Output: Duty Cycle Percent (only applicable in PWM mode): 7.5
+      Output: GTIOCA Output Enabled: False
+      Output: GTIOCA Stop Level: Pin Level Low
+      Output: GTIOCB Output Enabled: False
+      Output: GTIOCB Stop Level: Pin Level Low
+      Input: Count Up Source: 
+      Input: Count Down Source: 
+      Input: Start Source: 
+      Input: Stop Source: 
+      Input: Clear Source: 
+      Input: Capture A Source: 
+      Input: Capture B Source: 
+      Input: Noise Filter A Sampling Clock Select: No Filter
+      Input: Noise Filter B Sampling Clock Select: No Filter
+      Interrupts: Callback: NULL
+      Interrupts: Overflow/Crest Interrupt Priority: Disabled
+      Interrupts: Capture A Interrupt Priority: Disabled
+      Interrupts: Capture B Interrupt Priority: Disabled
+      Interrupts: Underflow/Trough Interrupt Priority: Disabled
+      Extra Features: Extra Features: Disabled
+      Extra Features: Output Disable: POEG Link: POEG Channel 0
+      Extra Features: Output Disable: Output Disable POEG Trigger: 
+      Extra Features: ADC Trigger: Start Event Trigger (Channels with GTINTAD only): 
+      Extra Features: Dead Time (Value range varies with Channel): Dead Time Count Up (Raw Counts): 0
+      Extra Features: Dead Time (Value range varies with Channel): Dead Time Count Down (Raw Counts) (Channels with GTDVD only): 0
+      Extra Features: ADC Trigger (Channels with GTADTRA only): ADC A Compare Match (Raw Counts): 0
+      Extra Features: ADC Trigger (Channels with GTADTRB only): ADC B Compare Match (Raw Counts): 0
+      Extra Features: Interrupt Skipping (Channels with GTITC only): Interrupt to Count: None
+      Extra Features: Interrupt Skipping (Channels with GTITC only): Interrupt Skip Count: 0
+      Extra Features: Interrupt Skipping (Channels with GTITC only): Skip ADC Events: None
+      Extra Features: Output Disable: GTIOCA Disable Setting: Disable Prohibited
+      Extra Features: Output Disable: GTIOCB Disable Setting: Disable Prohibited
+      
+    Instance "g_timer_agt1 Timer, Low-Power (r_agt)"
+      General: Name: g_timer_agt1
+      General: Counter Bit Width: AGT 16-bit
+      General: Channel: 0
+      General: Mode: Periodic
+      General: Period: 10
+      General: Period Unit: Milliseconds
+      Output: Duty Cycle Percent (only applicable in PWM mode): 50
+      General: Count Source: PCLKB
+      Output: AGTOA Output: Disabled
+      Output: AGTOB Output: Disabled
+      Output: AGTO Output: Disabled
+      Input: Measurement Mode: Measure Disabled
+      Input: Input Filter: No Filter
+      Input: Enable Pin: Enable Pin Not Used
+      Input: Trigger Edge: Trigger Edge Rising
+      Interrupts: Callback: g_timer_agt1_callback
+      Interrupts: Underflow Interrupt Priority: Priority 11
       
