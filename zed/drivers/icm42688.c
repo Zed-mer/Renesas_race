@@ -255,7 +255,15 @@ static fsp_err_t icm42688_init_bus(icm42688_bus_t const * p_bus)
     }
 
     /* 配置中断输出极性/驱动方式。 */
-    err = icm42688_write_reg(p_bus, ICM42688_INT_CONFIG, 0x30U);
+    /* INT1 设为高有效推挽脉冲，和 MCU 侧 Rising Edge 外部中断保持一致。 */
+    err = icm42688_write_reg(p_bus, ICM42688_INT_CONFIG, 0x03U);
+    if (FSP_SUCCESS != err)
+    {
+        return err;
+    }
+
+    /* 官方建议把 INT_ASYNC_RESET 清 0，避免 INT1/INT2 输出异常。 */
+    err = icm42688_write_reg(p_bus, ICM42688_INT_CONFIG1, 0x00U);
     if (FSP_SUCCESS != err)
     {
         return err;

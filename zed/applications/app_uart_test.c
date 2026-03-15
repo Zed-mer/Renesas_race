@@ -18,7 +18,9 @@
 /* 包络检测使用的滑动平均窗口长度。 */
 #define ENVELOPE_BUFFER_SIZE          16
 /* IMU 主循环期望采样周期：10ms，对应 100Hz。 */
-#define IMU_SAMPLE_DT_SEC             0.01f
+#define IMU_SAMPLE_DT_DEFAULT_SEC     0.01f
+#define IMU_SAMPLE_DT_MIN_SEC         0.001f
+#define IMU_SAMPLE_DT_MAX_SEC         0.030f
 /* Mahony 互补滤波比例项增益，决定姿态误差校正强度。 */
 #define MAHONY_KP                     2.5f
 /* Mahony 互补滤波积分项增益，用于慢速消除陀螺零偏。 */
@@ -35,6 +37,8 @@
 #define IMU_CORRECTION_ACC_MAX_G      1.30f
 /* 等待 Data Ready 中断的最长时间，超时后仍会读一次，退化为近似轮询。 */
 #define IMU_IRQ_WAIT_TIMEOUT_MS       20U
+#define IMU_IDLE_POLL_DELAY_US        200U
+#define TELEMETRY_MIN_INTERVAL_US     10000U
 
 /**********************************************************************************************************************
  * Typedef definitions
@@ -52,6 +56,7 @@ typedef struct st_imu_runtime
     Quaternion_t     quat;
     icm42688Float3_t gyro_bias;
     icm42688Float3_t mahony_integral;
+    uint32_t         last_sample_time_us;
     volatile bool    data_ready;
 } imu_runtime_t;
 
@@ -66,6 +71,9 @@ typedef void (*imu_read_sample_fn_t)(icm42688Float3_t *acc_g, icm42688Float3_t *
 static float    get_envelope(float sample);
 static float    vector_norm(icm42688Float3_t const * p_vector);
 static void     quaternion_normalize(Quaternion_t * p_quat);
+static void     imu_timebase_init(void);
+static uint32_t imu_time_now_us(void);
+static float    imu_calc_dt_sec(imu_runtime_t * p_imu, uint32_t sample_time_us);
 static void     mahony_reset(imu_runtime_t * p_imu);
 static void     mahony_update(imu_runtime_t * p_imu,
                               icm42688Float3_t const * p_acc_g,
@@ -76,12 +84,19 @@ static void     imu_read_sample(imu_runtime_t * p_imu,
                                 imu_read_sample_fn_t read_sample,
                                 icm42688Float3_t * p_acc_g,
                                 icm42688Float3_t * p_gyro_rad_s);
+static bool     imu_try_read_sample(imu_runtime_t * p_imu,
+                                    imu_read_sample_fn_t read_sample,
+                                    icm42688Float3_t * p_acc_g,
+                                    icm42688Float3_t * p_gyro_rad_s,
+                                    uint32_t * p_sample_time_us);
 static void     imu_fail_stop(uint32_t step, fsp_err_t err);
 static uint16_t crc16_ccitt(uint8_t const *data, uint16_t length);
 static void     pack_u16_le(uint8_t *buffer, uint16_t value);
 static void     pack_u32_le(uint8_t *buffer, uint32_t value);
 static void     pack_f32_le(uint8_t *buffer, float value);
-static void     send_telemetry_frame(Quaternion_t const *upper_quat, Quaternion_t const *lower_quat);
+static void     send_telemetry_frame(Quaternion_t const *upper_quat,
+                                     Quaternion_t const *lower_quat,
+                                     uint32_t timestamp_ms);
 
 /***********************************************************************************************************************
  * Private global variables
@@ -116,6 +131,7 @@ static imu_runtime_t s_upper_imu =
         .y = 0.0f,
         .z = 0.0f,
     },
+    .last_sample_time_us = 0U,
     .data_ready = false,
 };
 
@@ -141,12 +157,17 @@ static imu_runtime_t s_lower_imu =
         .y = 0.0f,
         .z = 0.0f,
     },
+    .last_sample_time_us = 0U,
     .data_ready = false,
 };
 
 /* telemetry 帧的序号与软件时间戳。 */
 static uint16_t s_frame_sequence = 0U;
-static uint32_t s_frame_timestamp_ms = 0U;
+static uint32_t s_imu_stream_start_time_us = 0U;
+static uint32_t s_imu_time_cycles_per_us = 1U;
+static uint32_t s_imu_last_cycle_count = 0U;
+static uint64_t s_imu_cycle_accumulator = 0U;
+static uint32_t s_last_telemetry_time_us = 0U;
 /* 调试辅助变量：
  * - s_imu_fail_step: 记录 imu_test 失败在第几步
  * - s_imu_last_error: 记录对应的 FSP 错误码
@@ -169,6 +190,63 @@ static float get_envelope(float sample)
     envelope_index = (envelope_index + 1) % ENVELOPE_BUFFER_SIZE;
 
     return envelope_sum / ENVELOPE_BUFFER_SIZE;
+}
+
+static void imu_timebase_init(void)
+{
+#if BSP_FEATURE_DWT_CYCCNT
+    DCB->DEMCR |= DCB_DEMCR_TRCENA_Msk;
+    DWT->CYCCNT = 0U;
+    DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
+#endif
+
+    s_imu_last_cycle_count = 0U;
+    s_imu_cycle_accumulator = 0U;
+
+    s_imu_time_cycles_per_us = R_FSP_SystemClockHzGet(FSP_PRIV_CLOCK_ICLK) / 1000000U;
+    if (0U == s_imu_time_cycles_per_us)
+    {
+        s_imu_time_cycles_per_us = 1U;
+    }
+}
+
+static uint32_t imu_time_now_us(void)
+{
+#if BSP_FEATURE_DWT_CYCCNT
+    uint32_t current_cycle_count = DWT->CYCCNT;
+    uint32_t cycle_delta = current_cycle_count - s_imu_last_cycle_count;
+
+    s_imu_last_cycle_count = current_cycle_count;
+    s_imu_cycle_accumulator += cycle_delta;
+
+    return (uint32_t) (s_imu_cycle_accumulator / s_imu_time_cycles_per_us);
+#else
+    return 0U;
+#endif
+}
+
+static float imu_calc_dt_sec(imu_runtime_t * p_imu, uint32_t sample_time_us)
+{
+    float dt_sec = IMU_SAMPLE_DT_DEFAULT_SEC;
+
+    if (0U != p_imu->last_sample_time_us)
+    {
+        uint32_t delta_us = sample_time_us - p_imu->last_sample_time_us;
+
+        dt_sec = (float) delta_us / 1000000.0f;
+        if (dt_sec < IMU_SAMPLE_DT_MIN_SEC)
+        {
+            dt_sec = IMU_SAMPLE_DT_MIN_SEC;
+        }
+        else if (dt_sec > IMU_SAMPLE_DT_MAX_SEC)
+        {
+            dt_sec = IMU_SAMPLE_DT_DEFAULT_SEC;
+        }
+    }
+
+    p_imu->last_sample_time_us = sample_time_us;
+
+    return dt_sec;
 }
 
 void app_test(void)
@@ -226,6 +304,7 @@ void imu_test(void)
         imu_fail_stop(1U, err);
     }
     s_imu_uart_ready = true;
+    imu_timebase_init();
 
     /* 2. 初始化上臂 IMU（硬件 SPI0）。 */
     err = bsp_Icm42688Init();
@@ -277,7 +356,6 @@ void imu_test(void)
     s_lower_imu.gyro_bias.y = 0.0f;
     s_lower_imu.gyro_bias.z = 0.0f;
     s_frame_sequence = 0U;
-    s_frame_timestamp_ms = 0U;
     mahony_reset(&s_upper_imu);
     mahony_reset(&s_lower_imu);
 
@@ -286,6 +364,10 @@ void imu_test(void)
     lower_calibration_samples = imu_collect_gyro_bias(&s_lower_imu, bsp_IcmSciGetScaledData);
     (void) upper_calibration_samples;
     (void) lower_calibration_samples;
+    s_upper_imu.data_ready = false;
+    s_lower_imu.data_ready = false;
+    s_imu_stream_start_time_us = imu_time_now_us();
+    s_last_telemetry_time_us = 0U;
 
     /* 8. 主循环：
      *    - 等待/读取上臂 IMU
@@ -300,26 +382,68 @@ void imu_test(void)
         icm42688Float3_t upper_gyro_rad_s = {0.0f, 0.0f, 0.0f};
         icm42688Float3_t lower_acc_g = {0.0f, 0.0f, 0.0f};
         icm42688Float3_t lower_gyro_rad_s = {0.0f, 0.0f, 0.0f};
+        uint32_t         upper_sample_time_us = 0U;
+        uint32_t         lower_sample_time_us = 0U;
+        uint32_t         frame_sample_time_us = 0U;
+        bool             upper_updated = false;
+        bool             lower_updated = false;
 
         /* 分别从两颗 IMU 读取当前一帧加速度和角速度。 */
-        imu_read_sample(&s_upper_imu, bsp_IcmGetScaledData, &upper_acc_g, &upper_gyro_rad_s);
-        imu_read_sample(&s_lower_imu, bsp_IcmSciGetScaledData, &lower_acc_g, &lower_gyro_rad_s);
+        upper_updated = imu_try_read_sample(&s_upper_imu,
+                                            bsp_IcmGetScaledData,
+                                            &upper_acc_g,
+                                            &upper_gyro_rad_s,
+                                            &upper_sample_time_us);
+        lower_updated = imu_try_read_sample(&s_lower_imu,
+                                            bsp_IcmSciGetScaledData,
+                                            &lower_acc_g,
+                                            &lower_gyro_rad_s,
+                                            &lower_sample_time_us);
 
         /* 扣除上电标定得到的静态零偏。 */
-        upper_gyro_rad_s.x -= s_upper_imu.gyro_bias.x;
-        upper_gyro_rad_s.y -= s_upper_imu.gyro_bias.y;
-        upper_gyro_rad_s.z -= s_upper_imu.gyro_bias.z;
+        if (upper_updated)
+        {
+            upper_gyro_rad_s.x -= s_upper_imu.gyro_bias.x;
+            upper_gyro_rad_s.y -= s_upper_imu.gyro_bias.y;
+            upper_gyro_rad_s.z -= s_upper_imu.gyro_bias.z;
+            mahony_update(&s_upper_imu,
+                          &upper_acc_g,
+                          &upper_gyro_rad_s,
+                          imu_calc_dt_sec(&s_upper_imu, upper_sample_time_us));
+            frame_sample_time_us = upper_sample_time_us;
+        }
 
-        lower_gyro_rad_s.x -= s_lower_imu.gyro_bias.x;
-        lower_gyro_rad_s.y -= s_lower_imu.gyro_bias.y;
-        lower_gyro_rad_s.z -= s_lower_imu.gyro_bias.z;
+        if (lower_updated)
+        {
+            lower_gyro_rad_s.x -= s_lower_imu.gyro_bias.x;
+            lower_gyro_rad_s.y -= s_lower_imu.gyro_bias.y;
+            lower_gyro_rad_s.z -= s_lower_imu.gyro_bias.z;
+            mahony_update(&s_lower_imu,
+                          &lower_acc_g,
+                          &lower_gyro_rad_s,
+                          imu_calc_dt_sec(&s_lower_imu, lower_sample_time_us));
+            if ((!upper_updated) || (lower_sample_time_us > frame_sample_time_us))
+            {
+                frame_sample_time_us = lower_sample_time_us;
+            }
+        }
 
         /* 两颗 IMU 各自独立做姿态解算。 */
-        mahony_update(&s_upper_imu, &upper_acc_g, &upper_gyro_rad_s, IMU_SAMPLE_DT_SEC);
-        mahony_update(&s_lower_imu, &lower_acc_g, &lower_gyro_rad_s, IMU_SAMPLE_DT_SEC);
 
         /* 按既有协议发送 upper/lower 两套四元数。 */
-        send_telemetry_frame(&s_upper_imu.quat, &s_lower_imu.quat);
+        if ((upper_updated || lower_updated) &&
+            ((0U == s_last_telemetry_time_us) ||
+             ((frame_sample_time_us - s_last_telemetry_time_us) >= TELEMETRY_MIN_INTERVAL_US)))
+        {
+            send_telemetry_frame(&s_upper_imu.quat,
+                                 &s_lower_imu.quat,
+                                 (frame_sample_time_us - s_imu_stream_start_time_us) / 1000U);
+            s_last_telemetry_time_us = frame_sample_time_us;
+        }
+        else
+        {
+            R_BSP_SoftwareDelay(IMU_IDLE_POLL_DELAY_US, BSP_DELAY_UNITS_MICROSECONDS);
+        }
     }
 }
 
@@ -362,6 +486,7 @@ static void mahony_reset(imu_runtime_t * p_imu)
     p_imu->mahony_integral.x = 0.0f;
     p_imu->mahony_integral.y = 0.0f;
     p_imu->mahony_integral.z = 0.0f;
+    p_imu->last_sample_time_us = 0U;
 }
 
 static void mahony_update(imu_runtime_t * p_imu,
@@ -488,6 +613,28 @@ static void imu_read_sample(imu_runtime_t * p_imu,
     read_sample(p_acc_g, p_gyro_rad_s);
 }
 
+static bool imu_try_read_sample(imu_runtime_t * p_imu,
+                                imu_read_sample_fn_t read_sample,
+                                icm42688Float3_t * p_acc_g,
+                                icm42688Float3_t * p_gyro_rad_s,
+                                uint32_t * p_sample_time_us)
+{
+    if (!p_imu->data_ready)
+    {
+        return false;
+    }
+
+    p_imu->data_ready = false;
+    read_sample(p_acc_g, p_gyro_rad_s);
+
+    if (NULL != p_sample_time_us)
+    {
+        *p_sample_time_us = imu_time_now_us();
+    }
+
+    return true;
+}
+
 static void imu_fail_stop(uint32_t step, fsp_err_t err)
 {
     /* 把失败现场保存在全局变量里，方便直接在调试器窗口观察。 */
@@ -559,7 +706,9 @@ static void pack_f32_le(uint8_t *buffer, float value)
     pack_u32_le(buffer, raw);
 }
 
-static void send_telemetry_frame(Quaternion_t const *upper_quat, Quaternion_t const *lower_quat)
+static void send_telemetry_frame(Quaternion_t const *upper_quat,
+                                 Quaternion_t const *lower_quat,
+                                 uint32_t timestamp_ms)
 {
     /* 
      * 数据帧格式：
@@ -581,7 +730,7 @@ static void send_telemetry_frame(Quaternion_t const *upper_quat, Quaternion_t co
     frame[3] = 0x01U;
 
     pack_u16_le(&frame[4], s_frame_sequence);
-    pack_u32_le(&frame[6], s_frame_timestamp_ms);
+    pack_u32_le(&frame[6], timestamp_ms);
 
     pack_f32_le(&frame[10], upper_quat->q0);
     pack_f32_le(&frame[14], upper_quat->q1);
@@ -608,7 +757,6 @@ static void send_telemetry_frame(Quaternion_t const *upper_quat, Quaternion_t co
 
     /* 软件维护序号与时间戳，便于上位机按时序还原数据。 */
     s_frame_sequence = (uint16_t) (s_frame_sequence + 1U);
-    s_frame_timestamp_ms += (uint32_t) (IMU_SAMPLE_DT_SEC * 1000.0f);
 }
 
 /* 机械臂测试相关的全局节拍计数。 */
