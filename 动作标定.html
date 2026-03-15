@@ -1,0 +1,710 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>体感机械臂姿态映射仿真系统 (方案二：多姿态寻优版)</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #1a1a1a; color: #fff; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        #canvas-container { width: 100vw; height: 100vh; }
+        #ui-panel {
+            position: absolute;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(20, 20, 20, 0.85);
+            padding: 20px 30px;
+            border-radius: 16px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.8);
+            display: flex;
+            gap: 25px;
+            border: 1px solid #333;
+            backdrop-filter: blur(10px);
+        }
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            width: 170px;
+        }
+        .control-group label {
+            font-size: 13px;
+            margin-bottom: 12px;
+            color: #ccc;
+            text-align: center;
+            line-height: 1.4;
+        }
+        .control-group span {
+            font-size: 20px;
+            font-weight: bold;
+            color: #00e5ff;
+            margin-top: 8px;
+            text-shadow: 0 0 10px rgba(0, 229, 255, 0.4);
+        }
+        input[type="range"] {
+            width: 100%;
+            accent-color: #00e5ff;
+            cursor: pointer;
+        }
+        
+        /* 舵机输出面板 */
+        #info-panel {
+            position: absolute;
+            top: 25px;
+            left: 25px;
+            background: rgba(20, 20, 20, 0.85);
+            padding: 20px;
+            border-radius: 12px;
+            border: 1px solid #333;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+            pointer-events: none;
+            backdrop-filter: blur(10px);
+            z-index: 10;
+        }
+        .info-title { font-weight: bold; color: #fff; margin-bottom: 12px; font-size: 16px; border-bottom: 1px solid #444; padding-bottom: 8px;}
+        .info-line { margin: 8px 0; font-size: 14px; color: #ddd; display: flex; justify-content: space-between; gap: 20px; }
+        .highlight { color: #facc15; font-weight: bold; font-family: monospace; font-size: 16px; }
+        
+        /* IMU 监控面板样式 */
+        #imu-panel {
+            position: absolute;
+            bottom: 30px;
+            right: 25px;
+            background: rgba(10, 25, 15, 0.85);
+            padding: 20px;
+            border-radius: 12px;
+            border: 1px solid #2ed573;
+            box-shadow: 0 0 20px rgba(46, 213, 115, 0.3);
+            pointer-events: none;
+            backdrop-filter: blur(10px);
+            width: 320px;
+        }
+        .imu-title { font-weight: bold; color: #2ed573; margin-bottom: 12px; font-size: 15px; border-bottom: 1px solid #2ed573; padding-bottom: 8px;}
+        .imu-section { margin-bottom: 15px; }
+        .imu-name { color: #fff; font-size: 14px; font-weight: bold; margin-bottom: 5px; }
+        .imu-data-row { display: flex; justify-content: space-between; font-family: monospace; font-size: 12px; color: #a4b0be; margin-top: 3px;}
+        .imu-val { color: #00e5ff; width: 50px; text-align: right; display: inline-block;}
+
+        /* 校准流程面板升级 */
+        #calib-panel {
+            position: absolute;
+            top: 25px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(30, 10, 25, 0.95);
+            padding: 20px;
+            border-radius: 12px;
+            border: 2px solid #e056fd;
+            box-shadow: 0 0 30px rgba(224, 86, 253, 0.4);
+            text-align: center;
+            width: 480px;
+            backdrop-filter: blur(10px);
+            transition: all 0.5s ease;
+            z-index: 100;
+        }
+        .calib-panel-calibrated {
+            background: rgba(10, 30, 10, 0.9) !important;
+            border-color: #2ed573 !important;
+            box-shadow: 0 0 30px rgba(46, 213, 115, 0.4) !important;
+        }
+        .calib-title { font-size: 18px; font-weight: bold; color: #e056fd; margin-bottom: 10px; }
+        .calib-desc { font-size: 13px; color: #ddd; margin-bottom: 15px; text-align: left; line-height: 1.5;}
+        .btn-group { display: flex; gap: 8px; justify-content: center; margin-bottom: 10px; flex-wrap: wrap;}
+        button {
+            background: #e056fd; color: white; border: none; padding: 10px; border-radius: 6px; 
+            cursor: pointer; font-weight: bold; transition: 0.2s; font-size: 12px; flex: 1; min-width: 100px;
+        }
+        button:hover { background: #be2edd; }
+        button:disabled { background: #444; cursor: not-allowed; color: #888; border: 1px solid #555;}
+        button.recorded { background: #2ed573; color: #000; }
+        .calc-btn { background: #f39c12; width: 100%; font-size: 15px; margin-top: 5px; flex: none !important;}
+        .calc-btn:hover { background: #e67e22; }
+        #calib-status { font-size: 14px; font-weight: bold; color: #facc15; margin-top: 10px; }
+
+        .coordinate-info {
+            position: absolute;
+            top: 25px;
+            right: 25px;
+            background: rgba(20, 20, 20, 0.85);
+            padding: 20px;
+            border-radius: 12px;
+            border: 1px solid #333;
+            font-size: 13px;
+            color: #bbb;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+            backdrop-filter: blur(10px);
+        }
+        .axis-label { display: flex; align-items: center; gap: 8px; margin: 4px 0; font-weight: 500;}
+        .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+    </style>
+    <!-- 引入 Three.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+</head>
+<body>
+
+<div id="canvas-container"></div>
+
+<!-- 方案二：多姿态寻优标定面板 -->
+<div id="calib-panel">
+    <div class="calib-title" id="calib-title-text">🧬 方案二：多姿态融合校准系统</div>
+    <div class="calib-desc">
+        请依次将滑块调整到以下要求姿态并点击记录。系统将收集3个独立正交空间的误差矩阵，利用半球对齐法计算出使全局均方差最小的最优四元数。
+    </div>
+    <div class="btn-group">
+        <button id="btn-p0">姿态1(前伸)<br>90,90,0,90</button>
+        <button id="btn-p1">姿态2(下垂)<br>0,90,0,90</button>
+        <button id="btn-p2">姿态3(侧展翻腕)<br>90,0,0,180</button>
+    </div>
+    <div class="btn-group">
+        <button id="btn-calc" class="calc-btn" disabled>执行多姿态四元数优化融合</button>
+    </div>
+    <div id="calib-status">等待数据采集 (0/3)...</div>
+</div>
+
+<div id="info-panel">
+    <div class="info-title">机械臂预测输出 (来自IMU解算)</div>
+    <div class="info-line"><span>舵机1 (底盘转动):</span> <span class="highlight" id="servo1-val">--</span></div>
+    <div class="info-line"><span>舵机2 (大臂抬升):</span> <span class="highlight" id="servo2-val">--</span></div>
+    <div class="info-line"><span>舵机3 (小臂抬升):</span> <span class="highlight" id="servo3-val">--</span></div>
+    <div class="info-line"><span>舵机4 (手腕翻滚):</span> <span class="highlight" id="servo4-val">--</span></div>
+    <div class="info-line" style="border-top: 1px dashed #444; padding-top: 8px;"><span>手爪张合度:</span> <span class="highlight" id="grip-val-out">0%</span></div>
+</div>
+
+<div class="coordinate-info">
+    <div class="info-title" style="margin-bottom: 10px; border:none; padding-bottom:0;">人体坐标系定义:</div>
+    <div class="axis-label"><span class="dot" style="background:#ff4757"></span> X轴: 向后</div>
+    <div class="axis-label"><span class="dot" style="background:#2ed573"></span> Y轴: 向右</div>
+    <div class="axis-label"><span class="dot" style="background:#1e90ff"></span> Z轴: 向上</div>
+</div>
+
+<div id="imu-panel">
+    <div class="imu-title">📡 IMU 世界坐标系原始数据</div>
+    <div class="imu-section">
+        <div class="imu-name">IMU 1 (肱三头肌)</div>
+        <div class="imu-data-row">
+            <span>四元数:</span>
+            <span>W:<span class="imu-val" id="imu1-qw">1.00</span> X:<span class="imu-val" id="imu1-qx">0.00</span> Y:<span class="imu-val" id="imu1-qy">0.00</span> Z:<span class="imu-val" id="imu1-qz">0.00</span></span>
+        </div>
+    </div>
+    <div class="imu-section" style="margin-bottom: 0;">
+        <div class="imu-name">IMU 2 (手腕)</div>
+        <div class="imu-data-row">
+            <span>四元数:</span>
+            <span>W:<span class="imu-val" id="imu2-qw">1.00</span> X:<span class="imu-val" id="imu2-qx">0.00</span> Y:<span class="imu-val" id="imu2-qy">0.00</span> Z:<span class="imu-val" id="imu2-qz">0.00</span></span>
+        </div>
+    </div>
+</div>
+
+<div id="ui-panel">
+    <div class="control-group">
+        <label>大臂绕Y轴转动<br>(人体验证滑块)</label>
+        <input type="range" id="human-y" min="0" max="180" value="90">
+        <span id="human-y-disp">90°</span>
+    </div>
+    <div class="control-group">
+        <label>大臂绕Z轴转动<br>(人体验证滑块)</label>
+        <input type="range" id="human-z" min="0" max="180" value="90">
+        <span id="human-z-disp">90°</span>
+    </div>
+    <div class="control-group">
+        <label>肘部绕Z轴转动<br>(人体验证滑块)</label>
+        <input type="range" id="elbow-z" min="0" max="180" value="0">
+        <span id="elbow-z-disp">0°</span>
+    </div>
+    <div class="control-group">
+        <label>手腕绕X轴转动<br>(人体验证滑块)</label>
+        <input type="range" id="wrist-x" min="0" max="180" value="90">
+        <span id="wrist-x-disp">90°</span>
+    </div>
+    <div class="control-group">
+        <label>末端手爪张合<br>(直连控制)</label>
+        <input type="range" id="grip" min="0" max="100" value="0">
+        <span id="grip-disp">0%</span>
+    </div>
+</div>
+
+<script>
+    // ==========================================
+    // 场景基础初始化
+    // ==========================================
+    const scene = new THREE.Scene();
+    scene.fog = new THREE.FogExp2(0x1a1a1a, 0.005);
+    const camera = new THREE.PerspectiveCamera(40, window.innerWidth / window.innerHeight, 1, 1000);
+    camera.position.set(-45, 25, 60);
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.shadowMap.enabled = true;
+    document.getElementById('canvas-container').appendChild(renderer.domElement);
+    const controls = new THREE.OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.target.set(0, 15, 0);
+
+    const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 0.6);
+    hemiLight.position.set(0, 50, 0);
+    scene.add(hemiLight);
+    const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+    dirLight.position.set(30, 50, 30);
+    dirLight.castShadow = true;
+    scene.add(dirLight);
+
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(200, 200), new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.8 }));
+    floor.rotation.x = -Math.PI / 2;
+    floor.receiveShadow = true;
+    scene.add(floor);
+    scene.add(new THREE.GridHelper(100, 50, 0x444444, 0x2a2a2a));
+
+    // ==========================================
+    // 材质与几何体定义
+    // ==========================================
+    const skinMat = new THREE.MeshStandardMaterial({ color: 0xe0ac69, roughness: 0.4 });
+    const shirtMat = new THREE.MeshStandardMaterial({ color: 0x2c3e50, roughness: 0.9 });
+    const jointSkinMat = new THREE.MeshStandardMaterial({ color: 0xd49b55, roughness: 0.5 });
+    const robotBodyMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.6 });
+    const robotJointMat = new THREE.MeshStandardMaterial({ color: 0x888888, roughness: 0.3 });
+    const imuMat = new THREE.MeshStandardMaterial({ color: 0x00b894, roughness: 0.2, metalness: 0.8 });
+    const imuGeo = new THREE.BoxGeometry(1.5, 0.5, 1.2);
+
+    const upperArmLength = 14;
+    const forearmLength = 12;
+
+    // ==========================================
+    // 1. 构建写实人体 (带随机误差 IMU)
+    // ==========================================
+    const humanGroup = new THREE.Group();
+    humanGroup.position.set(-18, 0, 0);
+    scene.add(humanGroup);
+
+    const torso = new THREE.Mesh(new THREE.BoxGeometry(12, 22, 7), shirtMat);
+    torso.position.y = 20;
+    torso.castShadow = true;
+    humanGroup.add(torso);
+
+    const head = new THREE.Mesh(new THREE.SphereGeometry(4, 32, 32), skinMat);
+    head.position.y = 35;
+    head.castShadow = true;
+    humanGroup.add(head);
+    const neck = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.8, 3), skinMat);
+    neck.position.y = 32;
+    neck.castShadow = true;
+    humanGroup.add(neck);
+
+    const axesHelperHuman = new THREE.AxesHelper(10);
+    humanGroup.add(axesHelperHuman);
+    
+    const rightShoulderPivot = new THREE.Group();
+    rightShoulderPivot.position.set(7, 28, 0);
+    humanGroup.add(rightShoulderPivot);
+
+    const shoulderJoint = new THREE.Mesh(new THREE.SphereGeometry(2.5, 32, 32), shirtMat);
+    rightShoulderPivot.add(shoulderJoint);
+
+    const upperArmMesh = new THREE.Mesh(new THREE.CylinderGeometry(2, 1.5, upperArmLength, 32), skinMat);
+    upperArmMesh.rotation.x = Math.PI / 2; 
+    upperArmMesh.position.z = -upperArmLength / 2;
+    upperArmMesh.castShadow = true;
+    rightShoulderPivot.add(upperArmMesh);
+
+    // ⭐ 注入随机安装误差的 IMU 1
+    const imu1 = new THREE.Mesh(imuGeo, imuMat);
+    imu1.position.set(0, -2, -upperArmLength * 0.4); 
+    imu1.rotation.set(Math.random()*Math.PI*2, Math.random()*Math.PI*2, Math.random()*Math.PI*2);
+    imu1.castShadow = true;
+    rightShoulderPivot.add(imu1); 
+    const led1 = new THREE.Mesh(new THREE.SphereGeometry(0.15), new THREE.MeshBasicMaterial({color: 0xff0000}));
+    led1.position.set(0.5, 0.25, 0);
+    imu1.add(led1);
+
+    const elbowPivot = new THREE.Group();
+    elbowPivot.position.set(0, 0, -upperArmLength);
+    rightShoulderPivot.add(elbowPivot);
+
+    const elbowJoint = new THREE.Mesh(new THREE.SphereGeometry(1.8, 32, 32), jointSkinMat);
+    elbowPivot.add(elbowJoint);
+
+    const forearmMesh = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.2, forearmLength, 32), skinMat);
+    forearmMesh.rotation.x = Math.PI / 2;
+    forearmMesh.position.z = -forearmLength / 2;
+    forearmMesh.castShadow = true;
+    elbowPivot.add(forearmMesh);
+
+    const wristPivot = new THREE.Group();
+    wristPivot.position.set(0, 0, -forearmLength);
+    elbowPivot.add(wristPivot);
+
+    const wristJoint = new THREE.Mesh(new THREE.SphereGeometry(1.3, 32, 32), jointSkinMat);
+    wristPivot.add(wristJoint);
+
+    // ⭐ 注入随机安装误差的 IMU 2
+    const imu2 = new THREE.Mesh(imuGeo, imuMat);
+    imu2.position.set(0, 1.5, 0);
+    imu2.rotation.set(Math.random()*Math.PI*2, Math.random()*Math.PI*2, Math.random()*Math.PI*2);
+    imu2.castShadow = true;
+    wristPivot.add(imu2);
+    const led2 = new THREE.Mesh(new THREE.SphereGeometry(0.15), new THREE.MeshBasicMaterial({color: 0xff0000}));
+    led2.position.set(0.5, 0.25, 0);
+    imu2.add(led2);
+
+    const palm = new THREE.Mesh(new THREE.BoxGeometry(1, 3.5, 2), skinMat);
+    palm.position.set(0.5, 0, -1);
+    palm.castShadow = true;
+    wristPivot.add(palm);
+
+    const humanFinger1Pivot = new THREE.Group();
+    humanFinger1Pivot.position.set(0.5, 1.3, -2);
+    wristPivot.add(humanFinger1Pivot);
+    const hFinger1 = new THREE.Mesh(new THREE.BoxGeometry(1, 0.8, 2), skinMat);
+    hFinger1.position.z = -1;
+    hFinger1.castShadow = true;
+    humanFinger1Pivot.add(hFinger1);
+
+    const humanFinger2Pivot = new THREE.Group();
+    humanFinger2Pivot.position.set(0.5, -1.3, -2);
+    wristPivot.add(humanFinger2Pivot);
+    const hFinger2 = new THREE.Mesh(new THREE.BoxGeometry(1, 0.8, 2), skinMat);
+    hFinger2.position.z = -1;
+    hFinger2.castShadow = true;
+    humanFinger2Pivot.add(hFinger2);
+
+    const lShoulder = new THREE.Mesh(new THREE.SphereGeometry(2.5), shirtMat);
+    lShoulder.position.set(-7, 28, 0);
+    const lArm = new THREE.Mesh(new THREE.CylinderGeometry(2, 1.5, 24), shirtMat);
+    lArm.position.set(-8, 17, 0);
+    humanGroup.add(lShoulder);
+    humanGroup.add(lArm);
+
+
+    // ==========================================
+    // 2. 构建机械臂 (右侧)
+    // ==========================================
+    const robotStandGroup = new THREE.Group();
+    robotStandGroup.position.set(18, 0, 0);
+    scene.add(robotStandGroup);
+    
+    const dummyMat = new THREE.MeshStandardMaterial({ color: 0x666666, transparent: true, opacity: 0.35, depthWrite: false });
+    const dummyTorso = new THREE.Mesh(new THREE.BoxGeometry(12, 22, 7), dummyMat);
+    dummyTorso.position.y = 20;
+    robotStandGroup.add(dummyTorso);
+
+    const dummyHead = new THREE.Mesh(new THREE.SphereGeometry(4, 32, 32), dummyMat);
+    dummyHead.position.y = 35;
+    robotStandGroup.add(dummyHead);
+
+    const robotGroup = new THREE.Group();
+    robotGroup.position.set(7, 26, 0); 
+    robotGroup.rotation.z = -Math.PI / 2; 
+    robotStandGroup.add(robotGroup);
+
+    const basePivot = new THREE.Group();
+    basePivot.position.set(0, 2, 0);
+    robotGroup.add(basePivot);
+    const baseStand = new THREE.Mesh(new THREE.BoxGeometry(8, 4, 8), robotBodyMat);
+    baseStand.position.y = -2;
+    baseStand.castShadow = true;
+    baseStand.receiveShadow = true;
+    basePivot.add(baseStand);
+
+    const baseRotator = new THREE.Mesh(new THREE.CylinderGeometry(3.5, 3.5, 2, 32), robotJointMat);
+    baseRotator.position.y = 1;
+    baseRotator.castShadow = true;
+    basePivot.add(baseRotator);
+
+    const shoulderPitchPivot = new THREE.Group();
+    shoulderPitchPivot.position.set(0, 4, 0);
+    basePivot.add(shoulderPitchPivot);
+
+    const shoulderHinge = new THREE.Mesh(new THREE.CylinderGeometry(2.5, 2.5, 6, 32), robotJointMat);
+    shoulderHinge.rotation.z = Math.PI / 2;
+    shoulderHinge.castShadow = true;
+    shoulderPitchPivot.add(shoulderHinge);
+
+    const robotUpperArm = new THREE.Mesh(new THREE.BoxGeometry(3.5, 3.5, upperArmLength), robotBodyMat);
+    robotUpperArm.position.z = -upperArmLength / 2;
+    robotUpperArm.castShadow = true;
+    shoulderPitchPivot.add(robotUpperArm);
+
+    const elbowPitchPivot = new THREE.Group();
+    elbowPitchPivot.position.set(0, 0, -upperArmLength);
+    shoulderPitchPivot.add(elbowPitchPivot);
+
+    const elbowHinge = new THREE.Mesh(new THREE.CylinderGeometry(2, 2, 5, 32), robotJointMat);
+    elbowHinge.rotation.z = Math.PI / 2;
+    elbowHinge.castShadow = true;
+    elbowPitchPivot.add(elbowHinge);
+
+    const robotForearm = new THREE.Mesh(new THREE.BoxGeometry(2.8, 2.8, forearmLength), robotBodyMat);
+    robotForearm.position.z = -forearmLength / 2;
+    robotForearm.castShadow = true;
+    elbowPitchPivot.add(robotForearm);
+
+    const wristRollPivot = new THREE.Group();
+    wristRollPivot.position.set(0, 0, -forearmLength);
+    elbowPitchPivot.add(wristRollPivot);
+
+    const wristHinge = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.5, 2, 32), robotJointMat);
+    wristHinge.rotation.x = Math.PI / 2;
+    wristHinge.castShadow = true;
+    wristRollPivot.add(wristHinge);
+
+    const gripperBase = new THREE.Mesh(new THREE.BoxGeometry(4, 1.5, 2), robotBodyMat);
+    gripperBase.position.z = -1;
+    gripperBase.castShadow = true;
+    wristRollPivot.add(gripperBase);
+
+    const robotClaw1Pivot = new THREE.Group();
+    robotClaw1Pivot.position.set(1.5, 0, -2);
+    wristRollPivot.add(robotClaw1Pivot);
+    const claw1 = new THREE.Mesh(new THREE.BoxGeometry(0.8, 1.5, 3), robotBodyMat);
+    claw1.position.z = -1.5;
+    claw1.castShadow = true;
+    robotClaw1Pivot.add(claw1);
+
+    const robotClaw2Pivot = new THREE.Group();
+    robotClaw2Pivot.position.set(-1.5, 0, -2);
+    wristRollPivot.add(robotClaw2Pivot);
+    const claw2 = new THREE.Mesh(new THREE.BoxGeometry(0.8, 1.5, 3), robotBodyMat);
+    claw2.position.z = -1.5;
+    claw2.castShadow = true;
+    robotClaw2Pivot.add(claw2);
+
+
+    // ==========================================
+    // 3. 核心算法：方案二 多姿态四元数优化融合
+    // ==========================================
+    let isCalibrated = false;
+    let qOffset1 = new THREE.Quaternion();
+    let qOffset2 = new THREE.Quaternion();
+    
+    // 存储3次校准的四元数数组
+    let qOff1_list = [];
+    let qOff2_list = [];
+    
+    // 三个标准采样的姿态集合 (大臂Y, 大臂Z, 肘部Z, 手腕X)
+    const stdPoses = [
+        {y: 90, z: 90, e: 0, w: 90},   // 0: 前伸
+        {y: 0, z: 90, e: 0, w: 90},    // 1: 下垂
+        {y: 90, z: 0, e: 0, w: 180}    // 2: 侧展翻腕
+    ];
+
+    // 计算特定姿态下骨骼应该具有的"完美"四元数
+    function getIdealBoneQuaternions(poseIdx) {
+        const backupHY = rightShoulderPivot.rotation.x;
+        const backupHZ = rightShoulderPivot.rotation.y;
+        const backupEZ = elbowPivot.rotation.y;
+        const backupWX = wristPivot.rotation.z;
+
+        const p = stdPoses[poseIdx];
+        rightShoulderPivot.rotation.x = (p.y - 90) * Math.PI / 180;
+        rightShoulderPivot.rotation.y = (p.z - 90) * Math.PI / 180;
+        elbowPivot.rotation.y = (p.e - 0) * Math.PI / 180;
+        wristPivot.rotation.z = (p.w - 90) * Math.PI / 180;
+
+        scene.updateMatrixWorld(true);
+        const qIdealUpper = new THREE.Quaternion();
+        const qIdealLower = new THREE.Quaternion();
+        rightShoulderPivot.getWorldQuaternion(qIdealUpper);
+        elbowPivot.getWorldQuaternion(qIdealLower);
+
+        // 恢复原有状态
+        rightShoulderPivot.rotation.x = backupHY;
+        rightShoulderPivot.rotation.y = backupHZ;
+        elbowPivot.rotation.y = backupEZ;
+        wristPivot.rotation.z = backupWX;
+        scene.updateMatrixWorld(true);
+
+        return { qUpper: qIdealUpper, qLower: qIdealLower };
+    }
+
+    // 四元数阵列多点求均值 (基于半球对齐的加权球面插值法)
+    function averageQuaternions(quats) {
+        if (quats.length === 0) return new THREE.Quaternion();
+        let qAvg = quats[0].clone();
+        for (let i = 1; i < quats.length; i++) {
+            let qNext = quats[i].clone();
+            // 解决四元数双重覆盖问题：确保处于同一半球
+            if (qAvg.dot(qNext) < 0) {
+                qNext.set(-qNext.x, -qNext.y, -qNext.z, -qNext.w);
+            }
+            // 逐步加权平均
+            qAvg.slerp(qNext, 1 / (i + 1));
+        }
+        return qAvg.normalize();
+    }
+
+    // 绑定三个动作的记录按钮
+    for (let i = 0; i < 3; i++) {
+        document.getElementById(`btn-p${i}`).onclick = function() {
+            const ideals = getIdealBoneQuaternions(i);
+            
+            scene.updateMatrixWorld(true);
+            const qImu1_act = new THREE.Quaternion(); imu1.getWorldQuaternion(qImu1_act);
+            const qImu2_act = new THREE.Quaternion(); imu2.getWorldQuaternion(qImu2_act);
+            
+            // qOffset = qImu_act^(-1) * qIdeal
+            const q1 = qImu1_act.clone().invert().multiply(ideals.qUpper);
+            const q2 = qImu2_act.clone().invert().multiply(ideals.qLower);
+            
+            qOff1_list[i] = q1;
+            qOff2_list[i] = q2;
+
+            this.classList.add('recorded');
+            this.innerText = `姿态${i+1} ✅`;
+            
+            // 检查是否3个都集齐了
+            const count = Object.keys(qOff1_list).length;
+            document.getElementById('calib-status').innerText = `等待数据采集 (${count}/3)...`;
+            
+            if (count === 3) {
+                const btnCalc = document.getElementById('btn-calc');
+                btnCalc.disabled = false;
+                btnCalc.innerText = "⭐ 点击执行: 多姿态四元数最小误差融合优化 ⭐";
+                btnCalc.style.animation = "pulse 1.5s infinite";
+            }
+        };
+    }
+
+    // 绑定多姿态优化计算按钮
+    document.getElementById('btn-calc').onclick = () => {
+        // 执行核心寻优算法：对4个姿态下的四元数求平均
+        qOffset1 = averageQuaternions(Object.values(qOff1_list));
+        qOffset2 = averageQuaternions(Object.values(qOff2_list));
+
+        isCalibrated = true;
+        
+        // UI 状态更新
+        document.getElementById('calib-status').innerText = "状态：多姿态寻优完成！误差已降至最低。";
+        document.getElementById('calib-status').style.color = "#2ed573";
+        const panel = document.getElementById('calib-panel');
+        panel.classList.add('calib-panel-calibrated');
+        document.getElementById('calib-title-text').innerText = "✅ 全局误差最小化：融合追踪中";
+        document.getElementById('calib-title-text').style.color = "#2ed573";
+        document.getElementById('btn-calc').innerText = "优化已生效";
+        document.getElementById('btn-calc').disabled = true;
+        document.getElementById('btn-calc').style.animation = "none";
+        
+        led1.material.color.setHex(0x2ed573);
+        led2.material.color.setHex(0x2ed573);
+
+        updatePoses(); // 强制刷新机械臂
+    };
+
+
+    // ==========================================
+    // 4. 表现层与追踪逻辑
+    // ==========================================
+    const sliders = {
+        hY: document.getElementById('human-y'), hZ: document.getElementById('human-z'),
+        eZ: document.getElementById('elbow-z'), wX: document.getElementById('wrist-x'), grip: document.getElementById('grip')
+    };
+    const displays = {
+        hY: document.getElementById('human-y-disp'), hZ: document.getElementById('human-z-disp'),
+        eZ: document.getElementById('elbow-z-disp'), wX: document.getElementById('wrist-x-disp'), grip: document.getElementById('grip-disp')
+    };
+    const outputs = {
+        s1: document.getElementById('servo1-val'), s2: document.getElementById('servo2-val'),
+        s3: document.getElementById('servo3-val'), s4: document.getElementById('servo4-val'), gripOut: document.getElementById('grip-val-out')
+    };
+    const imuDisplays = {
+        i1: { w: document.getElementById('imu1-qw'), x: document.getElementById('imu1-qx'), y: document.getElementById('imu1-qy'), z: document.getElementById('imu1-qz') },
+        i2: { w: document.getElementById('imu2-qw'), x: document.getElementById('imu2-qx'), y: document.getElementById('imu2-qy'), z: document.getElementById('imu2-qz') }
+    };
+
+    function updatePoses() {
+        const valHY = parseInt(sliders.hY.value);
+        const valHZ = parseInt(sliders.hZ.value);
+        const valEZ = parseInt(sliders.eZ.value);
+        const valWX = parseInt(sliders.wX.value);
+        const valGrip = parseInt(sliders.grip.value);
+
+        displays.hY.innerText = valHY + '°'; displays.hZ.innerText = valHZ + '°';
+        displays.eZ.innerText = valEZ + '°'; displays.wX.innerText = valWX + '°';
+        displays.grip.innerText = valGrip + '%';
+
+        const radHY = (valHY - 90) * Math.PI / 180;
+        const radHZ = (valHZ - 90) * Math.PI / 180;
+        const radEZ = (valEZ - 0) * Math.PI / 180; 
+        const radWX = (valWX - 90) * Math.PI / 180;
+
+        const radGripHuman = (valGrip / 100) * (35 * Math.PI / 180);
+        const radGripRobot = (valGrip / 100) * (25 * Math.PI / 180); 
+
+        // 1. 滑块控制人体
+        rightShoulderPivot.rotation.x = radHY;
+        rightShoulderPivot.rotation.y = radHZ;
+        elbowPivot.rotation.y = radEZ;
+        wristPivot.rotation.z = radWX;
+        humanFinger1Pivot.rotation.x = -radGripHuman; 
+        humanFinger2Pivot.rotation.x = radGripHuman;  
+
+        scene.updateMatrixWorld(true);
+
+        // 2. 采集原始四元数
+        const qImu1 = new THREE.Quaternion(); imu1.getWorldQuaternion(qImu1);
+        const qImu2 = new THREE.Quaternion(); imu2.getWorldQuaternion(qImu2);
+
+        imuDisplays.i1.w.innerText = qImu1.w.toFixed(2); imuDisplays.i1.x.innerText = qImu1.x.toFixed(2);
+        imuDisplays.i1.y.innerText = qImu1.y.toFixed(2); imuDisplays.i1.z.innerText = qImu1.z.toFixed(2);
+        imuDisplays.i2.w.innerText = qImu2.w.toFixed(2); imuDisplays.i2.x.innerText = qImu2.x.toFixed(2);
+        imuDisplays.i2.y.innerText = qImu2.y.toFixed(2); imuDisplays.i2.z.innerText = qImu2.z.toFixed(2);
+
+        if (!isCalibrated) return;
+
+        // 3. 全局优化解算：q_est = q_imu * q_offset_optimal
+        const qUpperEst = qImu1.clone().multiply(qOffset1);
+        const qLowerEst = qImu2.clone().multiply(qOffset2);
+
+        const euUpper = new THREE.Euler().setFromQuaternion(qUpperEst, 'XYZ');
+        const estHY_rad = euUpper.x;
+        const estHZ_rad = euUpper.y;
+
+        const qLocalLower = qUpperEst.clone().invert().multiply(qLowerEst);
+        const euLower = new THREE.Euler().setFromQuaternion(qLocalLower, 'YZX');
+        const estEZ_rad = euLower.y;
+        const estWX_rad = euLower.z;
+
+        // 4. 驱动机械臂
+        basePivot.rotation.y = estHY_rad; 
+        shoulderPitchPivot.rotation.x = -estHZ_rad;
+        elbowPitchPivot.rotation.x = -estEZ_rad;
+        wristRollPivot.rotation.z = -estWX_rad;
+        robotClaw1Pivot.rotation.y = radGripRobot;  
+        robotClaw2Pivot.rotation.y = -radGripRobot; 
+
+        const estValHY = Math.round(estHY_rad * 180 / Math.PI + 90);
+        const estValHZ = Math.round(estHZ_rad * 180 / Math.PI + 90);
+        const estValEZ = Math.round(estEZ_rad * 180 / Math.PI + 0);
+        const estValWX = Math.round(estWX_rad * 180 / Math.PI + 90);
+
+        outputs.s1.innerText = estValHY + '°';
+        outputs.s2.innerText = (180 - estValHZ) + '°';
+        outputs.s3.innerText = (180 - estValEZ) + '°';
+        outputs.s4.innerText = (180 - estValWX) + '°';
+        outputs.gripOut.innerText = valGrip + '%';
+    }
+
+    Object.values(sliders).forEach(slider => {
+        slider.addEventListener('input', updatePoses);
+    });
+    updatePoses();
+
+    window.onload = function() {
+        const style = document.createElement('style');
+        style.innerHTML = `@keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(243, 156, 18, 0.7); } 70% { box-shadow: 0 0 0 15px rgba(243, 156, 18, 0); } 100% { box-shadow: 0 0 0 0 rgba(243, 156, 18, 0); } }`;
+        document.head.appendChild(style);
+        
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+        animate();
+    }
+
+    window.addEventListener('resize', () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+</script>
+</body>
+</html>
