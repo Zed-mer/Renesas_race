@@ -9,6 +9,7 @@
 #include "drv_MG996.h"
 #include <math.h>
 #include <stdbool.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -40,13 +41,20 @@
 #define IMU_IDLE_POLL_DELAY_US        200U
 #define TELEMETRY_MIN_INTERVAL_US     20000U
 #define IMU_BUTTON_DEBOUNCE_US        250000U
+#define IMU_BUTTON_LONG_PRESS_US      2000000U
 #define IMU_LED_BLINK_HALF_PERIOD_US  500000U
 #define IMU_LED_FLASH_ON_US           100000U
 #define IMU_LED_FLASH_GAP_US          100000U
 #define IMU_LED_FLASH_TOTAL_US        ((2U * IMU_LED_FLASH_ON_US) + (2U * IMU_LED_FLASH_GAP_US))
+#define IMU_LED_WAIT_PAUSE_US         500000U
 #define IMU_EULER_SINGULARITY_EPSILON 0.9999999f
 #define IMU_RAD_TO_DEG                57.295779513082320876f
 #define IMU_STATUS_LED_PIN            BSP_IO_PORT_04_PIN_00
+#define IMU_BUTTON_PIN                BSP_IO_PORT_00_PIN_00
+#define IMU_AXIS_MIN_RESPONSE_DEG     20.0f
+#define IMU_AXIS_DOMINANCE_RATIO      1.5f
+#define IMU_CAL_TARGET_DELTA_DEG      90.0f
+#define IMU_UART_LINE_MAX_LEN         64U
 
 /**********************************************************************************************************************
  * Typedef definitions
@@ -82,15 +90,71 @@ typedef struct st_imu_servo_pose
     uint8_t  grip_percent;
 } imu_servo_pose_t;
 
+typedef enum e_imu_signal_source
+{
+    IMU_SIGNAL_SOURCE_UPPER = 0,
+    IMU_SIGNAL_SOURCE_RELATIVE = 1,
+} imu_signal_source_t;
+
+typedef enum e_imu_component_index
+{
+    IMU_COMPONENT_X = 0,
+    IMU_COMPONENT_Y = 1,
+    IMU_COMPONENT_Z = 2,
+} imu_component_index_t;
+
+typedef enum e_imu_cal_step
+{
+    IMU_CAL_STEP_TPOSE = 0,
+    IMU_CAL_STEP_HY = 1,
+    IMU_CAL_STEP_HZ = 2,
+    IMU_CAL_STEP_EZ = 3,
+    IMU_CAL_STEP_WX = 4,
+    IMU_CAL_STEP_COUNT = 5,
+    IMU_CAL_STEP_DONE = 6,
+} imu_cal_step_t;
+
+typedef enum e_imu_cal_result
+{
+    IMU_CAL_RESULT_OK = 0,
+    IMU_CAL_RESULT_WEAK = 1,
+    IMU_CAL_RESULT_AMBIG = 2,
+    IMU_CAL_RESULT_NODATA = 3,
+} imu_cal_result_t;
+
+typedef struct st_imu_motion_components
+{
+    float upper_rad[3];
+    float relative_rad[3];
+} imu_motion_components_t;
+
+typedef struct st_imu_axis_map
+{
+    imu_signal_source_t source;
+    uint8_t             component;
+    float               gain;
+    int16_t             center_deg;
+    bool                valid;
+} imu_axis_map_t;
+
 typedef struct st_imu_calibration_runtime
 {
     Quaternion_t upper_offset;
     Quaternion_t lower_offset;
+    imu_axis_map_t hY_map;
+    imu_axis_map_t hZ_map;
+    imu_axis_map_t eZ_map;
+    imu_axis_map_t wX_map;
     uint32_t     last_button_time_us;
+    uint32_t     button_press_start_us;
     uint32_t     led_flash_start_us;
     volatile bool button_pending;
+    bool         button_press_active;
+    bool         button_long_handled;
     bool         is_calibrated;
     bool         led_flash_active;
+    uint8_t      led_flash_pulses;
+    imu_cal_step_t current_step;
 } imu_calibration_runtime_t;
 
 /***********************************************************************************************************************
@@ -125,9 +189,33 @@ static bool     imu_try_read_sample(imu_runtime_t * p_imu,
 static int32_t  imu_clamp_int32(int32_t value, int32_t min_value, int32_t max_value);
 static void     imu_set_status_led(bool led_on);
 static void     imu_update_status_led(uint32_t now_us);
+static bool     imu_is_button_pressed(void);
+static void     imu_ascii_to_upper(char * p_text);
+static void     imu_send_text(char const * p_text);
+static void     imu_send_textf(char const * p_format, ...);
+static void     imu_send_cal_step(void);
+static void     imu_send_cal_ok(imu_cal_step_t step);
+static void     imu_send_cal_error(imu_cal_result_t result, imu_cal_step_t step);
+static void     imu_send_cal_done(void);
+static void     imu_send_cal_state(void);
+static char const * imu_cal_step_name(imu_cal_step_t step);
+static char const * imu_cal_result_name(imu_cal_result_t result);
+static void     imu_set_flash_pattern(uint8_t pulses, uint32_t now_us);
 static void     imu_calibration_reset(void);
-static void     imu_capture_tpose_calibration(uint32_t now_us);
+static void     imu_calibration_begin(uint32_t now_us);
+static bool     imu_capture_motion_components(imu_motion_components_t * p_motion);
+static imu_cal_result_t imu_learn_axis_map(imu_axis_map_t * p_map,
+                                           float const raw_deg[3],
+                                           uint8_t excluded_mask,
+                                           imu_signal_source_t source,
+                                           int16_t center_deg,
+                                           float target_delta_deg);
+static imu_cal_result_t imu_record_current_step(uint32_t now_us);
+static void     imu_handle_calibration_next(uint32_t now_us);
 static void     imu_handle_button_event(uint32_t now_us);
+static void     imu_handle_uart_commands(uint32_t now_us);
+static void     imu_handle_uart_command(char * p_line, uint32_t now_us);
+static int32_t  imu_apply_axis_map(imu_axis_map_t const * p_map, imu_motion_components_t const * p_motion);
 static uint8_t  imu_get_grip_percent(void);
 static bool     imu_try_build_servo_pose(imu_servo_pose_t * p_pose);
 static void     imu_fail_stop(uint32_t step, fsp_err_t err);
@@ -339,6 +427,11 @@ void imu_test(void)
         imu_fail_stop(1U, err);
     }
     s_imu_uart_ready = true;
+    err = drv_uart_start_rx();
+    if (FSP_SUCCESS != err)
+    {
+        imu_fail_stop(10U, err);
+    }
     imu_timebase_init();
 
     /* 2. 初始化上臂 IMU（硬件 SPI0）。 */
@@ -392,7 +485,7 @@ void imu_test(void)
     s_lower_imu.gyro_bias.z = 0.0f;
     mahony_reset(&s_upper_imu);
     mahony_reset(&s_lower_imu);
-    imu_calibration_reset();
+    imu_calibration_begin(imu_time_now_us());
     imu_update_status_led(imu_time_now_us());
 
     /* 7. 分别采集两颗 IMU 的静止数据，估计陀螺零偏。 */
@@ -483,6 +576,7 @@ void imu_test(void)
         loop_time_us = (upper_updated || lower_updated) ? frame_sample_time_us : imu_time_now_us();
 
         imu_handle_button_event(loop_time_us);
+        imu_handle_uart_commands(loop_time_us);
         imu_update_status_led(loop_time_us);
 
         /* 校准完成后，按网页协议发送姿态文本。 */
@@ -850,6 +944,163 @@ static void imu_set_status_led(bool led_on)
                              led_on ? BSP_IO_LEVEL_HIGH : BSP_IO_LEVEL_LOW);
 }
 
+static bool imu_is_button_pressed(void)
+{
+    bsp_io_level_t pin_level = BSP_IO_LEVEL_HIGH;
+
+    if (FSP_SUCCESS != R_IOPORT_PinRead(&g_ioport_ctrl, IMU_BUTTON_PIN, &pin_level))
+    {
+        return false;
+    }
+
+    return (BSP_IO_LEVEL_LOW == pin_level);
+}
+
+static void imu_ascii_to_upper(char * p_text)
+{
+    if (NULL == p_text)
+    {
+        return;
+    }
+
+    while ('\0' != *p_text)
+    {
+        if ((*p_text >= 'a') && (*p_text <= 'z'))
+        {
+            *p_text = (char) (*p_text - ('a' - 'A'));
+        }
+
+        p_text++;
+    }
+}
+
+static void imu_send_text(char const * p_text)
+{
+    size_t text_len;
+
+    if ((NULL == p_text) || !s_imu_uart_ready)
+    {
+        return;
+    }
+
+    text_len = strlen(p_text);
+    if (0U == text_len)
+    {
+        return;
+    }
+
+    if (FSP_SUCCESS == g_uart7.p_api->write(g_uart7.p_ctrl, (uint8_t const *) p_text, (uint32_t) text_len))
+    {
+        drv_uart_wait_for_tx();
+    }
+}
+
+static void imu_send_textf(char const * p_format, ...)
+{
+    char    frame[96] = {0};
+    va_list args;
+    int     frame_len;
+
+    if (NULL == p_format)
+    {
+        return;
+    }
+
+    va_start(args, p_format);
+    frame_len = vsnprintf(frame, sizeof(frame), p_format, args);
+    va_end(args);
+
+    if ((frame_len > 0) && ((size_t) frame_len < sizeof(frame)))
+    {
+        imu_send_text(frame);
+    }
+}
+
+static char const * imu_cal_step_name(imu_cal_step_t step)
+{
+    switch (step)
+    {
+        case IMU_CAL_STEP_TPOSE:
+            return "TPOSE";
+        case IMU_CAL_STEP_HY:
+            return "HY+";
+        case IMU_CAL_STEP_HZ:
+            return "HZ-";
+        case IMU_CAL_STEP_EZ:
+            return "EZ+";
+        case IMU_CAL_STEP_WX:
+            return "WX+";
+        case IMU_CAL_STEP_DONE:
+            return "DONE";
+        default:
+            return "IDLE";
+    }
+}
+
+static char const * imu_cal_result_name(imu_cal_result_t result)
+{
+    switch (result)
+    {
+        case IMU_CAL_RESULT_OK:
+            return "OK";
+        case IMU_CAL_RESULT_WEAK:
+            return "WEAK";
+        case IMU_CAL_RESULT_AMBIG:
+            return "AMBIG";
+        case IMU_CAL_RESULT_NODATA:
+            return "NODATA";
+        default:
+            return "ERR";
+    }
+}
+
+static void imu_send_cal_step(void)
+{
+    imu_send_textf("CAL,STEP,%u,%s\r\n",
+                   (unsigned int) (s_imu_calibration.current_step + 1U),
+                   imu_cal_step_name(s_imu_calibration.current_step));
+}
+
+static void imu_send_cal_ok(imu_cal_step_t step)
+{
+    imu_send_textf("CAL,OK,%u,%s\r\n",
+                   (unsigned int) (step + 1U),
+                   imu_cal_step_name(step));
+}
+
+static void imu_send_cal_error(imu_cal_result_t result, imu_cal_step_t step)
+{
+    imu_send_textf("CAL,ERR,%s,%s\r\n",
+                   imu_cal_result_name(result),
+                   imu_cal_step_name(step));
+}
+
+static void imu_send_cal_done(void)
+{
+    imu_send_text("CAL,DONE\r\n");
+}
+
+static void imu_send_cal_state(void)
+{
+    if (s_imu_calibration.is_calibrated)
+    {
+        imu_send_text("CAL,STATE,5,DONE,1\r\n");
+    }
+    else
+    {
+        imu_send_textf("CAL,STATE,%u,%s,0\r\n",
+                       (unsigned int) (s_imu_calibration.current_step + 1U),
+                       imu_cal_step_name(s_imu_calibration.current_step));
+    }
+}
+
+static void imu_set_flash_pattern(uint8_t pulses, uint32_t now_us)
+{
+    s_imu_calibration.led_flash_active = (pulses > 0U);
+    s_imu_calibration.led_flash_pulses = pulses;
+    s_imu_calibration.led_flash_start_us = now_us;
+}
+
 static void imu_update_status_led(uint32_t now_us)
 {
     bool led_on = false;
@@ -857,26 +1108,12 @@ static void imu_update_status_led(uint32_t now_us)
     if (s_imu_calibration.led_flash_active)
     {
         uint32_t elapsed_us = now_us - s_imu_calibration.led_flash_start_us;
+        uint32_t pulse_period_us = IMU_LED_FLASH_ON_US + IMU_LED_FLASH_GAP_US;
+        uint32_t pattern_window_us = (uint32_t) s_imu_calibration.led_flash_pulses * pulse_period_us;
 
-        if (elapsed_us < IMU_LED_FLASH_TOTAL_US)
+        if (elapsed_us < pattern_window_us)
         {
-            if (elapsed_us < IMU_LED_FLASH_ON_US)
-            {
-                led_on = true;
-            }
-            else if (elapsed_us < (IMU_LED_FLASH_ON_US + IMU_LED_FLASH_GAP_US))
-            {
-                led_on = false;
-            }
-            else if (elapsed_us < ((2U * IMU_LED_FLASH_ON_US) + IMU_LED_FLASH_GAP_US))
-            {
-                led_on = true;
-            }
-            else
-            {
-                led_on = false;
-            }
-
+            led_on = ((elapsed_us % pulse_period_us) < IMU_LED_FLASH_ON_US);
             imu_set_status_led(led_on);
             return;
         }
@@ -886,11 +1123,21 @@ static void imu_update_status_led(uint32_t now_us)
 
     if (s_imu_calibration.is_calibrated)
     {
-        led_on = true;
+        imu_set_status_led(true);
+        return;
     }
-    else
+
     {
-        led_on = (((now_us / IMU_LED_BLINK_HALF_PERIOD_US) % 2U) == 0U);
+        uint32_t wait_pulses = (uint32_t) (s_imu_calibration.current_step + 1U);
+        uint32_t pulse_period_us = IMU_LED_FLASH_ON_US + IMU_LED_FLASH_GAP_US;
+        uint32_t pulse_window_us = wait_pulses * pulse_period_us;
+        uint32_t cycle_window_us = pulse_window_us + IMU_LED_WAIT_PAUSE_US;
+        uint32_t cycle_offset_us = now_us % cycle_window_us;
+
+        if (cycle_offset_us < pulse_window_us)
+        {
+            led_on = ((cycle_offset_us % pulse_period_us) < IMU_LED_FLASH_ON_US);
+        }
     }
 
     imu_set_status_led(led_on);
@@ -898,25 +1145,239 @@ static void imu_update_status_led(uint32_t now_us)
 
 static void imu_calibration_reset(void)
 {
+    memset(&s_imu_calibration, 0, sizeof(s_imu_calibration));
     quaternion_identity(&s_imu_calibration.upper_offset);
     quaternion_identity(&s_imu_calibration.lower_offset);
-    s_imu_calibration.button_pending = false;
-    s_imu_calibration.is_calibrated = false;
-    s_imu_calibration.led_flash_active = false;
-    s_imu_calibration.led_flash_start_us = 0U;
-}
-
-static void imu_capture_tpose_calibration(uint32_t now_us)
-{
-    s_imu_calibration.upper_offset = quaternion_inverse(&s_upper_imu.quat);
-    s_imu_calibration.lower_offset = quaternion_inverse(&s_lower_imu.quat);
-    s_imu_calibration.is_calibrated = true;
-    s_imu_calibration.led_flash_active = true;
-    s_imu_calibration.led_flash_start_us = now_us;
+    s_imu_calibration.current_step = IMU_CAL_STEP_TPOSE;
     s_last_telemetry_time_us = 0U;
 }
 
-static void imu_handle_button_event(uint32_t now_us)
+static void imu_calibration_begin(uint32_t now_us)
+{
+    imu_calibration_reset();
+    s_imu_calibration.last_button_time_us = now_us - IMU_BUTTON_DEBOUNCE_US;
+    imu_set_flash_pattern(1U, now_us);
+    imu_send_cal_step();
+}
+
+static bool imu_capture_motion_components(imu_motion_components_t * p_motion)
+{
+    Quaternion_t upper_bone;
+    Quaternion_t lower_bone;
+    Quaternion_t upper_bone_inverse;
+    Quaternion_t relative_bone;
+
+    if ((NULL == p_motion) ||
+        (0U == s_upper_imu.last_sample_time_us) ||
+        (0U == s_lower_imu.last_sample_time_us))
+    {
+        return false;
+    }
+
+    upper_bone = quaternion_multiply(&s_upper_imu.quat, &s_imu_calibration.upper_offset);
+    lower_bone = quaternion_multiply(&s_lower_imu.quat, &s_imu_calibration.lower_offset);
+    upper_bone_inverse = quaternion_inverse(&upper_bone);
+    relative_bone = quaternion_multiply(&upper_bone_inverse, &lower_bone);
+
+    quaternion_to_euler_yxz(&upper_bone,
+                            &p_motion->upper_rad[IMU_COMPONENT_X],
+                            &p_motion->upper_rad[IMU_COMPONENT_Y],
+                            &p_motion->upper_rad[IMU_COMPONENT_Z]);
+    quaternion_to_euler_yxz(&relative_bone,
+                            &p_motion->relative_rad[IMU_COMPONENT_X],
+                            &p_motion->relative_rad[IMU_COMPONENT_Y],
+                            &p_motion->relative_rad[IMU_COMPONENT_Z]);
+
+    return true;
+}
+
+static imu_cal_result_t imu_learn_axis_map(imu_axis_map_t * p_map,
+                                           float const raw_deg[3],
+                                           uint8_t excluded_mask,
+                                           imu_signal_source_t source,
+                                           int16_t center_deg,
+                                           float target_delta_deg)
+{
+    int   best_index = -1;
+    float best_abs_deg = 0.0f;
+    float second_abs_deg = 0.0f;
+
+    if ((NULL == p_map) || (NULL == raw_deg))
+    {
+        return IMU_CAL_RESULT_AMBIG;
+    }
+
+    for (int i = 0; i < 3; i++)
+    {
+        float abs_deg;
+
+        if (0U != (excluded_mask & (1U << i)))
+        {
+            continue;
+        }
+
+        abs_deg = fabsf(raw_deg[i]);
+        if (abs_deg > best_abs_deg)
+        {
+            second_abs_deg = best_abs_deg;
+            best_abs_deg = abs_deg;
+            best_index = i;
+        }
+        else if (abs_deg > second_abs_deg)
+        {
+            second_abs_deg = abs_deg;
+        }
+    }
+
+    if (best_index < 0)
+    {
+        return IMU_CAL_RESULT_AMBIG;
+    }
+
+    if (best_abs_deg < IMU_AXIS_MIN_RESPONSE_DEG)
+    {
+        return IMU_CAL_RESULT_WEAK;
+    }
+
+    if ((second_abs_deg > 0.0f) && (best_abs_deg < (second_abs_deg * IMU_AXIS_DOMINANCE_RATIO)))
+    {
+        return IMU_CAL_RESULT_AMBIG;
+    }
+
+    p_map->source = source;
+    p_map->component = (uint8_t) best_index;
+    p_map->gain = target_delta_deg / raw_deg[best_index];
+    p_map->center_deg = center_deg;
+    p_map->valid = true;
+
+    return IMU_CAL_RESULT_OK;
+}
+
+static imu_cal_result_t imu_record_current_step(uint32_t now_us)
+{
+    imu_motion_components_t motion = {0};
+    float upper_deg[3] = {0.0f, 0.0f, 0.0f};
+    float relative_deg[3] = {0.0f, 0.0f, 0.0f};
+
+    (void) now_us;
+
+    if ((0U == s_upper_imu.last_sample_time_us) || (0U == s_lower_imu.last_sample_time_us))
+    {
+        return IMU_CAL_RESULT_NODATA;
+    }
+
+    if (IMU_CAL_STEP_TPOSE == s_imu_calibration.current_step)
+    {
+        s_imu_calibration.upper_offset = quaternion_inverse(&s_upper_imu.quat);
+        s_imu_calibration.lower_offset = quaternion_inverse(&s_lower_imu.quat);
+        s_imu_calibration.hY_map.valid = false;
+        s_imu_calibration.hZ_map.valid = false;
+        s_imu_calibration.eZ_map.valid = false;
+        s_imu_calibration.wX_map.valid = false;
+        s_imu_calibration.is_calibrated = false;
+        s_last_telemetry_time_us = 0U;
+        return IMU_CAL_RESULT_OK;
+    }
+
+    if (!imu_capture_motion_components(&motion))
+    {
+        return IMU_CAL_RESULT_NODATA;
+    }
+
+    for (int i = 0; i < 3; i++)
+    {
+        upper_deg[i] = motion.upper_rad[i] * IMU_RAD_TO_DEG;
+        relative_deg[i] = motion.relative_rad[i] * IMU_RAD_TO_DEG;
+    }
+
+    switch (s_imu_calibration.current_step)
+    {
+        case IMU_CAL_STEP_HY:
+            return imu_learn_axis_map(&s_imu_calibration.hY_map,
+                                      upper_deg,
+                                      0U,
+                                      IMU_SIGNAL_SOURCE_UPPER,
+                                      90,
+                                      IMU_CAL_TARGET_DELTA_DEG);
+
+        case IMU_CAL_STEP_HZ:
+            return imu_learn_axis_map(&s_imu_calibration.hZ_map,
+                                      upper_deg,
+                                      s_imu_calibration.hY_map.valid ? (uint8_t) (1U << s_imu_calibration.hY_map.component) : 0U,
+                                      IMU_SIGNAL_SOURCE_UPPER,
+                                      90,
+                                      -IMU_CAL_TARGET_DELTA_DEG);
+
+        case IMU_CAL_STEP_EZ:
+            return imu_learn_axis_map(&s_imu_calibration.eZ_map,
+                                      relative_deg,
+                                      0U,
+                                      IMU_SIGNAL_SOURCE_RELATIVE,
+                                      0,
+                                      IMU_CAL_TARGET_DELTA_DEG);
+
+        case IMU_CAL_STEP_WX:
+            return imu_learn_axis_map(&s_imu_calibration.wX_map,
+                                      relative_deg,
+                                      s_imu_calibration.eZ_map.valid ? (uint8_t) (1U << s_imu_calibration.eZ_map.component) : 0U,
+                                      IMU_SIGNAL_SOURCE_RELATIVE,
+                                      90,
+                                      IMU_CAL_TARGET_DELTA_DEG);
+
+        default:
+            return IMU_CAL_RESULT_AMBIG;
+    }
+}
+
+static void imu_handle_calibration_next(uint32_t now_us)
+{
+    imu_cal_result_t result;
+    imu_cal_step_t   finished_step;
+
+    if (s_imu_calibration.is_calibrated && (IMU_CAL_STEP_DONE == s_imu_calibration.current_step))
+    {
+        imu_send_cal_done();
+        return;
+    }
+
+    result = imu_record_current_step(now_us);
+    finished_step = s_imu_calibration.current_step;
+
+    if (IMU_CAL_RESULT_OK != result)
+    {
+        imu_set_flash_pattern(4U, now_us);
+        imu_send_cal_error(result, finished_step);
+        return;
+    }
+
+    imu_set_flash_pattern(2U, now_us);
+    imu_send_cal_ok(finished_step);
+
+    if (IMU_CAL_STEP_WX == finished_step)
+    {
+        s_imu_calibration.is_calibrated = s_imu_calibration.hY_map.valid &&
+                                          s_imu_calibration.hZ_map.valid &&
+                                          s_imu_calibration.eZ_map.valid &&
+                                          s_imu_calibration.wX_map.valid;
+
+        if (s_imu_calibration.is_calibrated)
+        {
+            s_imu_calibration.current_step = IMU_CAL_STEP_DONE;
+            s_last_telemetry_time_us = 0U;
+            imu_send_cal_done();
+        }
+        else
+        {
+            imu_send_cal_error(IMU_CAL_RESULT_AMBIG, finished_step);
+        }
+        return;
+    }
+
+    s_imu_calibration.current_step = (imu_cal_step_t) (finished_step + 1);
+    imu_send_cal_step();
+}
+
+static void imu_handle_button_event_legacy(uint32_t now_us)
 {
     if (!s_imu_calibration.button_pending)
     {
@@ -938,7 +1399,7 @@ static void imu_handle_button_event(uint32_t now_us)
     }
 
     /* 单键动作改为“T-Pose 一键重标定”：每次短按都以当前姿态重新建立固连偏差。 */
-    imu_capture_tpose_calibration(now_us);
+    imu_calibration_begin(now_us);
 }
 
 static uint8_t imu_get_grip_percent(void)
@@ -946,7 +1407,7 @@ static uint8_t imu_get_grip_percent(void)
     return 0U;
 }
 
-static bool imu_try_build_servo_pose(imu_servo_pose_t * p_pose)
+static bool imu_try_build_servo_pose_legacy(imu_servo_pose_t * p_pose)
 {
     Quaternion_t upper_bone;
     Quaternion_t lower_bone;
@@ -990,7 +1451,7 @@ static bool imu_try_build_servo_pose(imu_servo_pose_t * p_pose)
     return true;
 }
 
-static void send_pose_frame(imu_servo_pose_t const * p_pose)
+static void send_pose_frame_legacy(imu_servo_pose_t const * p_pose)
 {
     char frame[32] = {0};
     int  frame_len;
@@ -1019,6 +1480,172 @@ static void send_pose_frame(imu_servo_pose_t const * p_pose)
 }
 
 /* 机械臂测试相关的全局节拍计数。 */
+static void imu_handle_button_event(uint32_t now_us)
+{
+    if (s_imu_calibration.button_pending)
+    {
+        s_imu_calibration.button_pending = false;
+
+        if (((now_us - s_imu_calibration.last_button_time_us) >= IMU_BUTTON_DEBOUNCE_US) &&
+            imu_is_button_pressed())
+        {
+            s_imu_calibration.last_button_time_us = now_us;
+            s_imu_calibration.button_press_start_us = now_us;
+            s_imu_calibration.button_press_active = true;
+            s_imu_calibration.button_long_handled = false;
+        }
+    }
+
+    if (!s_imu_calibration.button_press_active)
+    {
+        return;
+    }
+
+    if (imu_is_button_pressed())
+    {
+        if ((!s_imu_calibration.button_long_handled) &&
+            ((now_us - s_imu_calibration.button_press_start_us) >= IMU_BUTTON_LONG_PRESS_US))
+        {
+            s_imu_calibration.button_long_handled = true;
+            s_imu_calibration.button_press_active = false;
+            imu_calibration_begin(now_us);
+        }
+
+        return;
+    }
+
+    s_imu_calibration.button_press_active = false;
+    if (!s_imu_calibration.button_long_handled)
+    {
+        imu_handle_calibration_next(now_us);
+    }
+}
+
+static void imu_handle_uart_commands(uint32_t now_us)
+{
+    char line[IMU_UART_LINE_MAX_LEN] = {0};
+
+    while (drv_uart_read_line(line, sizeof(line)))
+    {
+        if ('\0' == line[0])
+        {
+            continue;
+        }
+
+        imu_handle_uart_command(line, now_us);
+    }
+}
+
+static void imu_handle_uart_command(char * p_line, uint32_t now_us)
+{
+    if (NULL == p_line)
+    {
+        return;
+    }
+
+    imu_ascii_to_upper(p_line);
+
+    if (0 == strcmp(p_line, "CAL,START"))
+    {
+        imu_calibration_begin(now_us);
+    }
+    else if (0 == strcmp(p_line, "CAL,NEXT"))
+    {
+        imu_handle_calibration_next(now_us);
+    }
+    else if (0 == strcmp(p_line, "CAL,RESET"))
+    {
+        imu_calibration_begin(now_us);
+    }
+    else if (0 == strcmp(p_line, "CAL,STATUS"))
+    {
+        imu_send_cal_state();
+    }
+}
+
+static int32_t imu_apply_axis_map(imu_axis_map_t const * p_map, imu_motion_components_t const * p_motion)
+{
+    float input_deg = 0.0f;
+
+    if ((NULL == p_map) || (NULL == p_motion) || !p_map->valid || (p_map->component > IMU_COMPONENT_Z))
+    {
+        return 0;
+    }
+
+    if (IMU_SIGNAL_SOURCE_UPPER == p_map->source)
+    {
+        input_deg = p_motion->upper_rad[p_map->component] * IMU_RAD_TO_DEG;
+    }
+    else
+    {
+        input_deg = p_motion->relative_rad[p_map->component] * IMU_RAD_TO_DEG;
+    }
+
+    return (int32_t) roundf((float) p_map->center_deg + (p_map->gain * input_deg));
+}
+
+static bool imu_try_build_servo_pose(imu_servo_pose_t * p_pose)
+{
+    imu_motion_components_t motion = {0};
+    int32_t                 hY_deg;
+    int32_t                 hZ_deg;
+    int32_t                 eZ_deg;
+    int32_t                 wX_deg;
+
+    if ((NULL == p_pose) ||
+        !s_imu_calibration.is_calibrated ||
+        !s_imu_calibration.hY_map.valid ||
+        !s_imu_calibration.hZ_map.valid ||
+        !s_imu_calibration.eZ_map.valid ||
+        !s_imu_calibration.wX_map.valid)
+    {
+        return false;
+    }
+
+    if (!imu_capture_motion_components(&motion))
+    {
+        return false;
+    }
+
+    hY_deg = imu_apply_axis_map(&s_imu_calibration.hY_map, &motion);
+    hZ_deg = imu_apply_axis_map(&s_imu_calibration.hZ_map, &motion);
+    eZ_deg = imu_apply_axis_map(&s_imu_calibration.eZ_map, &motion);
+    wX_deg = imu_apply_axis_map(&s_imu_calibration.wX_map, &motion);
+
+    p_pose->hY_deg = (uint16_t) imu_clamp_int32(hY_deg, 0, 180);
+    p_pose->hZ_deg = (uint16_t) imu_clamp_int32(hZ_deg, 0, 180);
+    p_pose->eZ_deg = (uint16_t) imu_clamp_int32(eZ_deg, 0, 180);
+    p_pose->wX_deg = (uint16_t) imu_clamp_int32(wX_deg, 0, 180);
+    p_pose->grip_percent = (uint8_t) imu_clamp_int32((int32_t) imu_get_grip_percent(), 0, 100);
+
+    return true;
+}
+
+static void send_pose_frame(imu_servo_pose_t const * p_pose)
+{
+    char frame[32] = {0};
+    int  frame_len;
+
+    if (NULL == p_pose)
+    {
+        return;
+    }
+
+    frame_len = snprintf(frame,
+                         sizeof(frame),
+                         "POSE,%u,%u,%u,%u,%u\r\n",
+                         (unsigned int) p_pose->hY_deg,
+                         (unsigned int) p_pose->hZ_deg,
+                         (unsigned int) p_pose->eZ_deg,
+                         (unsigned int) p_pose->wX_deg,
+                         (unsigned int) p_pose->grip_percent);
+
+    if ((frame_len > 0) && ((size_t) frame_len < sizeof(frame)))
+    {
+        imu_send_text(frame);
+    }
+}
+
 volatile uint16_t g_agt_tick_count = 0;
 
 void g_timer_agt1_callback(timer_callback_args_t *p_args)

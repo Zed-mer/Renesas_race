@@ -1,0 +1,1913 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>体感机械臂姿态映射仿真系统 (写实版)</title>
+    <style>
+        :root {
+            --safe-top: max(12px, env(safe-area-inset-top, 0px));
+            --safe-right: max(12px, env(safe-area-inset-right, 0px));
+            --safe-bottom: max(12px, env(safe-area-inset-bottom, 0px));
+            --safe-left: max(12px, env(safe-area-inset-left, 0px));
+            --panel-bg: rgba(20, 20, 20, 0.88);
+            --panel-border: #333;
+            --panel-shadow: 0 10px 30px rgba(0, 0, 0, 0.55);
+        }
+        html,
+        body {
+            width: 100%;
+            height: 100%;
+        }
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #1a1a1a;
+            color: #fff;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            overscroll-behavior: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+        #canvas-container {
+            width: 100vw;
+            height: 100vh;
+            height: 100dvh;
+        }
+        #canvas-container canvas {
+            display: block;
+            width: 100% !important;
+            height: 100% !important;
+            touch-action: none;
+        }
+        .overlay-panel {
+            border: 1px solid var(--panel-border);
+            box-shadow: var(--panel-shadow);
+            backdrop-filter: blur(10px);
+            transition: opacity 0.25s ease, transform 0.25s ease;
+        }
+        #ui-panel {
+            position: absolute;
+            right: 18px;
+            bottom: 18px;
+            width: min(360px, calc(100vw - 28px));
+            max-height: min(58vh, 480px);
+            overflow: auto;
+            overscroll-behavior: contain;
+            background: var(--panel-bg);
+            padding: 14px 16px;
+            border-radius: 14px;
+            z-index: 5;
+        }
+        .serial-toolbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-bottom: 10px;
+        }
+        .serial-title {
+            font-size: 15px;
+            font-weight: 700;
+            color: #fff;
+        }
+        .serial-subtitle {
+            margin-top: 4px;
+            font-size: 11px;
+            line-height: 1.4;
+            color: #9ca3af;
+        }
+        .serial-actions {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        .serial-button {
+            border: none;
+            border-radius: 999px;
+            min-height: 40px;
+            padding: 7px 12px;
+            background: #00e5ff;
+            color: #001316;
+            font-size: 12px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: transform 0.2s ease, opacity 0.2s ease;
+        }
+        .serial-button:hover:not(:disabled) {
+            transform: translateY(-1px);
+        }
+        .serial-button.secondary {
+            background: rgba(255,255,255,0.08);
+            color: #e5e7eb;
+            border: 1px solid #444;
+        }
+        .serial-button:disabled {
+            opacity: 0.45;
+            cursor: not-allowed;
+        }
+        .serial-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 10px;
+        }
+        .serial-card {
+            min-height: 0;
+            padding: 10px 12px;
+            border-radius: 10px;
+            background: rgba(255,255,255,0.03);
+            border: 1px solid #2d2d2d;
+        }
+        .serial-card.wide {
+            grid-column: span 2;
+        }
+        .serial-label {
+            margin-bottom: 6px;
+            font-size: 10px;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            color: #9ca3af;
+        }
+        .serial-value {
+            font-size: clamp(18px, 2vw, 20px);
+            font-weight: 700;
+            color: #fff;
+        }
+        .serial-value.small {
+            font-size: clamp(12px, 1.5vw, 13px);
+            line-height: 1.45;
+            word-break: break-word;
+            color: #facc15;
+            font-family: Consolas, Monaco, monospace;
+        }
+        #raw-frame {
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .serial-pose-list {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 8px;
+        }
+        .serial-pose-item {
+            padding: 6px 8px;
+            border-radius: 8px;
+            background: rgba(255,255,255,0.03);
+        }
+        .serial-pose-name {
+            font-size: 11px;
+            color: #9ca3af;
+        }
+        .serial-pose-readout {
+            margin-top: 4px;
+            font-size: 16px;
+            font-weight: 700;
+            color: #fff;
+        }
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #6b7280;
+            box-shadow: 0 0 10px rgba(107, 114, 128, 0.5);
+        }
+        .status-badge[data-state="online"] .status-dot {
+            background: #10b981;
+            box-shadow: 0 0 12px rgba(16, 185, 129, 0.5);
+        }
+        .status-badge[data-state="pending"] .status-dot {
+            background: #facc15;
+            box-shadow: 0 0 12px rgba(250, 204, 21, 0.5);
+        }
+        .status-badge[data-state="error"] .status-dot {
+            background: #f87171;
+            box-shadow: 0 0 12px rgba(248, 113, 113, 0.5);
+        }
+        #serial-error {
+            min-height: 16px;
+            margin-top: 10px;
+            font-size: 12px;
+            line-height: 1.4;
+            color: #f87171;
+        }
+        .calibration-panel {
+            margin-top: 14px;
+            padding-top: 14px;
+            border-top: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        .calibration-actions {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 8px;
+        }
+        .calibration-card {
+            margin-top: 10px;
+            padding: 12px;
+            border-radius: 12px;
+            border: 1px solid rgba(0, 229, 255, 0.18);
+            background: rgba(0, 229, 255, 0.06);
+        }
+        .calibration-step-title {
+            font-size: 17px;
+            font-weight: 700;
+            color: #00e5ff;
+        }
+        .calibration-step-desc {
+            margin-top: 6px;
+            font-size: 13px;
+            line-height: 1.45;
+            color: #e5e7eb;
+        }
+        .calibration-step-target {
+            margin-top: 8px;
+            font-size: 12px;
+            line-height: 1.45;
+            color: #facc15;
+            font-family: Consolas, Monaco, monospace;
+        }
+        .calibration-step-hint {
+            min-height: 18px;
+            margin-top: 8px;
+            font-size: 12px;
+            line-height: 1.45;
+            color: #cbd5e1;
+        }
+        .calibration-step-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(52px, 1fr));
+            gap: 6px;
+            margin-top: 10px;
+        }
+        .calibration-chip {
+            padding: 7px 6px;
+            border-radius: 999px;
+            border: 1px solid rgba(255,255,255,0.08);
+            background: rgba(255,255,255,0.04);
+            color: #94a3b8;
+            font-size: 11px;
+            text-align: center;
+            font-weight: 700;
+        }
+        .calibration-chip[data-state="active"] {
+            background: rgba(0, 229, 255, 0.16);
+            border-color: rgba(0, 229, 255, 0.38);
+            color: #e0fbff;
+        }
+        .calibration-chip[data-state="done"] {
+            background: rgba(16, 185, 129, 0.18);
+            border-color: rgba(16, 185, 129, 0.38);
+            color: #d1fae5;
+        }
+        #info-panel {
+            position: absolute;
+            top: 25px;
+            left: 25px;
+            width: min(320px, calc(100vw - 50px));
+            background: rgba(20, 20, 20, 0.85);
+            padding: 18px;
+            border-radius: 12px;
+            pointer-events: none;
+            z-index: 4;
+        }
+        .info-title {
+            margin-bottom: 12px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid #444;
+            font-size: 16px;
+            font-weight: 700;
+            color: #fff;
+        }
+        .info-line {
+            margin: 8px 0;
+            display: flex;
+            justify-content: space-between;
+            gap: 20px;
+            font-size: 14px;
+            color: #ddd;
+        }
+        .highlight {
+            color: #facc15;
+            font-weight: 700;
+            font-family: Consolas, Monaco, monospace;
+            font-size: 16px;
+        }
+        .coordinate-info {
+            position: absolute;
+            top: 25px;
+            right: 25px;
+            width: min(280px, calc(100vw - 50px));
+            background: rgba(20, 20, 20, 0.85);
+            padding: 18px;
+            border-radius: 12px;
+            font-size: 13px;
+            color: #bbb;
+            z-index: 4;
+        }
+        .axis-label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin: 4px 0;
+            font-weight: 500;
+        }
+        .dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+        #mobile-panel-switcher {
+            position: fixed;
+            top: var(--safe-top);
+            left: 50%;
+            display: none;
+            gap: 8px;
+            padding: 6px;
+            transform: translateX(-50%);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 999px;
+            background: rgba(10, 10, 10, 0.7);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+            backdrop-filter: blur(10px);
+            z-index: 7;
+        }
+        .mobile-panel-button {
+            border: none;
+            border-radius: 999px;
+            padding: 8px 12px;
+            background: transparent;
+            color: #d1d5db;
+            font-size: 12px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: background-color 0.2s ease, color 0.2s ease;
+        }
+        .mobile-panel-button.active {
+            background: #00e5ff;
+            color: #001316;
+        }
+        .panel-hidden-mobile {
+            opacity: 0;
+            pointer-events: none;
+        }
+        @media (max-width: 760px) {
+            #mobile-panel-switcher {
+                display: flex;
+                width: calc(100vw - 24px);
+                max-width: 320px;
+                justify-content: space-between;
+            }
+            #info-panel,
+            .coordinate-info,
+            #ui-panel {
+                left: var(--safe-left);
+                right: var(--safe-right);
+                width: auto;
+                max-width: none;
+                border-radius: 16px;
+            }
+            #info-panel,
+            .coordinate-info {
+                top: calc(var(--safe-top) + 54px);
+                max-height: min(42dvh, 320px);
+                overflow: auto;
+                padding: 14px 16px;
+                pointer-events: auto;
+            }
+            #ui-panel {
+                right: var(--safe-right);
+                bottom: calc(var(--safe-bottom) + 4px);
+                max-height: min(52dvh, 420px);
+                padding: 14px;
+            }
+            .serial-toolbar {
+                gap: 12px;
+                margin-bottom: 12px;
+            }
+            .serial-actions {
+                width: 100%;
+            }
+            .serial-button {
+                flex: 1 1 0;
+                min-width: 0;
+                min-height: 44px;
+                padding: 10px 14px;
+                font-size: 14px;
+            }
+            .serial-title {
+                font-size: 16px;
+            }
+            .serial-subtitle {
+                font-size: 12px;
+            }
+            .serial-grid {
+                grid-template-columns: 1fr;
+                gap: 8px;
+            }
+            .serial-card.wide {
+                grid-column: auto;
+            }
+            .serial-label {
+                font-size: 11px;
+            }
+            .serial-value {
+                font-size: 19px;
+            }
+            .serial-value.small {
+                font-size: 13px;
+            }
+            #raw-frame {
+                white-space: normal;
+                overflow: visible;
+                text-overflow: clip;
+                overflow-wrap: anywhere;
+            }
+            .serial-pose-list {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+            .serial-pose-item {
+                padding: 8px 10px;
+            }
+            .serial-pose-name {
+                font-size: 12px;
+            }
+            .serial-pose-readout {
+                font-size: 18px;
+            }
+            .info-title {
+                margin-bottom: 10px;
+                font-size: 15px;
+            }
+            .info-line {
+                margin: 6px 0;
+                gap: 10px;
+                font-size: 14px;
+            }
+            .highlight {
+                font-size: 17px;
+            }
+            .coordinate-info {
+                font-size: 14px;
+            }
+            .axis-label {
+                margin: 6px 0;
+            }
+            .panel-hidden-mobile {
+                transform: translateY(-12px);
+            }
+            #ui-panel.panel-hidden-mobile {
+                transform: translateY(16px);
+            }
+        }
+        @media (max-width: 420px) {
+            .mobile-panel-button {
+                padding: 8px 10px;
+            }
+            .info-line {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 2px;
+            }
+            .serial-pose-list {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+    <!-- 引入 Three.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+</head>
+<body>
+
+<div id="canvas-container"></div>
+
+<div id="mobile-panel-switcher" aria-label="Mobile panel switcher">
+    <button class="mobile-panel-button" data-panel-target="serial" type="button">串口</button>
+    <button class="mobile-panel-button" data-panel-target="outputs" type="button">输出</button>
+    <button class="mobile-panel-button" data-panel-target="axes" type="button">坐标</button>
+</div>
+
+<div id="info-panel" class="overlay-panel" data-panel="outputs">
+    <div class="info-title">舵机输出状态</div>
+    <div class="info-line"><span>舵机1 (底盘转动):</span> <span class="highlight" id="servo1-val">90°</span></div>
+    <div class="info-line"><span>舵机2 (大臂抬升):</span> <span class="highlight" id="servo2-val">90°</span></div>
+    <div class="info-line"><span>舵机3 (小臂抬升):</span> <span class="highlight" id="servo3-val">90°</span></div>
+    <div class="info-line"><span>舵机4 (手腕翻滚):</span> <span class="highlight" id="servo4-val">90°</span></div>
+    <div class="info-line" style="border-top: 1px dashed #444; padding-top: 8px;"><span>手爪张合度:</span> <span class="highlight" id="grip-val-out">0%</span></div>
+</div>
+
+<div class="coordinate-info overlay-panel" data-panel="axes">
+    <div class="info-title" style="margin-bottom: 10px; border:none; padding-bottom:0;">人体坐标系定义:</div>
+    <div class="axis-label"><span class="dot" style="background:#ff4757"></span> X轴: 向后</div>
+    <div class="axis-label"><span class="dot" style="background:#2ed573"></span> Y轴: 向右</div>
+    <div class="axis-label"><span class="dot" style="background:#1e90ff"></span> Z轴: 向上</div>
+    <div style="margin-top: 15px; font-style: italic; font-size: 12px; color: #888;">*左侧为人体，右侧为复刻机械臂<br>*支持鼠标拖拽旋转、滚轮缩放</div>
+</div>
+
+<div id="ui-panel" class="overlay-panel" data-panel="serial">
+    <div class="serial-toolbar">
+        <div>
+            <div class="serial-title">串口姿态输入</div>
+            <div class="serial-subtitle">115200 · POSE / CAL 双向控制</div>
+        </div>
+        <div class="serial-actions">
+            <button class="serial-button" id="connect-serial-btn" type="button">连接串口</button>
+            <button class="serial-button secondary" id="disconnect-serial-btn" type="button" disabled>断开串口</button>
+        </div>
+    </div>
+    <div class="serial-grid">
+        <div class="serial-card">
+            <div class="serial-label">状态</div>
+            <div class="serial-value">
+                <span class="status-badge" data-state="offline" id="serial-status-badge">
+                    <span class="status-dot"></span>
+                    <span id="serial-status">未连接</span>
+                </span>
+            </div>
+        </div>
+        <div class="serial-card">
+            <div class="serial-label">最新有效数据</div>
+            <div class="serial-value small" id="last-update">尚无有效数据</div>
+        </div>
+        <div class="serial-card wide">
+            <div class="serial-label">原始报文</div>
+            <div class="serial-value small" id="raw-frame">等待串口数据...</div>
+        </div>
+        <div class="serial-card wide">
+            <div class="serial-label">实时输入值</div>
+            <div class="serial-pose-list">
+                <div class="serial-pose-item">
+                    <div class="serial-pose-name">大臂 Y</div>
+                    <div class="serial-pose-readout" id="pose-hy">90°</div>
+                </div>
+                <div class="serial-pose-item">
+                    <div class="serial-pose-name">大臂 Z</div>
+                    <div class="serial-pose-readout" id="pose-hz">90°</div>
+                </div>
+                <div class="serial-pose-item">
+                    <div class="serial-pose-name">肘部 Z</div>
+                    <div class="serial-pose-readout" id="pose-ez">0°</div>
+                </div>
+                <div class="serial-pose-item">
+                    <div class="serial-pose-name">手腕 X</div>
+                    <div class="serial-pose-readout" id="pose-wx">90°</div>
+                </div>
+                <div class="serial-pose-item">
+                    <div class="serial-pose-name">手爪</div>
+                    <div class="serial-pose-readout" id="pose-grip">0%</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="calibration-panel">
+        <div class="serial-label">动作标定</div>
+        <div class="calibration-actions">
+            <button class="serial-button" id="cal-start-btn" type="button" disabled>开始标定</button>
+            <button class="serial-button" id="cal-next-btn" type="button" disabled>确认当前动作</button>
+            <button class="serial-button secondary" id="cal-reset-btn" type="button" disabled>重置标定</button>
+            <button class="serial-button secondary" id="cal-status-btn" type="button" disabled>查询步骤</button>
+        </div>
+        <div class="calibration-card">
+            <div class="calibration-step-title" id="cal-step-title">未进入标定模式</div>
+            <div class="calibration-step-desc" id="cal-step-desc">连接串口后，可以用页面按钮或下位机按键推进 5 个标准动作。</div>
+            <div class="calibration-step-target" id="cal-step-target">POSE,--,--,--,--,--</div>
+            <div class="calibration-step-hint" id="cal-step-hint">进入标定后，左侧人体模型会切换成当前标准动作提示。</div>
+            <div class="calibration-step-list">
+                <div class="calibration-chip" data-cal-step="TPOSE" data-state="idle">TPOSE</div>
+                <div class="calibration-chip" data-cal-step="HY+" data-state="idle">HY+</div>
+                <div class="calibration-chip" data-cal-step="HZ-" data-state="idle">HZ-</div>
+                <div class="calibration-chip" data-cal-step="EZ+" data-state="idle">EZ+</div>
+                <div class="calibration-chip" data-cal-step="WX+" data-state="idle">WX+</div>
+            </div>
+        </div>
+    </div>
+    <div id="serial-error"></div>
+</div>
+
+<script>
+    // ==========================================
+    // 初始化场景、相机、渲染器、光影
+    // ==========================================
+    const scene = new THREE.Scene();
+    scene.fog = new THREE.FogExp2(0x1a1a1a, 0.005);
+
+    const camera = new THREE.PerspectiveCamera(40, window.innerWidth / window.innerHeight, 1, 1000);
+    camera.position.set(-45, 25, 60);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.0;
+    document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+    const controls = new THREE.OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.target.set(0, 15, 0);
+
+    // 灯光设置 (更真实的影棚打光)
+    const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 0.6);
+    hemiLight.position.set(0, 50, 0);
+    scene.add(hemiLight);
+
+    const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+    dirLight.position.set(30, 50, 30);
+    dirLight.castShadow = true;
+    dirLight.shadow.mapSize.width = 2048;
+    dirLight.shadow.mapSize.height = 2048;
+    scene.add(dirLight);
+
+    const backLight = new THREE.DirectionalLight(0x00e5ff, 0.3);
+    backLight.position.set(-30, 20, -30);
+    scene.add(backLight);
+
+    // 地板
+    const floorGeo = new THREE.PlaneGeometry(200, 200);
+    const floorMat = new THREE.MeshStandardMaterial({ 
+        color: 0x222222, 
+        roughness: 0.8, 
+        metalness: 0.2 
+    });
+    const floor = new THREE.Mesh(floorGeo, floorMat);
+    floor.rotation.x = -Math.PI / 2;
+    floor.receiveShadow = true;
+    scene.add(floor);
+
+    const gridHelper = new THREE.GridHelper(100, 50, 0x444444, 0x2a2a2a);
+    gridHelper.position.y = 0.1;
+    scene.add(gridHelper);
+
+    // ==========================================
+    // 材质定义
+    // ==========================================
+    // 人体材质
+    function createHandTexture(baseColor, lineColor, mode) {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        canvas.width = 256;
+        canvas.height = 256;
+        ctx.fillStyle = baseColor;
+        ctx.fillRect(0, 0, 256, 256);
+
+        const gloss = ctx.createLinearGradient(0, 0, 256, 256);
+        gloss.addColorStop(0, 'rgba(255,255,255,0.16)');
+        gloss.addColorStop(1, 'rgba(0,0,0,0.12)');
+        ctx.fillStyle = gloss;
+        ctx.fillRect(0, 0, 256, 256);
+
+        ctx.strokeStyle = lineColor;
+        ctx.lineCap = 'round';
+        ctx.lineWidth = mode === 'palm' ? 5 : 4;
+
+        if (mode === 'palm' || mode === 'pad') {
+            ctx.globalAlpha = 0.42;
+            [[42, 62, 214, 72], [54, 110, 208, 126], [76, 164, 196, 188], [94, 202, 176, 218]].forEach((line) => {
+                ctx.beginPath();
+                ctx.moveTo(line[0], line[1]);
+                ctx.quadraticCurveTo((line[0] + line[2]) / 2, line[1] - 18, line[2], line[3]);
+                ctx.stroke();
+            });
+            ctx.beginPath();
+            ctx.arc(90, 186, 44, Math.PI * 0.28, Math.PI * 1.55);
+            ctx.stroke();
+        } else {
+            ctx.globalAlpha = 0.36;
+            [[44, 72, 212, 92], [60, 122, 204, 148], [84, 178, 192, 210]].forEach((line) => {
+                ctx.beginPath();
+                ctx.moveTo(line[0], line[1]);
+                ctx.lineTo(line[2], line[3]);
+                ctx.stroke();
+            });
+            ctx.fillStyle = 'rgba(255,255,255,0.12)';
+            [[84, 58, 42, 14], [118, 84, 42, 14], [152, 110, 40, 14], [184, 138, 36, 14]].forEach((oval) => {
+                ctx.beginPath();
+                ctx.ellipse(oval[0], oval[1], oval[2], oval[3], 0, 0, Math.PI * 2);
+                ctx.fill();
+            });
+        }
+
+        const texture = new THREE.CanvasTexture(canvas);
+        texture.needsUpdate = true;
+        return texture;
+    }
+
+    const skinMat = new THREE.MeshStandardMaterial({ color: 0xe0ac69, roughness: 0.4, metalness: 0.1 });
+    const shirtMat = new THREE.MeshStandardMaterial({ color: 0x2c3e50, roughness: 0.9 });
+    const jointSkinMat = new THREE.MeshStandardMaterial({ color: 0xd49b55, roughness: 0.5 }); // 关节处稍微深色
+    const palmMat = new THREE.MeshStandardMaterial({
+        color: 0xf0c491,
+        roughness: 0.58,
+        metalness: 0.02,
+        map: createHandTexture('#efbc8b', 'rgba(130,74,52,0.95)', 'palm')
+    });
+    const handBackMat = new THREE.MeshStandardMaterial({
+        color: 0xca9166,
+        roughness: 0.66,
+        metalness: 0.03,
+        map: createHandTexture('#c88f62', 'rgba(82,54,40,0.95)', 'back')
+    });
+    const handSideMat = new THREE.MeshStandardMaterial({ color: 0xdcab78, roughness: 0.54, metalness: 0.03 });
+    const fingerPadMat = new THREE.MeshStandardMaterial({
+        color: 0xf4c99f,
+        roughness: 0.63,
+        metalness: 0.02,
+        map: createHandTexture('#f0be90', 'rgba(150,98,66,0.78)', 'pad')
+    });
+    const nailMat = new THREE.MeshStandardMaterial({
+        color: 0xc88a63,
+        roughness: 0.68,
+        metalness: 0.03,
+        map: createHandTexture('#c48961', 'rgba(74,48,36,0.82)', 'nail')
+    });
+    
+    // 机械臂材质 (还原图片：黑色主体，灰色圆柱关节)
+    const robotBodyMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.6, metalness: 0.3 }); // 黑色方块
+    const robotJointMat = new THREE.MeshStandardMaterial({ color: 0x888888, roughness: 0.3, metalness: 0.6 }); // 灰色金属铰链
+
+    // 尺寸定义
+    const upperArmLength = 14;
+    const forearmLength = 12;
+
+    // ==========================================
+    // 1. 构建写实人体 (左侧)
+    // ==========================================
+    const humanGroup = new THREE.Group();
+    humanGroup.position.set(-18, 0, 0);
+    scene.add(humanGroup);
+
+    // 躯干
+    const torsoGeo = new THREE.BoxGeometry(12, 22, 7);
+    const torso = new THREE.Mesh(torsoGeo, shirtMat);
+    torso.position.y = 20;
+    torso.castShadow = true;
+    humanGroup.add(torso);
+
+    // 头部
+    const headGeo = new THREE.SphereGeometry(4, 32, 32);
+    const head = new THREE.Mesh(headGeo, skinMat);
+    head.position.y = 35;
+    head.castShadow = true;
+    humanGroup.add(head);
+
+    // 脖子
+    const neckGeo = new THREE.CylinderGeometry(1.5, 1.8, 3);
+    const neck = new THREE.Mesh(neckGeo, skinMat);
+    neck.position.y = 32;
+    neck.castShadow = true;
+    humanGroup.add(neck);
+
+    // 你的坐标系辅助线 (放在人体脚下)
+    const axesHelperHuman = new THREE.AxesHelper(10);
+    humanGroup.add(axesHelperHuman);
+
+    // --- 右手臂骨骼系统搭建 ---
+    // 肩膀基准点 (Pivot)
+    const rightShoulderPivot = new THREE.Group();
+    rightShoulderPivot.position.set(7, 28, 0); // 躯干右上方
+    humanGroup.add(rightShoulderPivot);
+
+    // 肩膀关节球
+    const shoulderJoint = new THREE.Mesh(new THREE.SphereGeometry(2.5, 32, 32), shirtMat);
+    rightShoulderPivot.add(shoulderJoint);
+
+    // 大臂 (Mesh偏移使基准点在肩膀处)
+    const upperArmMesh = new THREE.Mesh(new THREE.CylinderGeometry(2, 1.5, upperArmLength, 32), skinMat);
+    // 默认手臂向前伸直 (沿着你的-X轴，也就是Three.js的-Z轴)
+    upperArmMesh.rotation.x = Math.PI / 2; 
+    upperArmMesh.position.z = -upperArmLength / 2;
+    upperArmMesh.castShadow = true;
+    rightShoulderPivot.add(upperArmMesh);
+
+    // 肘部基准点 (位于大臂末端)
+    const elbowPivot = new THREE.Group();
+    elbowPivot.position.set(0, 0, -upperArmLength);
+    rightShoulderPivot.add(elbowPivot);
+
+    // 肘关节球
+    const elbowJoint = new THREE.Mesh(new THREE.SphereGeometry(1.8, 32, 32), jointSkinMat);
+    elbowPivot.add(elbowJoint);
+
+    // 小臂
+    const forearmMesh = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.2, forearmLength, 32), skinMat);
+    forearmMesh.rotation.x = Math.PI / 2;
+    forearmMesh.position.z = -forearmLength / 2;
+    forearmMesh.castShadow = true;
+    elbowPivot.add(forearmMesh);
+
+    // 手腕基准点
+    const wristPivot = new THREE.Group();
+    wristPivot.position.set(0, 0, -forearmLength);
+    elbowPivot.add(wristPivot);
+
+    // 手腕关节
+    const wristJoint = new THREE.Mesh(new THREE.SphereGeometry(1.3, 32, 32), jointSkinMat);
+    wristPivot.add(wristJoint);
+
+    // 手掌与五指：掌心/手背分明，五指独立可见，握拳时整体收拢
+    const palm = new THREE.Mesh(
+        new THREE.BoxGeometry(1.45, 4.3, 2.45),
+        [handBackMat, palmMat, handSideMat, handSideMat, handSideMat, handSideMat]
+    );
+    palm.position.set(0.42, 0, -1.08);
+    palm.castShadow = true;
+    wristPivot.add(palm);
+
+    const palmHeel = new THREE.Mesh(new THREE.SphereGeometry(0.95, 24, 24), palmMat);
+    palmHeel.scale.set(0.72, 1.15, 0.78);
+    palmHeel.position.set(-0.12, 0, 0.08);
+    palmHeel.castShadow = true;
+    wristPivot.add(palmHeel);
+
+    const knuckleBand = new THREE.Mesh(
+        new THREE.BoxGeometry(1.1, 3.8, 0.44),
+        [handBackMat, palmMat, handSideMat, handSideMat, handSideMat, handSideMat]
+    );
+    knuckleBand.position.set(0.25, 0, -2.15);
+    knuckleBand.castShadow = true;
+    wristPivot.add(knuckleBand);
+
+    const thenarPad = new THREE.Mesh(new THREE.SphereGeometry(0.72, 20, 20), palmMat);
+    thenarPad.scale.set(0.46, 0.72, 0.56);
+    thenarPad.position.set(-0.36, 1.18, -0.92);
+    thenarPad.castShadow = true;
+    wristPivot.add(thenarPad);
+
+    const hypothenarPad = new THREE.Mesh(new THREE.SphereGeometry(0.68, 20, 20), palmMat);
+    hypothenarPad.scale.set(0.42, 0.86, 0.62);
+    hypothenarPad.position.set(-0.34, -1.06, -1.08);
+    hypothenarPad.castShadow = true;
+    wristPivot.add(hypothenarPad);
+
+    const handBackPlate = new THREE.Mesh(new THREE.BoxGeometry(0.26, 3.2, 1.86), handBackMat);
+    handBackPlate.position.set(0.84, 0, -1.1);
+    handBackPlate.castShadow = true;
+    wristPivot.add(handBackPlate);
+
+    [-1.4, -0.46, 0.48, 1.34].forEach((offsetY, index) => {
+        const knuckleCap = new THREE.Mesh(new THREE.SphereGeometry(0.28 - (index * 0.02), 16, 16), handBackMat);
+        knuckleCap.scale.set(0.6, 0.92, 0.72);
+        knuckleCap.position.set(0.82, offsetY, -2.02 + (index === 0 ? 0.08 : 0));
+        knuckleCap.castShadow = true;
+        wristPivot.add(knuckleCap);
+    });
+
+    const humanGripChains = [];
+
+    function createFingerSegment(width, height, length, tipStyle) {
+        const segment = new THREE.Mesh(
+            new THREE.BoxGeometry(width, height, length),
+            [nailMat, fingerPadMat, handSideMat, handSideMat, handSideMat, tipStyle ? nailMat : handSideMat]
+        );
+        segment.castShadow = true;
+        return segment;
+    }
+
+    function createHumanFingerChain(options) {
+        const basePivot = new THREE.Group();
+        basePivot.position.set(options.base[0], options.base[1], options.base[2]);
+        basePivot.rotation.set(options.baseRot[0], options.baseRot[1], options.baseRot[2]);
+        wristPivot.add(basePivot);
+
+        const baseKnuckle = new THREE.Mesh(new THREE.SphereGeometry(options.width * 0.42, 18, 18), jointSkinMat);
+        baseKnuckle.scale.set(0.86, 1.0, 0.78);
+        baseKnuckle.castShadow = true;
+        basePivot.add(baseKnuckle);
+
+        const proximal = createFingerSegment(options.width, options.height, options.lengths[0], false);
+        proximal.position.z = -options.lengths[0] * 0.5;
+        basePivot.add(proximal);
+
+        const midPivot = new THREE.Group();
+        midPivot.position.z = -options.lengths[0];
+        basePivot.add(midPivot);
+
+        const midKnuckle = new THREE.Mesh(new THREE.SphereGeometry(options.width * 0.36, 16, 16), jointSkinMat);
+        midKnuckle.scale.set(0.86, 0.96, 0.74);
+        midKnuckle.castShadow = true;
+        midPivot.add(midKnuckle);
+
+        const middle = createFingerSegment(options.width * 0.92, options.height * 0.94, options.lengths[1], false);
+        middle.position.z = -options.lengths[1] * 0.5;
+        midPivot.add(middle);
+
+        let tipPivot = null;
+        if (options.lengths[2] > 0) {
+            tipPivot = new THREE.Group();
+            tipPivot.position.z = -options.lengths[1];
+            midPivot.add(tipPivot);
+
+            const tipKnuckle = new THREE.Mesh(new THREE.SphereGeometry(options.width * 0.3, 14, 14), jointSkinMat);
+            tipKnuckle.scale.set(0.82, 0.92, 0.68);
+            tipKnuckle.castShadow = true;
+            tipPivot.add(tipKnuckle);
+
+            const tip = createFingerSegment(options.width * 0.82, options.height * 0.86, options.lengths[2], true);
+            tip.position.z = -options.lengths[2] * 0.5;
+            tipPivot.add(tip);
+        }
+
+        humanGripChains.push({
+            basePivot,
+            midPivot,
+            tipPivot,
+            baseRot: options.baseRot.slice(),
+            spreadClose: options.spreadClose,
+            curl: options.curl.slice()
+        });
+    }
+
+    createHumanFingerChain({
+        base: [0.48, 1.48, -2.28],
+        baseRot: [0.0, 0.06, 0.0],
+        lengths: [1.28, 0.96, 0.82],
+        width: 0.48,
+        height: 0.62,
+        spreadClose: -0.05,
+        curl: [1.00, 0.82, 0.58]
+    });
+    createHumanFingerChain({
+        base: [0.5, 0.52, -2.34],
+        baseRot: [0.0, 0.02, 0.0],
+        lengths: [1.5, 1.12, 0.94],
+        width: 0.54,
+        height: 0.68,
+        spreadClose: -0.02,
+        curl: [1.05, 0.86, 0.62]
+    });
+    createHumanFingerChain({
+        base: [0.52, -0.44, -2.38],
+        baseRot: [0.0, -0.02, 0.0],
+        lengths: [1.44, 1.08, 0.9],
+        width: 0.53,
+        height: 0.66,
+        spreadClose: 0.01,
+        curl: [1.03, 0.84, 0.60]
+    });
+    createHumanFingerChain({
+        base: [0.52, -1.34, -2.3],
+        baseRot: [0.0, -0.06, 0.0],
+        lengths: [1.16, 0.88, 0.76],
+        width: 0.44,
+        height: 0.58,
+        spreadClose: 0.06,
+        curl: [0.96, 0.80, 0.56]
+    });
+    createHumanFingerChain({
+        base: [0.16, 2.02, -1.02],
+        baseRot: [0.62, -0.58, -0.34],
+        lengths: [1.05, 0.84, 0.0],
+        width: 0.62,
+        height: 0.74,
+        spreadClose: 0.18,
+        curl: [0.42, 0.34, 0.0]
+    });
+
+    // 左手臂(静态装饰)
+    const leftArm = new THREE.Group();
+    const lShoulder = new THREE.Mesh(new THREE.SphereGeometry(2.5), shirtMat);
+    lShoulder.position.set(-7, 28, 0);
+    const lArm = new THREE.Mesh(new THREE.CylinderGeometry(2, 1.5, 24), shirtMat);
+    lArm.position.set(-8, 17, 0);
+    humanGroup.add(lShoulder);
+    humanGroup.add(lArm);
+
+
+    // ==========================================
+    // 2. 构建复刻草图的机械臂 (右侧)
+    // ==========================================
+    // 新增：机械臂的参考挂载躯体 (半透明)
+    const robotStandGroup = new THREE.Group();
+    robotStandGroup.position.set(18, 0, 0); // 对称于人体的 -18
+    scene.add(robotStandGroup);
+
+    const dummyMat = new THREE.MeshStandardMaterial({ color: 0x666666, transparent: true, opacity: 0.35, depthWrite: false });
+    const dummyTorso = new THREE.Mesh(torsoGeo, dummyMat);
+    dummyTorso.position.y = 20;
+    robotStandGroup.add(dummyTorso);
+
+    const dummyHead = new THREE.Mesh(headGeo, dummyMat);
+    dummyHead.position.y = 35;
+    robotStandGroup.add(dummyHead);
+
+    // 机械臂整体组 (挂载在参考躯体的右肩膀处)
+    const robotGroup = new THREE.Group();
+    robotGroup.position.set(7, 26, 0); // 高度微调到26，更符合侧边肩部
+    robotGroup.rotation.z = -Math.PI / 2; // 向右旋转90度，使底座完美贴合侧面躯体
+    robotStandGroup.add(robotGroup);
+
+    // 1. 底盘与偏航关节 (Yaw) - 对应人体大臂绕Y轴(上下摆)
+    const basePivot = new THREE.Group();
+    basePivot.position.set(0, 2, 0);
+    robotGroup.add(basePivot);
+
+    const baseStand = new THREE.Mesh(new THREE.BoxGeometry(8, 4, 8), robotBodyMat);
+    baseStand.position.y = -2;
+    baseStand.castShadow = true;
+    baseStand.receiveShadow = true;
+    basePivot.add(baseStand);
+
+    // 底座旋转圆盘 (灰色)
+    const baseRotator = new THREE.Mesh(new THREE.CylinderGeometry(3.5, 3.5, 2, 32), robotJointMat);
+    baseRotator.position.y = 1;
+    baseRotator.castShadow = true;
+    basePivot.add(baseRotator);
+
+    // 2. 大臂俯仰关节 (Pitch) - 对应人体大臂绕Z轴(左右摆)
+    const shoulderPitchPivot = new THREE.Group();
+    shoulderPitchPivot.position.set(0, 4, 0); // 抬高到铰链中心
+    basePivot.add(shoulderPitchPivot);
+
+    // 灰色横向圆柱铰链 (X轴向)
+    const shoulderHinge = new THREE.Mesh(new THREE.CylinderGeometry(2.5, 2.5, 6, 32), robotJointMat);
+    shoulderHinge.rotation.z = Math.PI / 2; // 横过来
+    shoulderHinge.castShadow = true;
+    shoulderPitchPivot.add(shoulderHinge);
+
+    // 黑色大臂主体 (复刻图片里的方块长条)
+    const robotUpperArm = new THREE.Mesh(new THREE.BoxGeometry(3.5, 3.5, upperArmLength), robotBodyMat);
+    robotUpperArm.position.z = -upperArmLength / 2; // 向前延伸
+    robotUpperArm.castShadow = true;
+    shoulderPitchPivot.add(robotUpperArm);
+
+    // 3. 小臂俯仰关节 (Pitch) - 对应人体肘部绕Z轴
+    const elbowPitchPivot = new THREE.Group();
+    elbowPitchPivot.position.set(0, 0, -upperArmLength);
+    shoulderPitchPivot.add(elbowPitchPivot);
+
+    // 灰色横向圆柱铰链
+    const elbowHinge = new THREE.Mesh(new THREE.CylinderGeometry(2, 2, 5, 32), robotJointMat);
+    elbowHinge.rotation.z = Math.PI / 2;
+    elbowHinge.castShadow = true;
+    elbowPitchPivot.add(elbowHinge);
+
+    // 黑色小臂主体
+    const robotForearm = new THREE.Mesh(new THREE.BoxGeometry(2.8, 2.8, forearmLength), robotBodyMat);
+    robotForearm.position.z = -forearmLength / 2;
+    robotForearm.castShadow = true;
+    elbowPitchPivot.add(robotForearm);
+
+    // 4. 手腕翻滚关节 (Roll) - 对应人体手腕绕X轴
+    const wristRollPivot = new THREE.Group();
+    wristRollPivot.position.set(0, 0, -forearmLength);
+    elbowPitchPivot.add(wristRollPivot);
+
+    // 灰色纵向圆柱铰链 (Z轴向，表示翻滚)
+    const wristHinge = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.5, 2, 32), robotJointMat);
+    wristHinge.rotation.x = Math.PI / 2;
+    wristHinge.castShadow = true;
+    wristRollPivot.add(wristHinge);
+
+    // 机械手爪基座 (修改为可动铰链结构)
+    const gripperBase = new THREE.Mesh(new THREE.BoxGeometry(4, 1.5, 2), robotBodyMat);
+    gripperBase.position.z = -1;
+    gripperBase.castShadow = true;
+    wristRollPivot.add(gripperBase);
+
+    // 左侧机械爪枢纽
+    const robotClaw1Pivot = new THREE.Group();
+    robotClaw1Pivot.position.set(1.5, 0, -2);
+    wristRollPivot.add(robotClaw1Pivot);
+    const claw1 = new THREE.Mesh(new THREE.BoxGeometry(0.8, 1.5, 3), robotBodyMat);
+    claw1.position.z = -1.5;
+    claw1.castShadow = true;
+    robotClaw1Pivot.add(claw1);
+
+    // 右侧机械爪枢纽
+    const robotClaw2Pivot = new THREE.Group();
+    robotClaw2Pivot.position.set(-1.5, 0, -2);
+    wristRollPivot.add(robotClaw2Pivot);
+    const claw2 = new THREE.Mesh(new THREE.BoxGeometry(0.8, 1.5, 3), robotBodyMat);
+    claw2.position.z = -1.5;
+    claw2.castShadow = true;
+    robotClaw2Pivot.add(claw2);
+
+
+    // ==========================================
+    // 3. 核心运动学与姿态映射逻辑
+    // ==========================================
+    const poseState = {
+        hY: 90,
+        hZ: 90,
+        eZ: 0,
+        wX: 90,
+        grip: 0
+    };
+    const poseRanges = {
+        hY: [0, 180],
+        hZ: [0, 180],
+        eZ: [0, 180],
+        wX: [0, 180],
+        grip: [0, 100]
+    };
+    const poseDisplays = {
+        hY: document.getElementById('pose-hy'),
+        hZ: document.getElementById('pose-hz'),
+        eZ: document.getElementById('pose-ez'),
+        wX: document.getElementById('pose-wx'),
+        grip: document.getElementById('pose-grip')
+    };
+    const outputs = {
+        s1: document.getElementById('servo1-val'),
+        s2: document.getElementById('servo2-val'),
+        s3: document.getElementById('servo3-val'),
+        s4: document.getElementById('servo4-val'),
+        gripOut: document.getElementById('grip-val-out')
+    };
+    const serialUi = {
+        connectBtn: document.getElementById('connect-serial-btn'),
+        disconnectBtn: document.getElementById('disconnect-serial-btn'),
+        calStartBtn: document.getElementById('cal-start-btn'),
+        calNextBtn: document.getElementById('cal-next-btn'),
+        calResetBtn: document.getElementById('cal-reset-btn'),
+        calStatusBtn: document.getElementById('cal-status-btn'),
+        panel: document.getElementById('ui-panel'),
+        statusBadge: document.getElementById('serial-status-badge'),
+        statusText: document.getElementById('serial-status'),
+        lastUpdate: document.getElementById('last-update'),
+        rawFrame: document.getElementById('raw-frame'),
+        calStepTitle: document.getElementById('cal-step-title'),
+        calStepDesc: document.getElementById('cal-step-desc'),
+        calStepTarget: document.getElementById('cal-step-target'),
+        calStepHint: document.getElementById('cal-step-hint'),
+        calChips: Array.from(document.querySelectorAll('.calibration-chip')),
+        error: document.getElementById('serial-error')
+    };
+    const poseKeys = ['hY', 'hZ', 'eZ', 'wX', 'grip'];
+    const calibrationOrder = ['TPOSE', 'HY+', 'HZ-', 'EZ+', 'WX+'];
+    const calibrationSteps = {
+        TPOSE: {
+            label: 'STEP 1 · TPOSE',
+            desc: '向前伸直，掌心朝内。',
+            target: 'POSE,90,90,0,90,0',
+            pose: { hY: 90, hZ: 90, eZ: 0, wX: 90, grip: 0 }
+        },
+        'HY+': {
+            label: 'STEP 2 · HY+',
+            desc: '向上伸直，掌心朝内。',
+            target: 'POSE,180,90,0,90,0',
+            pose: { hY: 180, hZ: 90, eZ: 0, wX: 90, grip: 0 }
+        },
+        'HZ-': {
+            label: 'STEP 3 · HZ-',
+            desc: '向右伸直，掌心朝前。',
+            target: 'POSE,90,0,0,90,0',
+            pose: { hY: 90, hZ: 0, eZ: 0, wX: 90, grip: 0 }
+        },
+        'EZ+': {
+            label: 'STEP 4 · EZ+',
+            desc: '大臂往前，小臂和大臂呈直角，掌心朝自己。',
+            target: 'POSE,90,90,90,90,0',
+            pose: { hY: 90, hZ: 90, eZ: 90, wX: 90, grip: 0 }
+        },
+        'WX+': {
+            label: 'STEP 5 · WX+',
+            desc: '向前伸直，掌心朝下。',
+            target: 'POSE,90,90,0,180,0',
+            pose: { hY: 90, hZ: 90, eZ: 0, wX: 180, grip: 0 }
+        }
+    };
+    const calibrationGuide = {
+        active: false,
+        currentStep: null,
+        completed: new Set()
+    };
+    const MOBILE_BREAKPOINT = 760;
+    const overlayPanels = {
+        outputs: document.getElementById('info-panel'),
+        axes: document.querySelector('.coordinate-info'),
+        serial: serialUi.panel
+    };
+    const mobilePanelButtons = Array.from(document.querySelectorAll('.mobile-panel-button'));
+
+    let serialPort = null;
+    let serialReader = null;
+    let readLoopPromise = null;
+    let keepReading = false;
+    let isConnecting = false;
+    let isDisconnecting = false;
+    let serialBuffer = '';
+    let activeMobilePanel = 'serial';
+    let lastIsMobileLayout = null;
+
+    function clamp(value, min, max) {
+        return Math.min(max, Math.max(min, value));
+    }
+
+    function clampPoseValue(key, value) {
+        const [min, max] = poseRanges[key];
+        return clamp(value, min, max);
+    }
+
+    function formatAngle(value) {
+        return value + '°';
+    }
+
+    function formatGrip(value) {
+        return value + '%';
+    }
+
+    function formatTimestamp(date) {
+        return date.toLocaleString('zh-CN', { hour12: false });
+    }
+
+    function sleep(ms) {
+        return new Promise((resolve) => window.setTimeout(resolve, ms));
+    }
+
+    function isMobileLayout() {
+        return window.innerWidth <= MOBILE_BREAKPOINT;
+    }
+
+    function updateMobilePanels() {
+        const mobile = isMobileLayout();
+        document.body.classList.toggle('mobile-layout', mobile);
+
+        Object.entries(overlayPanels).forEach(([panelName, panelElement]) => {
+            if (!panelElement) {
+                return;
+            }
+
+            const shouldHide = mobile && panelName !== activeMobilePanel;
+            panelElement.classList.toggle('panel-hidden-mobile', shouldHide);
+            panelElement.setAttribute('aria-hidden', shouldHide ? 'true' : 'false');
+        });
+
+        mobilePanelButtons.forEach((button) => {
+            const isActive = mobile && button.dataset.panelTarget === activeMobilePanel;
+            button.classList.toggle('active', isActive);
+            button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+        });
+    }
+
+    function setActiveMobilePanel(panelName) {
+        if (!overlayPanels[panelName]) {
+            return;
+        }
+
+        activeMobilePanel = panelName;
+        updateMobilePanels();
+    }
+
+    function initializeMobilePanels() {
+        mobilePanelButtons.forEach((button) => {
+            button.addEventListener('click', () => {
+                setActiveMobilePanel(button.dataset.panelTarget);
+            });
+        });
+        updateMobilePanels();
+    }
+
+    function applyResponsiveSceneLayout(forceCameraReset) {
+        const mobile = isMobileLayout();
+        const layoutChanged = lastIsMobileLayout !== mobile;
+
+        if (forceCameraReset || layoutChanged) {
+            if (mobile) {
+                camera.fov = 52;
+                camera.position.set(-34, 30, 46);
+                controls.target.set(0, 16, 0);
+            } else {
+                camera.fov = 40;
+                camera.position.set(-45, 25, 60);
+                controls.target.set(0, 15, 0);
+            }
+        }
+
+        controls.enablePan = !mobile;
+        controls.rotateSpeed = mobile ? 0.85 : 1;
+        controls.zoomSpeed = mobile ? 0.9 : 1;
+        controls.minDistance = mobile ? 26 : 32;
+        controls.maxDistance = mobile ? 92 : 150;
+
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, mobile ? 1.75 : 2));
+        renderer.setSize(window.innerWidth, window.innerHeight, false);
+        controls.update();
+        lastIsMobileLayout = mobile;
+    }
+
+    function handleViewportResize() {
+        applyResponsiveSceneLayout(false);
+        updateMobilePanels();
+    }
+
+    function setStatus(text, state) {
+        serialUi.statusText.innerText = text;
+        serialUi.statusBadge.dataset.state = state;
+    }
+
+    function setError(message) {
+        serialUi.error.innerText = message || '';
+    }
+
+    function resolveCalibrationStep(stepName, stepIndex) {
+        if (calibrationSteps[stepName]) {
+            return stepName;
+        }
+
+        if (Number.isInteger(stepIndex) && stepIndex >= 1 && stepIndex <= calibrationOrder.length) {
+            return calibrationOrder[stepIndex - 1];
+        }
+
+        return null;
+    }
+
+    function updateCalibrationChips() {
+        serialUi.calChips.forEach((chip) => {
+            const stepKey = chip.dataset.calStep;
+            let state = 'idle';
+
+            if (calibrationGuide.completed.has(stepKey)) {
+                state = 'done';
+            } else if (calibrationGuide.active && calibrationGuide.currentStep === stepKey) {
+                state = 'active';
+            }
+
+            chip.dataset.state = state;
+        });
+    }
+
+    function resetCalibrationUi(hintText) {
+        calibrationGuide.active = false;
+        calibrationGuide.currentStep = null;
+        calibrationGuide.completed.clear();
+        serialUi.calStepTitle.innerText = '未进入标定模式';
+        serialUi.calStepDesc.innerText = '连接串口后，可以用页面按钮或下位机按键推进 5 个标准动作。';
+        serialUi.calStepTarget.innerText = 'POSE,--,--,--,--,--';
+        serialUi.calStepHint.innerText = hintText || '进入标定后，左侧人体模型会切换成当前标准动作提示。';
+        updateCalibrationChips();
+        updatePoses();
+    }
+
+    function showCalibrationStep(stepKey, hintText) {
+        const step = calibrationSteps[stepKey];
+        if (!step) {
+            return;
+        }
+
+        calibrationGuide.active = true;
+        calibrationGuide.currentStep = stepKey;
+        serialUi.calStepTitle.innerText = step.label;
+        serialUi.calStepDesc.innerText = step.desc;
+        serialUi.calStepTarget.innerText = step.target;
+        serialUi.calStepHint.innerText = hintText || '请摆出这个标准动作，然后点击“确认当前动作”。';
+        updateCalibrationChips();
+        updatePoses();
+    }
+
+    function markCalibrationStepDone(stepKey, hintText) {
+        if (calibrationSteps[stepKey]) {
+            calibrationGuide.completed.add(stepKey);
+        }
+        if (hintText) {
+            serialUi.calStepHint.innerText = hintText;
+        }
+        updateCalibrationChips();
+    }
+
+    function setCalibrationDone(hintText) {
+        calibrationOrder.forEach((stepKey) => calibrationGuide.completed.add(stepKey));
+        calibrationGuide.active = false;
+        calibrationGuide.currentStep = null;
+        serialUi.calStepTitle.innerText = '标定完成';
+        serialUi.calStepDesc.innerText = '当前 5 个标准动作已经全部确认，人体模型恢复实时跟随。';
+        serialUi.calStepTarget.innerText = 'POSE,实时输入';
+        serialUi.calStepHint.innerText = hintText || '你现在可以继续活动手臂，观察实时同步效果。';
+        updateCalibrationChips();
+        updatePoses();
+    }
+
+    function updateButtonStates() {
+        const unsupported = !('serial' in navigator);
+        const connected = Boolean(serialPort);
+        const busy = isConnecting || isDisconnecting;
+        const canControlCalibration = !unsupported && connected && !busy;
+
+        serialUi.connectBtn.disabled = unsupported || busy || connected;
+        serialUi.disconnectBtn.disabled = unsupported || busy || !connected;
+        serialUi.calStartBtn.disabled = !canControlCalibration;
+        serialUi.calNextBtn.disabled = !canControlCalibration;
+        serialUi.calResetBtn.disabled = !canControlCalibration;
+        serialUi.calStatusBtn.disabled = !canControlCalibration;
+    }
+
+    function updatePosesLegacy() {
+        const valHY = poseState.hY;
+        const valHZ = poseState.hZ;
+        const valEZ = poseState.eZ;
+        const valWX = poseState.wX;
+        const valGrip = poseState.grip;
+
+        poseDisplays.hY.innerText = formatAngle(valHY);
+        poseDisplays.hZ.innerText = formatAngle(valHZ);
+        poseDisplays.eZ.innerText = formatAngle(valEZ);
+        poseDisplays.wX.innerText = formatAngle(valWX);
+        poseDisplays.grip.innerText = formatGrip(valGrip);
+
+        // 舵机输出数值反转 (带90度硬件安装偏移)
+        outputs.s1.innerText = formatAngle(valHY);
+        outputs.s2.innerText = formatAngle(180 - valHZ);
+        outputs.s3.innerText = formatAngle(180 - valEZ); // 新版本: 0度伸直(输出180), 180度弯曲(输出0)
+        outputs.s4.innerText = formatAngle(180 - valWX);
+        outputs.gripOut.innerText = formatGrip(valGrip);
+
+        // 默认直线前伸时映射为 0 弧度偏差
+        const radHY = (valHY - 90) * Math.PI / 180;
+        const radHZ = (valHZ - 90) * Math.PI / 180;
+        const radEZ = (valEZ - 0) * Math.PI / 180; // 新版本: 0度即为直线前伸位置
+        const radWX = (valWX - 90) * Math.PI / 180;
+
+        // 张合角度映射 (0% -> 0度不弯曲, 100% -> 向内弯曲闭合)
+        const radGripHuman = (valGrip / 100) * (35 * Math.PI / 180); // 人手最大弯曲35度
+        const radGripRobot = (valGrip / 100) * (25 * Math.PI / 180); // 机械爪最大闭合25度
+
+        // --- 人体手臂动作 (表现层) ---
+        // 你定义的坐标：X向后(Three+Z), Y向右(Three+X), Z向上(Three+Y)
+        // 1. 绕Y轴转动 (手臂上下抬落)：即绕Three.js的X轴旋转
+        rightShoulderPivot.rotation.x = radHY;
+        // 2. 绕Z轴转动 (手臂左右摆动)：即绕Three.js的Y轴旋转
+        rightShoulderPivot.rotation.y = radHZ;
+        // 3. 肘部绕Z轴转动 (小臂左右摆)：即绕Three.js的Y轴旋转
+        elbowPivot.rotation.y = radEZ;
+        // 4. 手腕绕X轴转动 (翻滚)：即绕Three.js的Z轴旋转 (沿着手臂方向转)
+        wristPivot.rotation.z = radWX;
+        
+        // 5. 手指张合 (兼容旧函数，统一驱动五指整体握合)
+        humanGripChains.forEach((chain, index) => {
+            const isThumb = index === humanGripChains.length - 1;
+            chain.basePivot.rotation.x = chain.baseRot[0] - (radGripHuman * chain.curl[0]);
+            chain.basePivot.rotation.y = chain.baseRot[1] + ((valGrip / 100) * chain.spreadClose);
+            chain.basePivot.rotation.z = chain.baseRot[2] + (isThumb ? ((valGrip / 100) * 0.22) : 0);
+            chain.midPivot.rotation.x = -radGripHuman * chain.curl[1];
+            if (chain.tipPivot) {
+                chain.tipPivot.rotation.x = -radGripHuman * chain.curl[2];
+            }
+        });
+
+        // --- 机械臂映射 (严格遵从你的要求，且后三个关节反向) ---
+        // 1. 大臂绕Y转动 -> 机械臂底盘转动 (Yaw偏航，绕竖直Y轴)
+        basePivot.rotation.y = radHY; 
+
+        // 2. 大臂绕Z转动 -> 机械大臂抬升角度，物理反向 (Pitch俯仰，加负号)
+        shoulderPitchPivot.rotation.x = -radHZ;
+
+        // 3. 小臂绕Z转动 -> 机械小臂抬升角度，物理反向 (Pitch俯仰，加负号)
+        elbowPitchPivot.rotation.x = -radEZ;
+
+        // 4. 手腕绕X转动 -> 机械手绕X转动，物理反向 (Roll翻滚，加负号)
+        wristRollPivot.rotation.z = -radWX;
+
+        // 5. 机械爪张合 (绕本地Y轴向内闭合)
+        robotClaw1Pivot.rotation.y = radGripRobot;  // 左爪向内
+        robotClaw2Pivot.rotation.y = -radGripRobot; // 右爪向内
+    }
+
+    function applyHumanPoseToScene(sourcePose) {
+        const radHY = (sourcePose.hY - 90) * Math.PI / 180;
+        const radHZ = (sourcePose.hZ - 90) * Math.PI / 180;
+        const radEZ = sourcePose.eZ * Math.PI / 180;
+        const radWX = (sourcePose.wX - 90) * Math.PI / 180;
+        const gripRatio = sourcePose.grip / 100;
+        const radGripHuman = gripRatio * (54 * Math.PI / 180);
+
+        rightShoulderPivot.rotation.x = radHY;
+        rightShoulderPivot.rotation.y = radHZ;
+        elbowPivot.rotation.y = radEZ;
+        wristPivot.rotation.z = radWX;
+
+        humanGripChains.forEach((chain, index) => {
+            const isThumb = index === humanGripChains.length - 1;
+
+            chain.basePivot.rotation.x = chain.baseRot[0];
+            chain.basePivot.rotation.y = chain.baseRot[1];
+            chain.basePivot.rotation.z = chain.baseRot[2];
+
+            if (isThumb) {
+                chain.basePivot.rotation.x -= radGripHuman * chain.curl[0];
+                chain.basePivot.rotation.y += gripRatio * chain.spreadClose;
+                chain.basePivot.rotation.z += gripRatio * 0.22;
+            } else {
+                chain.basePivot.rotation.x -= radGripHuman * chain.curl[0];
+                chain.basePivot.rotation.y += gripRatio * chain.spreadClose;
+            }
+
+            chain.midPivot.rotation.x = -radGripHuman * chain.curl[1];
+
+            if (chain.tipPivot) {
+                chain.tipPivot.rotation.x = -radGripHuman * chain.curl[2];
+            }
+        });
+    }
+
+    function applyRobotPoseToScene(sourcePose) {
+        const radHY = (sourcePose.hY - 90) * Math.PI / 180;
+        const radHZ = (sourcePose.hZ - 90) * Math.PI / 180;
+        const radEZ = sourcePose.eZ * Math.PI / 180;
+        const radWX = (sourcePose.wX - 90) * Math.PI / 180;
+        const radGripRobot = (sourcePose.grip / 100) * (25 * Math.PI / 180);
+
+        basePivot.rotation.y = radHY;
+        shoulderPitchPivot.rotation.x = -radHZ;
+        elbowPitchPivot.rotation.x = -radEZ;
+        wristRollPivot.rotation.z = -radWX;
+        robotClaw1Pivot.rotation.y = radGripRobot;
+        robotClaw2Pivot.rotation.y = -radGripRobot;
+    }
+
+    function updatePoses() {
+        const valHY = poseState.hY;
+        const valHZ = poseState.hZ;
+        const valEZ = poseState.eZ;
+        const valWX = poseState.wX;
+        const valGrip = poseState.grip;
+
+        poseDisplays.hY.innerText = formatAngle(valHY);
+        poseDisplays.hZ.innerText = formatAngle(valHZ);
+        poseDisplays.eZ.innerText = formatAngle(valEZ);
+        poseDisplays.wX.innerText = formatAngle(valWX);
+        poseDisplays.grip.innerText = formatGrip(valGrip);
+
+        outputs.s1.innerText = formatAngle(valHY);
+        outputs.s2.innerText = formatAngle(180 - valHZ);
+        outputs.s3.innerText = formatAngle(180 - valEZ);
+        outputs.s4.innerText = formatAngle(180 - valWX);
+        outputs.gripOut.innerText = formatGrip(valGrip);
+
+        const humanPoseSource = calibrationGuide.active && calibrationGuide.currentStep && calibrationSteps[calibrationGuide.currentStep]
+            ? calibrationSteps[calibrationGuide.currentStep].pose
+            : poseState;
+
+        applyHumanPoseToScene(humanPoseSource);
+        applyRobotPoseToScene(poseState);
+    }
+
+    function applyPose(nextPose) {
+        poseKeys.forEach((key) => {
+            poseState[key] = clampPoseValue(key, nextPose[key]);
+        });
+        updatePoses();
+    }
+
+    function parsePoseFrame(frame) {
+        const parts = frame.split(',');
+        if (parts.length !== 6 || parts[0] !== 'POSE') {
+            return null;
+        }
+
+        const nextPose = {};
+        for (let index = 0; index < poseKeys.length; index += 1) {
+            const key = poseKeys[index];
+            const rawValue = parts[index + 1].trim();
+            if (!/^-?\d+$/.test(rawValue)) {
+                return null;
+            }
+            nextPose[key] = clampPoseValue(key, parseInt(rawValue, 10));
+        }
+
+        return nextPose;
+    }
+
+    function handleSerialFrameLegacy(frame) {
+        const trimmedFrame = frame.trim();
+        if (!trimmedFrame) {
+            return;
+        }
+
+        serialUi.rawFrame.innerText = trimmedFrame;
+        const parsedPose = parsePoseFrame(trimmedFrame);
+        if (!parsedPose) {
+            setError('收到无效报文，已忽略。格式应为 POSE,<hY>,<hZ>,<eZ>,<wX>,<grip>');
+            return;
+        }
+
+        applyPose(parsedPose);
+        serialUi.lastUpdate.innerText = formatTimestamp(new Date());
+        setStatus('已连接，接收中', 'online');
+        setError('');
+    }
+
+    function handleCalibrationFrame(parts) {
+        const frameType = parts[1];
+
+        if (frameType === 'STEP' && parts.length >= 4) {
+            const stepKey = resolveCalibrationStep(parts[3], parseInt(parts[2], 10));
+            if (stepKey === 'TPOSE') {
+                calibrationGuide.completed.clear();
+            }
+            showCalibrationStep(stepKey, '请摆出这个标准动作，然后点击“确认当前动作”。');
+            setStatus('已连接，标定进行中', 'pending');
+            setError('');
+            return;
+        }
+
+        if (frameType === 'OK' && parts.length >= 4) {
+            const stepKey = resolveCalibrationStep(parts[3], parseInt(parts[2], 10));
+            markCalibrationStepDone(stepKey, `步骤 ${parts[3]} 已确认，等待下一步提示。`);
+            setError('');
+            return;
+        }
+
+        if (frameType === 'ERR' && parts.length >= 4) {
+            const stepKey = resolveCalibrationStep(parts[3], null);
+            if (stepKey) {
+                showCalibrationStep(stepKey, `当前动作未通过校验：${parts[2]}。请摆正姿态后重新确认。`);
+            }
+            setError(`标定失败：${parts[3]} -> ${parts[2]}`);
+            setStatus('已连接，标定进行中', 'pending');
+            return;
+        }
+
+        if (frameType === 'DONE') {
+            setCalibrationDone('固件已完成 5 步标定，人体模型已恢复实时跟随。');
+            setStatus('已连接，标定完成', 'online');
+            setError('');
+            return;
+        }
+
+        if (frameType === 'STATE' && parts.length >= 5) {
+            const stepIndex = parseInt(parts[2], 10);
+            const stepKey = resolveCalibrationStep(parts[3], stepIndex);
+            const calibrated = parts[4] === '1';
+
+            if (calibrated) {
+                setCalibrationDone('当前固件已经处于标定完成状态。');
+                setStatus('已连接，标定完成', 'online');
+            } else if (stepKey) {
+                if (stepKey === 'TPOSE') {
+                    calibrationGuide.completed.clear();
+                }
+                showCalibrationStep(stepKey, '当前是固件等待的标准动作。可以用页面按钮或下位机按键推进。');
+                setStatus('已连接，标定进行中', 'pending');
+            }
+            setError('');
+        }
+    }
+
+    function handleSerialFrame(frame) {
+        const trimmedFrame = frame.trim();
+        if (!trimmedFrame) {
+            return;
+        }
+
+        serialUi.rawFrame.innerText = trimmedFrame;
+
+        if (trimmedFrame.startsWith('POSE,')) {
+            const parsedPose = parsePoseFrame(trimmedFrame);
+            if (!parsedPose) {
+                setError('收到无效 POSE 报文，已忽略。格式应为 POSE,<hY>,<hZ>,<eZ>,<wX>,<grip>');
+                return;
+            }
+
+            applyPose(parsedPose);
+            serialUi.lastUpdate.innerText = formatTimestamp(new Date());
+            if (!calibrationGuide.active) {
+                setStatus('已连接，接收中', 'online');
+            }
+            setError('');
+            return;
+        }
+
+        if (trimmedFrame.startsWith('CAL,')) {
+            handleCalibrationFrame(trimmedFrame.split(',').map((part) => part.trim()));
+            serialUi.lastUpdate.innerText = formatTimestamp(new Date());
+            return;
+        }
+
+        setError('收到未知报文，已忽略。');
+    }
+
+    function processSerialBuffer() {
+        const frames = serialBuffer.split(/\r?\n/);
+        serialBuffer = frames.pop();
+        frames.forEach(handleSerialFrame);
+    }
+
+    async function sendSerialCommand(command) {
+        if (!serialPort || !serialPort.writable || !command) {
+            return false;
+        }
+
+        const writer = serialPort.writable.getWriter();
+        try {
+            await writer.write(new TextEncoder().encode(command + '\r\n'));
+            return true;
+        } catch (error) {
+            setError(`串口命令发送失败: ${error.message || error}`);
+            return false;
+        } finally {
+            writer.releaseLock();
+        }
+    }
+
+    async function syncCalibrationStatus(delayMs = 80) {
+        if (!serialPort || !serialPort.writable) {
+            return;
+        }
+
+        if (delayMs > 0) {
+            await sleep(delayMs);
+        }
+
+        await sendSerialCommand('CAL,STATUS');
+    }
+
+    async function readSerialLoop() {
+        const decoder = new TextDecoder();
+
+        try {
+            serialReader = serialPort.readable.getReader();
+            while (keepReading) {
+                const { value, done } = await serialReader.read();
+                if (done) {
+                    break;
+                }
+                if (!value) {
+                    continue;
+                }
+
+                serialBuffer += decoder.decode(value, { stream: true });
+                processSerialBuffer();
+            }
+
+            serialBuffer += decoder.decode();
+            processSerialBuffer();
+        } catch (error) {
+            if (keepReading) {
+                setError(`串口读取失败: ${error.message || error}`);
+            }
+        } finally {
+            if (serialReader) {
+                serialReader.releaseLock();
+                serialReader = null;
+            }
+
+            const disconnectedUnexpectedly = keepReading && !isDisconnecting;
+            keepReading = false;
+            readLoopPromise = null;
+
+            if (disconnectedUnexpectedly) {
+                if (serialPort) {
+                    await serialPort.close().catch(() => {});
+                    serialPort = null;
+                }
+                if (!serialUi.error.innerText) {
+                    setError('串口连接已中断。');
+                }
+                setStatus('连接已中断', 'error');
+                updateButtonStates();
+            }
+        }
+    }
+
+    async function connectSerial() {
+        if (!('serial' in navigator) || isConnecting || serialPort) {
+            return;
+        }
+
+        isConnecting = true;
+        updateButtonStates();
+        setError('');
+        setStatus('等待选择串口', 'pending');
+
+        try {
+            serialPort = await navigator.serial.requestPort();
+            await serialPort.open({
+                baudRate: 115200,
+                dataBits: 8,
+                stopBits: 1,
+                parity: 'none',
+                flowControl: 'none'
+            });
+
+            serialBuffer = '';
+            serialUi.rawFrame.innerText = '等待串口数据...';
+            setStatus('已连接，等待数据', 'online');
+
+            keepReading = true;
+            readLoopPromise = readSerialLoop();
+            await sendSerialCommand('CAL,STATUS');
+        } catch (error) {
+            if (serialPort) {
+                await serialPort.close().catch(() => {});
+                serialPort = null;
+            }
+
+            if (error && error.name === 'NotFoundError') {
+                setError('用户取消了串口选择。');
+            } else {
+                setError(`串口连接失败: ${error.message || error}`);
+            }
+            setStatus('未连接', 'offline');
+        } finally {
+            isConnecting = false;
+            updateButtonStates();
+        }
+    }
+
+    async function disconnectSerial(message, state) {
+        if (isDisconnecting) {
+            return;
+        }
+
+        isDisconnecting = true;
+        updateButtonStates();
+        keepReading = false;
+        serialBuffer = '';
+
+        if (serialReader) {
+            await serialReader.cancel().catch(() => {});
+        }
+        if (readLoopPromise) {
+            await readLoopPromise.catch(() => {});
+            readLoopPromise = null;
+        }
+        if (serialPort) {
+            await serialPort.close().catch(() => {});
+            serialPort = null;
+        }
+
+        setStatus(state === 'error' ? '连接已中断' : '已断开', state === 'error' ? 'error' : 'offline');
+        setError(message || '');
+        resetCalibrationUi('串口已断开，标定提示已停止。');
+        isDisconnecting = false;
+        updateButtonStates();
+    }
+
+    function initializeSerialUi() {
+        if (!('serial' in navigator)) {
+            const supportMessage = window.isSecureContext
+                ? '当前浏览器不支持 Web Serial API，请使用最新版 Chrome 或 Edge。'
+                : '当前页面不是安全上下文，请通过 localhost 或 https 打开后再连接串口。';
+            setStatus('不可用', 'error');
+            serialUi.lastUpdate.innerText = '串口不可用';
+            serialUi.rawFrame.innerText = '无法读取串口';
+            setError(supportMessage);
+            updateButtonStates();
+            return;
+        }
+
+        navigator.serial.addEventListener('disconnect', (event) => {
+            if (serialPort && event.port === serialPort) {
+                disconnectSerial('串口设备已断开。', 'error');
+            }
+        });
+
+        serialUi.connectBtn.addEventListener('click', connectSerial);
+        serialUi.disconnectBtn.addEventListener('click', () => {
+            disconnectSerial('', 'offline');
+        });
+        serialUi.calStartBtn.addEventListener('click', async () => {
+            calibrationGuide.completed.clear();
+            showCalibrationStep('TPOSE', '已发送开始标定命令，请先摆出第 1 个动作，再点击“确认当前动作”。');
+            setStatus('已连接，标定进行中', 'pending');
+            setError('');
+            if (await sendSerialCommand('CAL,START')) {
+                await syncCalibrationStatus();
+            }
+        });
+        serialUi.calNextBtn.addEventListener('click', async () => {
+            await sendSerialCommand('CAL,NEXT');
+        });
+        serialUi.calResetBtn.addEventListener('click', async () => {
+            calibrationGuide.completed.clear();
+            showCalibrationStep('TPOSE', '已发送重置标定命令，等待固件回到第 1 步。');
+            setStatus('已连接，标定进行中', 'pending');
+            setError('');
+            if (await sendSerialCommand('CAL,RESET')) {
+                await syncCalibrationStatus();
+            }
+        });
+        serialUi.calStatusBtn.addEventListener('click', async () => {
+            await sendSerialCommand('CAL,STATUS');
+        });
+        updateButtonStates();
+    }
+
+    applyResponsiveSceneLayout(true);
+    initializeMobilePanels();
+    resetCalibrationUi();
+    updatePoses();
+    initializeSerialUi();
+
+    // 动画循环
+    window.onload = function() {
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+        animate();
+    }
+
+    window.addEventListener('resize', handleViewportResize);
+</script>
+</body>
+</html>

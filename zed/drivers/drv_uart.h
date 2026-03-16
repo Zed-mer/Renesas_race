@@ -5,6 +5,8 @@
  * Includes
  **********************************************************************************************************************/
 #include "hal_data.h"
+#include <stdbool.h>
+#include <stddef.h>
 #include <stdio.h>
 
 
@@ -26,6 +28,12 @@
 fsp_err_t drv_uart_init(void);
 
 fsp_err_t drv_uart_test(uint8_t *p_msg);
+
+fsp_err_t drv_uart_start_rx(void);
+
+void drv_uart_flush_rx(void);
+
+bool drv_uart_read_line(char * p_buffer, size_t buffer_size);
 
 void drv_uart_wait_for_tx(void);
 
