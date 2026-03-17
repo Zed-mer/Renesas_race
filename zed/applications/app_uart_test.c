@@ -10,6 +10,7 @@
 #include <math.h>
 #include <stdbool.h>
 #include <stdarg.h>
+#include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -47,13 +48,15 @@
 #define IMU_LED_FLASH_GAP_US          100000U
 #define IMU_LED_FLASH_TOTAL_US        ((2U * IMU_LED_FLASH_ON_US) + (2U * IMU_LED_FLASH_GAP_US))
 #define IMU_LED_WAIT_PAUSE_US         500000U
-#define IMU_EULER_SINGULARITY_EPSILON 0.9999999f
 #define IMU_RAD_TO_DEG                57.295779513082320876f
 #define IMU_STATUS_LED_PIN            BSP_IO_PORT_04_PIN_00
 #define IMU_BUTTON_PIN                BSP_IO_PORT_00_PIN_00
 #define IMU_AXIS_MIN_RESPONSE_DEG     20.0f
-#define IMU_AXIS_DOMINANCE_RATIO      1.5f
 #define IMU_CAL_TARGET_DELTA_DEG      90.0f
+#define IMU_VECTOR_EPSILON            0.0001f
+#define IMU_RUNTIME_RAW_FILTER_ALPHA  0.20f
+#define IMU_RUNTIME_MAX_STEP_DEG      12.0f
+#define IMU_RUNTIME_OUTPUT_DEADBAND   1
 #define IMU_UART_LINE_MAX_LEN         64U
 
 /**********************************************************************************************************************
@@ -124,23 +127,42 @@ typedef enum e_imu_cal_result
 
 typedef struct st_imu_motion_components
 {
-    float upper_rad[3];
-    float relative_rad[3];
+    Quaternion_t upper_bone;
+    Quaternion_t relative_bone;
 } imu_motion_components_t;
+
+typedef enum e_imu_angle_measure
+{
+    IMU_ANGLE_MEASURE_SWING = 0,
+    IMU_ANGLE_MEASURE_TWIST = 1,
+} imu_angle_measure_t;
 
 typedef struct st_imu_axis_map
 {
     imu_signal_source_t source;
-    uint8_t             component;
+    imu_angle_measure_t measure;
+    icm42688Float3_t    axis;
+    icm42688Float3_t    reference;
+    float               filtered_raw_deg;
     float               gain;
+    float               last_raw_deg;
     int16_t             center_deg;
+    int16_t             last_output_deg;
     bool                valid;
+    bool                has_filtered_raw;
+    bool                has_reference;
+    bool                has_last_raw;
+    bool                has_last_output;
 } imu_axis_map_t;
 
 typedef struct st_imu_calibration_runtime
 {
     Quaternion_t upper_offset;
     Quaternion_t lower_offset;
+    Quaternion_t upper_hy_pose;
+    Quaternion_t upper_hz_pose;
+    Quaternion_t relative_ez_pose;
+    Quaternion_t relative_wx_pose;
     imu_axis_map_t hY_map;
     imu_axis_map_t hZ_map;
     imu_axis_map_t eZ_map;
@@ -162,12 +184,24 @@ typedef struct st_imu_calibration_runtime
  **********************************************************************************************************************/
 static float    get_envelope(float sample);
 static float    vector_norm(icm42688Float3_t const * p_vector);
+static float    vector_dot(icm42688Float3_t const * p_left, icm42688Float3_t const * p_right);
+static icm42688Float3_t vector_cross(icm42688Float3_t const * p_left, icm42688Float3_t const * p_right);
+static bool     vector_normalize_unit(icm42688Float3_t * p_vector);
 static float    clampf(float value, float min_value, float max_value);
 static void     quaternion_normalize(Quaternion_t * p_quat);
 static void     quaternion_identity(Quaternion_t * p_quat);
 static Quaternion_t quaternion_multiply(Quaternion_t const * p_left, Quaternion_t const * p_right);
 static Quaternion_t quaternion_inverse(Quaternion_t const * p_quat);
-static void     quaternion_to_euler_yxz(Quaternion_t const * p_quat, float * p_x_rad, float * p_y_rad, float * p_z_rad);
+static icm42688Float3_t quaternion_rotate_vector(Quaternion_t const * p_quat, icm42688Float3_t const * p_vector);
+static bool     quaternion_extract_axis_angle(Quaternion_t const * p_quat,
+                                              icm42688Float3_t * p_axis,
+                                              float * p_angle_deg);
+static bool     quaternion_extract_rotation_vector_deg(Quaternion_t const * p_quat,
+                                                       icm42688Float3_t * p_rotation_vec_deg);
+static void     quaternion_to_euler_yxz(Quaternion_t const * p_quat,
+                                        float * p_x_rad,
+                                        float * p_y_rad,
+                                        float * p_z_rad);
 static void     imu_timebase_init(void);
 static uint32_t imu_time_now_us(void);
 static float    imu_calc_dt_sec(imu_runtime_t * p_imu, uint32_t sample_time_us);
@@ -205,17 +239,31 @@ static void     imu_calibration_reset(void);
 static void     imu_calibration_begin(uint32_t now_us);
 static bool     imu_capture_motion_components(imu_motion_components_t * p_motion);
 static imu_cal_result_t imu_learn_axis_map(imu_axis_map_t * p_map,
-                                           float const raw_deg[3],
-                                           uint8_t excluded_mask,
+                                           Quaternion_t const * p_pose,
                                            imu_signal_source_t source,
+                                           imu_angle_measure_t measure,
                                            int16_t center_deg,
                                            float target_delta_deg);
+static bool     imu_finalize_upper_axis_maps(void);
+static bool     imu_finalize_lower_axis_maps(void);
+static bool     imu_measure_swing_deg(Quaternion_t const * p_pose,
+                                      icm42688Float3_t const * p_reference,
+                                      icm42688Float3_t const * p_axis,
+                                      float * p_angle_deg);
+static bool     imu_measure_twist_deg(Quaternion_t const * p_pose,
+                                      icm42688Float3_t const * p_axis,
+                                      float * p_angle_deg);
+static bool     imu_solve_basis_coefficients(icm42688Float3_t const * p_basis1,
+                                             icm42688Float3_t const * p_basis2,
+                                             icm42688Float3_t const * p_value,
+                                             float * p_coeff1,
+                                             float * p_coeff2);
 static imu_cal_result_t imu_record_current_step(uint32_t now_us);
 static void     imu_handle_calibration_next(uint32_t now_us);
 static void     imu_handle_button_event(uint32_t now_us);
 static void     imu_handle_uart_commands(uint32_t now_us);
 static void     imu_handle_uart_command(char * p_line, uint32_t now_us);
-static int32_t  imu_apply_axis_map(imu_axis_map_t const * p_map, imu_motion_components_t const * p_motion);
+static bool     imu_apply_axis_map(imu_axis_map_t * p_map, float raw_deg, int32_t * p_output_deg);
 static uint8_t  imu_get_grip_percent(void);
 static bool     imu_try_build_servo_pose(imu_servo_pose_t * p_pose);
 static void     imu_fail_stop(uint32_t step, fsp_err_t err);
@@ -606,6 +654,44 @@ static float vector_norm(icm42688Float3_t const * p_vector)
     return sqrtf((p_vector->x * p_vector->x) + (p_vector->y * p_vector->y) + (p_vector->z * p_vector->z));
 }
 
+static float vector_dot(icm42688Float3_t const * p_left, icm42688Float3_t const * p_right)
+{
+    return (p_left->x * p_right->x) + (p_left->y * p_right->y) + (p_left->z * p_right->z);
+}
+
+static icm42688Float3_t vector_cross(icm42688Float3_t const * p_left, icm42688Float3_t const * p_right)
+{
+    icm42688Float3_t result = {0.0f, 0.0f, 0.0f};
+
+    result.x = (p_left->y * p_right->z) - (p_left->z * p_right->y);
+    result.y = (p_left->z * p_right->x) - (p_left->x * p_right->z);
+    result.z = (p_left->x * p_right->y) - (p_left->y * p_right->x);
+
+    return result;
+}
+
+static bool vector_normalize_unit(icm42688Float3_t * p_vector)
+{
+    float norm;
+
+    if (NULL == p_vector)
+    {
+        return false;
+    }
+
+    norm = vector_norm(p_vector);
+    if (norm <= IMU_VECTOR_EPSILON)
+    {
+        return false;
+    }
+
+    p_vector->x /= norm;
+    p_vector->y /= norm;
+    p_vector->z /= norm;
+
+    return true;
+}
+
 static float clampf(float value, float min_value, float max_value)
 {
     if (value < min_value)
@@ -686,35 +772,168 @@ static Quaternion_t quaternion_inverse(Quaternion_t const * p_quat)
     return result;
 }
 
-static void quaternion_to_euler_yxz(Quaternion_t const * p_quat, float * p_x_rad, float * p_y_rad, float * p_z_rad)
+static icm42688Float3_t quaternion_rotate_vector(Quaternion_t const * p_quat, icm42688Float3_t const * p_vector)
 {
-    float x = p_quat->q1;
-    float y = p_quat->q2;
-    float z = p_quat->q3;
-    float w = p_quat->q0;
-    float xx = x * x;
-    float yy = y * y;
-    float zz = z * z;
-    float xy = x * y;
-    float xz = x * z;
-    float yz = y * z;
-    float wx = w * x;
-    float wy = w * y;
-    float wz = w * z;
-    float m11 = 1.0f - (2.0f * (yy + zz));
-    float m13 = 2.0f * (xz + wy);
-    float m21 = 2.0f * (xy + wz);
-    float m22 = 1.0f - (2.0f * (xx + zz));
-    float m23 = 2.0f * (yz - wx);
-    float m31 = 2.0f * (xz - wy);
-    float m33 = 1.0f - (2.0f * (xx + yy));
-    float x_rad;
-    float y_rad;
-    float z_rad;
+    icm42688Float3_t q_vector = {p_quat->q1, p_quat->q2, p_quat->q3};
+    icm42688Float3_t uv = vector_cross(&q_vector, p_vector);
+    icm42688Float3_t uuv = vector_cross(&q_vector, &uv);
+    icm42688Float3_t result = {0.0f, 0.0f, 0.0f};
 
-    x_rad = asinf(-clampf(m23, -1.0f, 1.0f));
+    uv.x *= (2.0f * p_quat->q0);
+    uv.y *= (2.0f * p_quat->q0);
+    uv.z *= (2.0f * p_quat->q0);
+    uuv.x *= 2.0f;
+    uuv.y *= 2.0f;
+    uuv.z *= 2.0f;
 
-    if (fabsf(m23) < IMU_EULER_SINGULARITY_EPSILON)
+    result.x = p_vector->x + uv.x + uuv.x;
+    result.y = p_vector->y + uv.y + uuv.y;
+    result.z = p_vector->z + uv.z + uuv.z;
+
+    return result;
+}
+
+static bool quaternion_extract_axis_angle(Quaternion_t const * p_quat,
+                                          icm42688Float3_t * p_axis,
+                                          float * p_angle_deg)
+{
+    Quaternion_t     quat = {0.0f, 0.0f, 0.0f, 0.0f};
+    icm42688Float3_t axis = {0.0f, 0.0f, 0.0f};
+    float            axis_norm;
+
+    if ((NULL == p_quat) || (NULL == p_axis) || (NULL == p_angle_deg))
+    {
+        return false;
+    }
+
+    quat = *p_quat;
+    quaternion_normalize(&quat);
+    if (quat.q0 < 0.0f)
+    {
+        quat.q0 = -quat.q0;
+        quat.q1 = -quat.q1;
+        quat.q2 = -quat.q2;
+        quat.q3 = -quat.q3;
+    }
+
+    axis.x = quat.q1;
+    axis.y = quat.q2;
+    axis.z = quat.q3;
+    axis_norm = vector_norm(&axis);
+    if (axis_norm <= IMU_VECTOR_EPSILON)
+    {
+        return false;
+    }
+
+    axis.x /= axis_norm;
+    axis.y /= axis_norm;
+    axis.z /= axis_norm;
+
+    *p_axis = axis;
+    *p_angle_deg = (2.0f * atan2f(axis_norm, quat.q0)) * IMU_RAD_TO_DEG;
+
+    return true;
+}
+
+static bool quaternion_extract_rotation_vector_deg(Quaternion_t const * p_quat,
+                                                   icm42688Float3_t * p_rotation_vec_deg)
+{
+    Quaternion_t     quat = {0.0f, 0.0f, 0.0f, 0.0f};
+    icm42688Float3_t quat_vector = {0.0f, 0.0f, 0.0f};
+    float            vector_norm_deg;
+    float            angle_deg;
+    float            scale;
+
+    if ((NULL == p_quat) || (NULL == p_rotation_vec_deg))
+    {
+        return false;
+    }
+
+    quat = *p_quat;
+    quaternion_normalize(&quat);
+    if (quat.q0 < 0.0f)
+    {
+        quat.q0 = -quat.q0;
+        quat.q1 = -quat.q1;
+        quat.q2 = -quat.q2;
+        quat.q3 = -quat.q3;
+    }
+
+    quat_vector.x = quat.q1;
+    quat_vector.y = quat.q2;
+    quat_vector.z = quat.q3;
+    vector_norm_deg = vector_norm(&quat_vector);
+    if (vector_norm_deg <= IMU_VECTOR_EPSILON)
+    {
+        p_rotation_vec_deg->x = 0.0f;
+        p_rotation_vec_deg->y = 0.0f;
+        p_rotation_vec_deg->z = 0.0f;
+        return true;
+    }
+
+    angle_deg = (2.0f * atan2f(vector_norm_deg, quat.q0)) * IMU_RAD_TO_DEG;
+    scale = angle_deg / vector_norm_deg;
+    p_rotation_vec_deg->x = quat_vector.x * scale;
+    p_rotation_vec_deg->y = quat_vector.y * scale;
+    p_rotation_vec_deg->z = quat_vector.z * scale;
+
+    return true;
+}
+
+static void quaternion_to_euler_yxz(Quaternion_t const * p_quat,
+                                    float * p_x_rad,
+                                    float * p_y_rad,
+                                    float * p_z_rad)
+{
+    Quaternion_t quat = {0.0f, 0.0f, 0.0f, 0.0f};
+    float        xx;
+    float        yy;
+    float        zz;
+    float        xy;
+    float        xz;
+    float        yz;
+    float        wx;
+    float        wy;
+    float        wz;
+    float        m11;
+    float        m13;
+    float        m21;
+    float        m22;
+    float        m23;
+    float        m31;
+    float        m33;
+    float        x_rad;
+    float        y_rad;
+    float        z_rad;
+
+    if (NULL == p_quat)
+    {
+        return;
+    }
+
+    quat = *p_quat;
+    quaternion_normalize(&quat);
+
+    xx = quat.q1 * quat.q1;
+    yy = quat.q2 * quat.q2;
+    zz = quat.q3 * quat.q3;
+    xy = quat.q1 * quat.q2;
+    xz = quat.q1 * quat.q3;
+    yz = quat.q2 * quat.q3;
+    wx = quat.q0 * quat.q1;
+    wy = quat.q0 * quat.q2;
+    wz = quat.q0 * quat.q3;
+
+    m11 = 1.0f - (2.0f * (yy + zz));
+    m13 = 2.0f * (xz + wy);
+    m21 = 2.0f * (xy + wz);
+    m22 = 1.0f - (2.0f * (xx + zz));
+    m23 = 2.0f * (yz - wx);
+    m31 = 2.0f * (xz - wy);
+    m33 = 1.0f - (2.0f * (xx + yy));
+
+    x_rad = asinf(clampf(-m23, -1.0f, 1.0f));
+    if (fabsf(m23) < 0.999999f)
     {
         y_rad = atan2f(m13, m33);
         z_rad = atan2f(m21, m22);
@@ -1179,85 +1398,322 @@ static bool imu_capture_motion_components(imu_motion_components_t * p_motion)
     upper_bone_inverse = quaternion_inverse(&upper_bone);
     relative_bone = quaternion_multiply(&upper_bone_inverse, &lower_bone);
 
-    quaternion_to_euler_yxz(&upper_bone,
-                            &p_motion->upper_rad[IMU_COMPONENT_X],
-                            &p_motion->upper_rad[IMU_COMPONENT_Y],
-                            &p_motion->upper_rad[IMU_COMPONENT_Z]);
-    quaternion_to_euler_yxz(&relative_bone,
-                            &p_motion->relative_rad[IMU_COMPONENT_X],
-                            &p_motion->relative_rad[IMU_COMPONENT_Y],
-                            &p_motion->relative_rad[IMU_COMPONENT_Z]);
+    p_motion->upper_bone = upper_bone;
+    p_motion->relative_bone = relative_bone;
 
     return true;
 }
 
 static imu_cal_result_t imu_learn_axis_map(imu_axis_map_t * p_map,
-                                           float const raw_deg[3],
-                                           uint8_t excluded_mask,
+                                           Quaternion_t const * p_pose,
                                            imu_signal_source_t source,
+                                           imu_angle_measure_t measure,
                                            int16_t center_deg,
                                            float target_delta_deg)
 {
-    int   best_index = -1;
-    float best_abs_deg = 0.0f;
-    float second_abs_deg = 0.0f;
+    icm42688Float3_t axis = {0.0f, 0.0f, 0.0f};
+    float            raw_angle_deg = 0.0f;
 
-    if ((NULL == p_map) || (NULL == raw_deg))
+    if ((NULL == p_map) || (NULL == p_pose))
     {
         return IMU_CAL_RESULT_AMBIG;
     }
 
-    for (int i = 0; i < 3; i++)
-    {
-        float abs_deg;
-
-        if (0U != (excluded_mask & (1U << i)))
-        {
-            continue;
-        }
-
-        abs_deg = fabsf(raw_deg[i]);
-        if (abs_deg > best_abs_deg)
-        {
-            second_abs_deg = best_abs_deg;
-            best_abs_deg = abs_deg;
-            best_index = i;
-        }
-        else if (abs_deg > second_abs_deg)
-        {
-            second_abs_deg = abs_deg;
-        }
-    }
-
-    if (best_index < 0)
+    if (!quaternion_extract_axis_angle(p_pose, &axis, &raw_angle_deg))
     {
         return IMU_CAL_RESULT_AMBIG;
     }
 
-    if (best_abs_deg < IMU_AXIS_MIN_RESPONSE_DEG)
+    if (raw_angle_deg < IMU_AXIS_MIN_RESPONSE_DEG)
     {
         return IMU_CAL_RESULT_WEAK;
     }
 
-    if ((second_abs_deg > 0.0f) && (best_abs_deg < (second_abs_deg * IMU_AXIS_DOMINANCE_RATIO)))
-    {
-        return IMU_CAL_RESULT_AMBIG;
-    }
-
     p_map->source = source;
-    p_map->component = (uint8_t) best_index;
-    p_map->gain = target_delta_deg / raw_deg[best_index];
+    p_map->measure = measure;
+    p_map->axis = axis;
+    p_map->filtered_raw_deg = 0.0f;
+    p_map->gain = target_delta_deg / raw_angle_deg;
     p_map->center_deg = center_deg;
+    p_map->last_output_deg = center_deg;
     p_map->valid = true;
+    p_map->has_filtered_raw = false;
+    p_map->has_reference = false;
+    p_map->has_last_raw = false;
+    p_map->has_last_output = false;
+    p_map->last_raw_deg = 0.0f;
 
     return IMU_CAL_RESULT_OK;
+}
+
+static bool imu_measure_swing_deg(Quaternion_t const * p_pose,
+                                  icm42688Float3_t const * p_reference,
+                                  icm42688Float3_t const * p_axis,
+                                  float * p_angle_deg)
+{
+    icm42688Float3_t ref_projected;
+    icm42688Float3_t current_vector;
+    icm42688Float3_t current_projected;
+    icm42688Float3_t cross_vector;
+    float            sin_term;
+    float            cos_term;
+
+    if ((NULL == p_pose) || (NULL == p_reference) || (NULL == p_axis) || (NULL == p_angle_deg))
+    {
+        return false;
+    }
+
+    ref_projected.x = p_reference->x - (p_axis->x * vector_dot(p_reference, p_axis));
+    ref_projected.y = p_reference->y - (p_axis->y * vector_dot(p_reference, p_axis));
+    ref_projected.z = p_reference->z - (p_axis->z * vector_dot(p_reference, p_axis));
+    if (!vector_normalize_unit(&ref_projected))
+    {
+        return false;
+    }
+
+    current_vector = quaternion_rotate_vector(p_pose, p_reference);
+    current_projected.x = current_vector.x - (p_axis->x * vector_dot(&current_vector, p_axis));
+    current_projected.y = current_vector.y - (p_axis->y * vector_dot(&current_vector, p_axis));
+    current_projected.z = current_vector.z - (p_axis->z * vector_dot(&current_vector, p_axis));
+    if (!vector_normalize_unit(&current_projected))
+    {
+        return false;
+    }
+
+    cross_vector = vector_cross(&ref_projected, &current_projected);
+    sin_term = vector_dot(p_axis, &cross_vector);
+    cos_term = clampf(vector_dot(&ref_projected, &current_projected), -1.0f, 1.0f);
+    *p_angle_deg = atan2f(sin_term, cos_term) * IMU_RAD_TO_DEG;
+
+    return true;
+}
+
+static bool imu_measure_twist_deg(Quaternion_t const * p_pose,
+                                  icm42688Float3_t const * p_axis,
+                                  float * p_angle_deg)
+{
+    Quaternion_t     pose = {0.0f, 0.0f, 0.0f, 0.0f};
+    Quaternion_t     twist = {0.0f, 0.0f, 0.0f, 0.0f};
+    icm42688Float3_t quaternion_vector = {0.0f, 0.0f, 0.0f};
+    float            projection;
+    float            twist_vector_norm;
+    float            angle_deg;
+
+    if ((NULL == p_pose) || (NULL == p_axis) || (NULL == p_angle_deg))
+    {
+        return false;
+    }
+
+    pose = *p_pose;
+    quaternion_normalize(&pose);
+    if (pose.q0 < 0.0f)
+    {
+        pose.q0 = -pose.q0;
+        pose.q1 = -pose.q1;
+        pose.q2 = -pose.q2;
+        pose.q3 = -pose.q3;
+    }
+    quaternion_vector.x = pose.q1;
+    quaternion_vector.y = pose.q2;
+    quaternion_vector.z = pose.q3;
+    projection = vector_dot(&quaternion_vector, p_axis);
+
+    twist.q0 = pose.q0;
+    twist.q1 = p_axis->x * projection;
+    twist.q2 = p_axis->y * projection;
+    twist.q3 = p_axis->z * projection;
+    quaternion_normalize(&twist);
+    if (twist.q0 < 0.0f)
+    {
+        twist.q0 = -twist.q0;
+        twist.q1 = -twist.q1;
+        twist.q2 = -twist.q2;
+        twist.q3 = -twist.q3;
+    }
+
+    twist_vector_norm = sqrtf((twist.q1 * twist.q1) + (twist.q2 * twist.q2) + (twist.q3 * twist.q3));
+    angle_deg = (2.0f * atan2f(twist_vector_norm, twist.q0)) * IMU_RAD_TO_DEG;
+    if (projection < 0.0f)
+    {
+        angle_deg = -angle_deg;
+    }
+
+    *p_angle_deg = angle_deg;
+
+    return true;
+}
+
+static bool imu_solve_basis_coefficients(icm42688Float3_t const * p_basis1,
+                                         icm42688Float3_t const * p_basis2,
+                                         icm42688Float3_t const * p_value,
+                                         float * p_coeff1,
+                                         float * p_coeff2)
+{
+    float a11;
+    float a12;
+    float a22;
+    float b1;
+    float b2;
+    float det;
+
+    if ((NULL == p_basis1) || (NULL == p_basis2) || (NULL == p_value) || (NULL == p_coeff1) || (NULL == p_coeff2))
+    {
+        return false;
+    }
+
+    a11 = vector_dot(p_basis1, p_basis1);
+    a12 = vector_dot(p_basis1, p_basis2);
+    a22 = vector_dot(p_basis2, p_basis2);
+    det = (a11 * a22) - (a12 * a12);
+    if (fabsf(det) <= IMU_VECTOR_EPSILON)
+    {
+        return false;
+    }
+
+    b1 = vector_dot(p_value, p_basis1);
+    b2 = vector_dot(p_value, p_basis2);
+    *p_coeff1 = ((b1 * a22) - (b2 * a12)) / det;
+    *p_coeff2 = ((a11 * b2) - (a12 * b1)) / det;
+
+    return true;
+}
+
+static bool imu_finalize_upper_axis_maps(void)
+{
+    float           best_score = 1.0e9f;
+    bool            found = false;
+    imu_axis_map_t  hy_map = s_imu_calibration.hY_map;
+    imu_axis_map_t  hz_map = s_imu_calibration.hZ_map;
+
+    for (int hy_sign = -1; hy_sign <= 1; hy_sign += 2)
+    {
+        for (int hz_sign = -1; hz_sign <= 1; hz_sign += 2)
+        {
+            icm42688Float3_t axis_hy = {hy_map.axis.x * (float) hy_sign,
+                                        hy_map.axis.y * (float) hy_sign,
+                                        hy_map.axis.z * (float) hy_sign};
+            icm42688Float3_t axis_hz = {hz_map.axis.x * (float) hz_sign,
+                                        hz_map.axis.y * (float) hz_sign,
+                                        hz_map.axis.z * (float) hz_sign};
+            icm42688Float3_t reference = vector_cross(&axis_hy, &axis_hz);
+            float            hy_raw_deg = 0.0f;
+            float            hz_raw_deg = 0.0f;
+            float            score;
+
+            if (!vector_normalize_unit(&reference))
+            {
+                continue;
+            }
+
+            if (!imu_measure_swing_deg(&s_imu_calibration.upper_hy_pose, &reference, &axis_hy, &hy_raw_deg) ||
+                !imu_measure_swing_deg(&s_imu_calibration.upper_hz_pose, &reference, &axis_hz, &hz_raw_deg))
+            {
+                continue;
+            }
+
+            if ((fabsf(hy_raw_deg) < IMU_AXIS_MIN_RESPONSE_DEG) ||
+                (fabsf(hz_raw_deg) < IMU_AXIS_MIN_RESPONSE_DEG))
+            {
+                continue;
+            }
+
+            score = fabsf(IMU_CAL_TARGET_DELTA_DEG - hy_raw_deg) +
+                    fabsf((-IMU_CAL_TARGET_DELTA_DEG) - hz_raw_deg);
+            if ((!found) || (score < best_score))
+            {
+                found = true;
+                best_score = score;
+                s_imu_calibration.hY_map.axis = axis_hy;
+                s_imu_calibration.hY_map.reference = reference;
+                s_imu_calibration.hY_map.gain = IMU_CAL_TARGET_DELTA_DEG / hy_raw_deg;
+                s_imu_calibration.hY_map.has_reference = true;
+                s_imu_calibration.hY_map.has_filtered_raw = false;
+                s_imu_calibration.hY_map.has_last_raw = false;
+                s_imu_calibration.hY_map.has_last_output = false;
+
+                s_imu_calibration.hZ_map.axis = axis_hz;
+                s_imu_calibration.hZ_map.reference = reference;
+                s_imu_calibration.hZ_map.gain = (-IMU_CAL_TARGET_DELTA_DEG) / hz_raw_deg;
+                s_imu_calibration.hZ_map.has_reference = true;
+                s_imu_calibration.hZ_map.has_filtered_raw = false;
+                s_imu_calibration.hZ_map.has_last_raw = false;
+                s_imu_calibration.hZ_map.has_last_output = false;
+            }
+        }
+    }
+
+    return found;
+}
+
+static bool imu_finalize_lower_axis_maps(void)
+{
+    float best_score = 1.0e9f;
+    bool  found = false;
+    imu_axis_map_t ez_map = s_imu_calibration.eZ_map;
+    imu_axis_map_t wx_map = s_imu_calibration.wX_map;
+
+    for (int ez_sign = -1; ez_sign <= 1; ez_sign += 2)
+    {
+        for (int wx_sign = -1; wx_sign <= 1; wx_sign += 2)
+        {
+            icm42688Float3_t axis_ez = {ez_map.axis.x * (float) ez_sign,
+                                        ez_map.axis.y * (float) ez_sign,
+                                        ez_map.axis.z * (float) ez_sign};
+            icm42688Float3_t axis_wx = {wx_map.axis.x * (float) wx_sign,
+                                        wx_map.axis.y * (float) wx_sign,
+                                        wx_map.axis.z * (float) wx_sign};
+            float            ez_raw_deg = 0.0f;
+            float            wx_raw_deg = 0.0f;
+            float            score;
+
+            if (!vector_normalize_unit(&axis_wx))
+            {
+                continue;
+            }
+
+            if (!imu_measure_swing_deg(&s_imu_calibration.relative_ez_pose, &axis_wx, &axis_ez, &ez_raw_deg) ||
+                !imu_measure_twist_deg(&s_imu_calibration.relative_wx_pose, &axis_wx, &wx_raw_deg))
+            {
+                continue;
+            }
+
+            if ((fabsf(ez_raw_deg) < IMU_AXIS_MIN_RESPONSE_DEG) ||
+                (fabsf(wx_raw_deg) < IMU_AXIS_MIN_RESPONSE_DEG))
+            {
+                continue;
+            }
+
+            score = fabsf(IMU_CAL_TARGET_DELTA_DEG - ez_raw_deg) +
+                    fabsf(IMU_CAL_TARGET_DELTA_DEG - wx_raw_deg);
+            if ((!found) || (score < best_score))
+            {
+                found = true;
+                best_score = score;
+                s_imu_calibration.eZ_map.axis = axis_ez;
+                s_imu_calibration.eZ_map.reference = axis_wx;
+                s_imu_calibration.eZ_map.gain = IMU_CAL_TARGET_DELTA_DEG / ez_raw_deg;
+                s_imu_calibration.eZ_map.has_reference = true;
+                s_imu_calibration.eZ_map.has_filtered_raw = false;
+                s_imu_calibration.eZ_map.has_last_raw = false;
+                s_imu_calibration.eZ_map.has_last_output = false;
+
+                s_imu_calibration.wX_map.axis = axis_wx;
+                s_imu_calibration.wX_map.reference = axis_wx;
+                s_imu_calibration.wX_map.gain = IMU_CAL_TARGET_DELTA_DEG / wx_raw_deg;
+                s_imu_calibration.wX_map.has_reference = true;
+                s_imu_calibration.wX_map.has_filtered_raw = false;
+                s_imu_calibration.wX_map.has_last_raw = false;
+                s_imu_calibration.wX_map.has_last_output = false;
+            }
+        }
+    }
+
+    return found;
 }
 
 static imu_cal_result_t imu_record_current_step(uint32_t now_us)
 {
     imu_motion_components_t motion = {0};
-    float upper_deg[3] = {0.0f, 0.0f, 0.0f};
-    float relative_deg[3] = {0.0f, 0.0f, 0.0f};
 
     (void) now_us;
 
@@ -1284,45 +1740,71 @@ static imu_cal_result_t imu_record_current_step(uint32_t now_us)
         return IMU_CAL_RESULT_NODATA;
     }
 
-    for (int i = 0; i < 3; i++)
-    {
-        upper_deg[i] = motion.upper_rad[i] * IMU_RAD_TO_DEG;
-        relative_deg[i] = motion.relative_rad[i] * IMU_RAD_TO_DEG;
-    }
-
     switch (s_imu_calibration.current_step)
     {
         case IMU_CAL_STEP_HY:
-            return imu_learn_axis_map(&s_imu_calibration.hY_map,
-                                      upper_deg,
-                                      0U,
-                                      IMU_SIGNAL_SOURCE_UPPER,
-                                      90,
-                                      IMU_CAL_TARGET_DELTA_DEG);
+        {
+            imu_cal_result_t result = imu_learn_axis_map(&s_imu_calibration.hY_map,
+                                                         &motion.upper_bone,
+                                                         IMU_SIGNAL_SOURCE_UPPER,
+                                                         IMU_ANGLE_MEASURE_SWING,
+                                                         90,
+                                                         IMU_CAL_TARGET_DELTA_DEG);
+            if (IMU_CAL_RESULT_OK == result)
+            {
+                s_imu_calibration.upper_hy_pose = motion.upper_bone;
+            }
+            return result;
+        }
 
         case IMU_CAL_STEP_HZ:
-            return imu_learn_axis_map(&s_imu_calibration.hZ_map,
-                                      upper_deg,
-                                      s_imu_calibration.hY_map.valid ? (uint8_t) (1U << s_imu_calibration.hY_map.component) : 0U,
-                                      IMU_SIGNAL_SOURCE_UPPER,
-                                      90,
-                                      -IMU_CAL_TARGET_DELTA_DEG);
+        {
+            imu_cal_result_t result = imu_learn_axis_map(&s_imu_calibration.hZ_map,
+                                                         &motion.upper_bone,
+                                                         IMU_SIGNAL_SOURCE_UPPER,
+                                                         IMU_ANGLE_MEASURE_SWING,
+                                                         90,
+                                                         -IMU_CAL_TARGET_DELTA_DEG);
+            if (IMU_CAL_RESULT_OK != result)
+            {
+                return result;
+            }
+
+            s_imu_calibration.upper_hz_pose = motion.upper_bone;
+            return imu_finalize_upper_axis_maps() ? IMU_CAL_RESULT_OK : IMU_CAL_RESULT_AMBIG;
+        }
 
         case IMU_CAL_STEP_EZ:
-            return imu_learn_axis_map(&s_imu_calibration.eZ_map,
-                                      relative_deg,
-                                      0U,
-                                      IMU_SIGNAL_SOURCE_RELATIVE,
-                                      0,
-                                      IMU_CAL_TARGET_DELTA_DEG);
+        {
+            imu_cal_result_t result = imu_learn_axis_map(&s_imu_calibration.eZ_map,
+                                                         &motion.relative_bone,
+                                                         IMU_SIGNAL_SOURCE_RELATIVE,
+                                                         IMU_ANGLE_MEASURE_SWING,
+                                                         0,
+                                                         IMU_CAL_TARGET_DELTA_DEG);
+            if (IMU_CAL_RESULT_OK == result)
+            {
+                s_imu_calibration.relative_ez_pose = motion.relative_bone;
+            }
+            return result;
+        }
 
         case IMU_CAL_STEP_WX:
-            return imu_learn_axis_map(&s_imu_calibration.wX_map,
-                                      relative_deg,
-                                      s_imu_calibration.eZ_map.valid ? (uint8_t) (1U << s_imu_calibration.eZ_map.component) : 0U,
-                                      IMU_SIGNAL_SOURCE_RELATIVE,
-                                      90,
-                                      IMU_CAL_TARGET_DELTA_DEG);
+        {
+            imu_cal_result_t result = imu_learn_axis_map(&s_imu_calibration.wX_map,
+                                                         &motion.relative_bone,
+                                                         IMU_SIGNAL_SOURCE_RELATIVE,
+                                                         IMU_ANGLE_MEASURE_TWIST,
+                                                         90,
+                                                         IMU_CAL_TARGET_DELTA_DEG);
+            if (IMU_CAL_RESULT_OK != result)
+            {
+                return result;
+            }
+
+            s_imu_calibration.relative_wx_pose = motion.relative_bone;
+            return imu_finalize_lower_axis_maps() ? IMU_CAL_RESULT_OK : IMU_CAL_RESULT_AMBIG;
+        }
 
         default:
             return IMU_CAL_RESULT_AMBIG;
@@ -1563,30 +2045,61 @@ static void imu_handle_uart_command(char * p_line, uint32_t now_us)
     }
 }
 
-static int32_t imu_apply_axis_map(imu_axis_map_t const * p_map, imu_motion_components_t const * p_motion)
+static bool imu_apply_axis_map(imu_axis_map_t * p_map, float raw_deg, int32_t * p_output_deg)
 {
-    float input_deg = 0.0f;
+    float                delta_deg;
+    int32_t              output_deg;
 
-    if ((NULL == p_map) || (NULL == p_motion) || !p_map->valid || (p_map->component > IMU_COMPONENT_Z))
+    if ((NULL == p_map) || (NULL == p_output_deg) || !p_map->valid)
     {
-        return 0;
+        return false;
     }
 
-    if (IMU_SIGNAL_SOURCE_UPPER == p_map->source)
+    if (p_map->has_last_raw)
     {
-        input_deg = p_motion->upper_rad[p_map->component] * IMU_RAD_TO_DEG;
-    }
-    else
-    {
-        input_deg = p_motion->relative_rad[p_map->component] * IMU_RAD_TO_DEG;
+        delta_deg = clampf(raw_deg - p_map->last_raw_deg, -IMU_RUNTIME_MAX_STEP_DEG, IMU_RUNTIME_MAX_STEP_DEG);
+        raw_deg = p_map->last_raw_deg + delta_deg;
     }
 
-    return (int32_t) roundf((float) p_map->center_deg + (p_map->gain * input_deg));
+    p_map->last_raw_deg = raw_deg;
+    p_map->has_last_raw = true;
+
+    if (p_map->has_filtered_raw)
+    {
+        raw_deg = p_map->filtered_raw_deg +
+                  (IMU_RUNTIME_RAW_FILTER_ALPHA * (raw_deg - p_map->filtered_raw_deg));
+    }
+
+    p_map->filtered_raw_deg = raw_deg;
+    p_map->has_filtered_raw = true;
+
+    output_deg = (int32_t) roundf((float) p_map->center_deg + raw_deg);
+    if (p_map->has_last_output &&
+        (abs(output_deg - (int32_t) p_map->last_output_deg) <= IMU_RUNTIME_OUTPUT_DEADBAND))
+    {
+        output_deg = (int32_t) p_map->last_output_deg;
+    }
+
+    p_map->last_output_deg = (int16_t) output_deg;
+    p_map->has_last_output = true;
+    *p_output_deg = output_deg;
+
+    return true;
 }
 
 static bool imu_try_build_servo_pose(imu_servo_pose_t * p_pose)
 {
     imu_motion_components_t motion = {0};
+    icm42688Float3_t        upper_current_vec = {0.0f, 0.0f, 0.0f};
+    icm42688Float3_t        upper_hy_vec = {0.0f, 0.0f, 0.0f};
+    icm42688Float3_t        upper_hz_vec = {0.0f, 0.0f, 0.0f};
+    icm42688Float3_t        relative_current_vec = {0.0f, 0.0f, 0.0f};
+    icm42688Float3_t        relative_ez_vec = {0.0f, 0.0f, 0.0f};
+    icm42688Float3_t        relative_wx_vec = {0.0f, 0.0f, 0.0f};
+    float                   hy_coeff = 0.0f;
+    float                   hz_coeff = 0.0f;
+    float                   ez_coeff = 0.0f;
+    float                   wx_coeff = 0.0f;
     int32_t                 hY_deg;
     int32_t                 hZ_deg;
     int32_t                 eZ_deg;
@@ -1607,10 +2120,29 @@ static bool imu_try_build_servo_pose(imu_servo_pose_t * p_pose)
         return false;
     }
 
-    hY_deg = imu_apply_axis_map(&s_imu_calibration.hY_map, &motion);
-    hZ_deg = imu_apply_axis_map(&s_imu_calibration.hZ_map, &motion);
-    eZ_deg = imu_apply_axis_map(&s_imu_calibration.eZ_map, &motion);
-    wX_deg = imu_apply_axis_map(&s_imu_calibration.wX_map, &motion);
+    if (!quaternion_extract_rotation_vector_deg(&motion.upper_bone, &upper_current_vec) ||
+        !quaternion_extract_rotation_vector_deg(&s_imu_calibration.upper_hy_pose, &upper_hy_vec) ||
+        !quaternion_extract_rotation_vector_deg(&s_imu_calibration.upper_hz_pose, &upper_hz_vec) ||
+        !quaternion_extract_rotation_vector_deg(&motion.relative_bone, &relative_current_vec) ||
+        !quaternion_extract_rotation_vector_deg(&s_imu_calibration.relative_ez_pose, &relative_ez_vec) ||
+        !quaternion_extract_rotation_vector_deg(&s_imu_calibration.relative_wx_pose, &relative_wx_vec))
+    {
+        return false;
+    }
+
+    if (!imu_solve_basis_coefficients(&upper_hy_vec, &upper_hz_vec, &upper_current_vec, &hy_coeff, &hz_coeff) ||
+        !imu_solve_basis_coefficients(&relative_ez_vec, &relative_wx_vec, &relative_current_vec, &ez_coeff, &wx_coeff))
+    {
+        return false;
+    }
+
+    if (!imu_apply_axis_map(&s_imu_calibration.hY_map, IMU_CAL_TARGET_DELTA_DEG * hy_coeff, &hY_deg) ||
+        !imu_apply_axis_map(&s_imu_calibration.hZ_map, -IMU_CAL_TARGET_DELTA_DEG * hz_coeff, &hZ_deg) ||
+        !imu_apply_axis_map(&s_imu_calibration.eZ_map, IMU_CAL_TARGET_DELTA_DEG * ez_coeff, &eZ_deg) ||
+        !imu_apply_axis_map(&s_imu_calibration.wX_map, IMU_CAL_TARGET_DELTA_DEG * wx_coeff, &wX_deg))
+    {
+        return false;
+    }
 
     p_pose->hY_deg = (uint16_t) imu_clamp_int32(hY_deg, 0, 180);
     p_pose->hZ_deg = (uint16_t) imu_clamp_int32(hZ_deg, 0, 180);
