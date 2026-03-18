@@ -1,11 +1,15 @@
 #include "icm42688_bus.h"
 #include "icm42688_regs.h"
 
-#define ICM42688_SPI_TIMEOUT_LOOPS  100000U
-#define ICM42688_SPI_READ_MASK      0x80U
-#define ICM42688_SPI_DUMMY_BYTE     0xFFU
+#define ICM42688_SPI_TIMEOUT_LOOPS       100000U
+#define ICM42688_SPI_READ_MASK           0x80U
+#define ICM42688_SPI_DUMMY_BYTE          0xFFU
+#define ICM42688_SPI_TRANSFER_MAX_BYTES  32U
 
-static fsp_err_t icm42688_transfer_byte(icm42688_bus_t const * p_bus, uint8_t tx_data, uint8_t * p_rx_data);
+static fsp_err_t icm42688_transfer_bytes(icm42688_bus_t const * p_bus,
+                                         uint8_t const * p_tx_data,
+                                         uint8_t * p_rx_data,
+                                         uint16_t len);
 static fsp_err_t icm42688_write_reg(icm42688_bus_t const * p_bus, uint8_t reg, uint8_t val);
 static fsp_err_t icm42688_read_reg(icm42688_bus_t const * p_bus, uint8_t reg, uint8_t * p_reg_val);
 static fsp_err_t icm42688_read_regs(icm42688_bus_t const * p_bus, uint8_t reg, uint8_t * p_buf, uint16_t len);
@@ -142,14 +146,25 @@ fsp_err_t icm42688_bus_get_raw_data(icm42688_bus_t const * p_bus,
     return FSP_SUCCESS;
 }
 
-static fsp_err_t icm42688_transfer_byte(icm42688_bus_t const * p_bus, uint8_t tx_data, uint8_t * p_rx_data)
+static fsp_err_t icm42688_transfer_bytes(icm42688_bus_t const * p_bus,
+                                         uint8_t const * p_tx_data,
+                                         uint8_t * p_rx_data,
+                                         uint16_t len)
 {
     fsp_err_t err;
-    uint8_t   rx_data = 0U;
     uint32_t  timeout = ICM42688_SPI_TIMEOUT_LOOPS;
 
+    if ((NULL == p_bus) || (NULL == p_tx_data) || (NULL == p_rx_data) || (0U == len))
+    {
+        return FSP_ERR_INVALID_ARGUMENT;
+    }
+
     *(p_bus->p_transfer_complete) = false;
-    err = p_bus->p_spi->p_api->writeRead(p_bus->p_spi->p_ctrl, &tx_data, &rx_data, 1U, SPI_BIT_WIDTH_8_BITS);
+    err = p_bus->p_spi->p_api->writeRead(p_bus->p_spi->p_ctrl,
+                                         p_tx_data,
+                                         p_rx_data,
+                                         len,
+                                         SPI_BIT_WIDTH_8_BITS);
     if (FSP_SUCCESS != err)
     {
         return err;
@@ -165,24 +180,17 @@ static fsp_err_t icm42688_transfer_byte(icm42688_bus_t const * p_bus, uint8_t tx
         return FSP_ERR_TIMEOUT;
     }
 
-    if (NULL != p_rx_data)
-    {
-        *p_rx_data = rx_data;
-    }
-
     return FSP_SUCCESS;
 }
 
 static fsp_err_t icm42688_write_reg(icm42688_bus_t const * p_bus, uint8_t reg, uint8_t val)
 {
     fsp_err_t err;
+    uint8_t   tx_buf[2] = {reg, val};
+    uint8_t   rx_buf[2] = {0};
 
     R_IOPORT_PinWrite(&g_ioport_ctrl, p_bus->cs_pin, BSP_IO_LEVEL_LOW);
-    err = icm42688_transfer_byte(p_bus, reg, NULL);
-    if (FSP_SUCCESS == err)
-    {
-        err = icm42688_transfer_byte(p_bus, val, NULL);
-    }
+    err = icm42688_transfer_bytes(p_bus, tx_buf, rx_buf, 2U);
     R_IOPORT_PinWrite(&g_ioport_ctrl, p_bus->cs_pin, BSP_IO_LEVEL_HIGH);
 
     return err;
@@ -191,19 +199,16 @@ static fsp_err_t icm42688_write_reg(icm42688_bus_t const * p_bus, uint8_t reg, u
 static fsp_err_t icm42688_read_reg(icm42688_bus_t const * p_bus, uint8_t reg, uint8_t * p_reg_val)
 {
     fsp_err_t err;
-    uint8_t   reg_val = 0U;
+    uint8_t   tx_buf[2] = {(uint8_t) (reg | ICM42688_SPI_READ_MASK), ICM42688_SPI_DUMMY_BYTE};
+    uint8_t   rx_buf[2] = {0};
 
     R_IOPORT_PinWrite(&g_ioport_ctrl, p_bus->cs_pin, BSP_IO_LEVEL_LOW);
-    err = icm42688_transfer_byte(p_bus, (uint8_t) (reg | ICM42688_SPI_READ_MASK), NULL);
-    if (FSP_SUCCESS == err)
-    {
-        err = icm42688_transfer_byte(p_bus, ICM42688_SPI_DUMMY_BYTE, &reg_val);
-    }
+    err = icm42688_transfer_bytes(p_bus, tx_buf, rx_buf, 2U);
     R_IOPORT_PinWrite(&g_ioport_ctrl, p_bus->cs_pin, BSP_IO_LEVEL_HIGH);
 
     if ((FSP_SUCCESS == err) && (NULL != p_reg_val))
     {
-        *p_reg_val = reg_val;
+        *p_reg_val = rx_buf[1];
     }
 
     return err;
@@ -212,23 +217,39 @@ static fsp_err_t icm42688_read_reg(icm42688_bus_t const * p_bus, uint8_t reg, ui
 static fsp_err_t icm42688_read_regs(icm42688_bus_t const * p_bus, uint8_t reg, uint8_t * p_buf, uint16_t len)
 {
     fsp_err_t err;
+    uint8_t   tx_buf[ICM42688_SPI_TRANSFER_MAX_BYTES] = {0};
+    uint8_t   rx_buf[ICM42688_SPI_TRANSFER_MAX_BYTES] = {0};
+    uint16_t  transfer_len;
+    uint16_t  index;
 
     if ((NULL == p_buf) || (0U == len))
     {
         return FSP_ERR_INVALID_ARGUMENT;
     }
 
-    R_IOPORT_PinWrite(&g_ioport_ctrl, p_bus->cs_pin, BSP_IO_LEVEL_LOW);
-    err = icm42688_transfer_byte(p_bus, (uint8_t) (reg | ICM42688_SPI_READ_MASK), NULL);
-
-    while ((FSP_SUCCESS == err) && (len > 0U))
+    transfer_len = (uint16_t) (len + 1U);
+    if (transfer_len > ICM42688_SPI_TRANSFER_MAX_BYTES)
     {
-        err = icm42688_transfer_byte(p_bus, ICM42688_SPI_DUMMY_BYTE, p_buf);
-        p_buf++;
-        len--;
+        return FSP_ERR_INVALID_SIZE;
     }
 
+    tx_buf[0] = (uint8_t) (reg | ICM42688_SPI_READ_MASK);
+    for (index = 1U; index < transfer_len; index++)
+    {
+        tx_buf[index] = ICM42688_SPI_DUMMY_BYTE;
+    }
+
+    R_IOPORT_PinWrite(&g_ioport_ctrl, p_bus->cs_pin, BSP_IO_LEVEL_LOW);
+    err = icm42688_transfer_bytes(p_bus, tx_buf, rx_buf, transfer_len);
     R_IOPORT_PinWrite(&g_ioport_ctrl, p_bus->cs_pin, BSP_IO_LEVEL_HIGH);
+
+    if (FSP_SUCCESS == err)
+    {
+        for (index = 0U; index < len; index++)
+        {
+            p_buf[index] = rx_buf[index + 1U];
+        }
+    }
 
     return err;
 }

@@ -79,7 +79,8 @@ typedef struct st_imu_runtime
     float            current_temperature_c;
     float            filtered_temperature_c;
     uint32_t         last_sample_time_us;
-    volatile bool    data_ready;
+    volatile uint32_t data_ready_time_us;
+    volatile uint16_t pending_ready_count;
     bool             has_temperature_reference;
     bool             has_filtered_temperature;
 } imu_runtime_t;

@@ -10,6 +10,7 @@ typedef void (*imu_runtime_wait_hook_t)(void * p_context, uint32_t now_us);
 void     imu_runtime_reset(imu_runtime_t * p_imu);
 void     imu_timebase_init(imu_timebase_t * p_timebase);
 uint32_t imu_time_now_us(imu_timebase_t * p_timebase);
+void     imu_mark_data_ready(imu_runtime_t * p_imu, imu_timebase_t * p_timebase);
 float    imu_calc_dt_sec(imu_runtime_t * p_imu, uint32_t sample_time_us);
 void     imu_mahony_update(imu_runtime_t * p_imu,
                            icm42688Float3_t const * p_acc_g,
@@ -37,6 +38,7 @@ bool     imu_try_read_sample(imu_runtime_t * p_imu,
                              icm42688Float3_t * p_gyro_rad_s,
                              float * p_temp_c,
                              uint32_t * p_sample_time_us,
+                             uint32_t * p_ready_count,
                              imu_timebase_t * p_timebase);
 
 #endif

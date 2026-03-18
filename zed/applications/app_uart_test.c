@@ -11,7 +11,7 @@
 
 static imu_app_context_t s_imu_app = {0};
 
-#define IMU_DEBUG_ZERO_DRIFT_ONLY               1
+#define IMU_DEBUG_ZERO_DRIFT_ONLY               0
 #define IMU_DEBUG_ZERO_DRIFT_REPORT_INTERVAL_US 500000U
 #define IMU_DEBUG_ZERO_DRIFT_SPIKE_DPS          0.20f
 
@@ -29,7 +29,8 @@ static void imu_print_zero_drift_metrics(char const * p_label,
                                          icm42688Float3_t const * p_sum_dps,
                                          icm42688Float3_t const * p_abs_sum_dps,
                                          icm42688Float3_t const * p_effective_bias_dps,
-                                         uint32_t sample_count,
+                                         uint32_t processed_count,
+                                         uint32_t ready_count,
                                          uint32_t window_us);
 static void imu_run_zero_drift_monitor(void);
 
@@ -37,7 +38,7 @@ void icu8_callback(external_irq_callback_args_t * p_args)
 {
     if ((NULL != p_args) && (8 == p_args->channel))
     {
-        s_imu_app.upper_imu.data_ready = true;
+        imu_mark_data_ready(&s_imu_app.upper_imu, &s_imu_app.timebase);
     }
 }
 
@@ -45,7 +46,7 @@ void icu9_callback(external_irq_callback_args_t * p_args)
 {
     if ((NULL != p_args) && (9 == p_args->channel))
     {
-        s_imu_app.lower_imu.data_ready = true;
+        imu_mark_data_ready(&s_imu_app.lower_imu, &s_imu_app.timebase);
     }
 }
 
@@ -131,8 +132,8 @@ void imu_test(void)
                                                       &s_imu_app);
     (void) upper_calibration_samples;
     (void) lower_calibration_samples;
-    s_imu_app.upper_imu.data_ready = false;
-    s_imu_app.lower_imu.data_ready = false;
+    s_imu_app.upper_imu.pending_ready_count = 0U;
+    s_imu_app.lower_imu.pending_ready_count = 0U;
     s_imu_app.last_telemetry_time_us = 0U;
 
 #if IMU_DEBUG_ZERO_DRIFT_ONLY
@@ -163,6 +164,8 @@ void imu_test(void)
         float            lower_temperature_c = s_imu_app.lower_imu.current_temperature_c;
         uint32_t         upper_sample_time_us = 0U;
         uint32_t         lower_sample_time_us = 0U;
+        uint32_t         upper_ready_count = 0U;
+        uint32_t         lower_ready_count = 0U;
         uint32_t         frame_sample_time_us = 0U;
         uint32_t         loop_time_us;
         bool             upper_updated;
@@ -174,6 +177,7 @@ void imu_test(void)
                                             &upper_gyro_rad_s,
                                             &upper_temperature_c,
                                             &upper_sample_time_us,
+                                            &upper_ready_count,
                                             &s_imu_app.timebase);
         lower_updated = imu_try_read_sample(&s_imu_app.lower_imu,
                                             bsp_IcmSciGetScaledData,
@@ -181,6 +185,7 @@ void imu_test(void)
                                             &lower_gyro_rad_s,
                                             &lower_temperature_c,
                                             &lower_sample_time_us,
+                                            &lower_ready_count,
                                             &s_imu_app.timebase);
 
         if (upper_updated)
@@ -431,7 +436,8 @@ static void imu_print_zero_drift_metrics(char const * p_label,
                                          icm42688Float3_t const * p_sum_dps,
                                          icm42688Float3_t const * p_abs_sum_dps,
                                          icm42688Float3_t const * p_effective_bias_dps,
-                                         uint32_t sample_count,
+                                         uint32_t processed_count,
+                                         uint32_t ready_count,
                                          uint32_t window_us)
 {
     icm42688Float3_t avg_dps = {0.0f, 0.0f, 0.0f};
@@ -444,26 +450,26 @@ static void imu_print_zero_drift_metrics(char const * p_label,
     float            sample_rate_hz = 0.0f;
 
     if ((NULL == p_label) || (NULL == p_imu) || (NULL == p_sum_dps) || (NULL == p_abs_sum_dps) ||
-        (NULL == p_effective_bias_dps) || (0U == sample_count))
+        (NULL == p_effective_bias_dps) || (0U == processed_count))
     {
         printf("%s_GRADE,NA,", (NULL != p_label) ? p_label : "IMU");
         return;
     }
 
-    avg_dps.x = p_sum_dps->x / (float) sample_count;
-    avg_dps.y = p_sum_dps->y / (float) sample_count;
-    avg_dps.z = p_sum_dps->z / (float) sample_count;
-    abs_avg_dps.x = p_abs_sum_dps->x / (float) sample_count;
-    abs_avg_dps.y = p_abs_sum_dps->y / (float) sample_count;
-    abs_avg_dps.z = p_abs_sum_dps->z / (float) sample_count;
+    avg_dps.x = p_sum_dps->x / (float) processed_count;
+    avg_dps.y = p_sum_dps->y / (float) processed_count;
+    avg_dps.z = p_sum_dps->z / (float) processed_count;
+    abs_avg_dps.x = p_abs_sum_dps->x / (float) processed_count;
+    abs_avg_dps.y = p_abs_sum_dps->y / (float) processed_count;
+    abs_avg_dps.z = p_abs_sum_dps->z / (float) processed_count;
     residual_norm_dps = imu_monitor_vector_norm_dps(&avg_dps);
     activity_norm_dps = imu_monitor_vector_norm_dps(&abs_avg_dps);
     bias_norm_dps = imu_monitor_vector_norm_dps(p_effective_bias_dps);
     max_axis_dps = imu_monitor_max_abs_axis_dps(&avg_dps);
     temperature_delta_c = p_imu->filtered_temperature_c - p_imu->bias_temperature_c;
-    if (window_us > 0U)
+    if ((window_us > 0U) && (ready_count > 0U))
     {
-        sample_rate_hz = ((float) sample_count * 1000000.0f) / (float) window_us;
+        sample_rate_hz = ((float) ready_count * 1000000.0f) / (float) window_us;
     }
 
     printf("%s_GRADE,%s,", p_label, imu_monitor_grade(residual_norm_dps, activity_norm_dps));
@@ -509,8 +515,10 @@ static void imu_run_zero_drift_monitor(void)
     icm42688Float3_t lower_effective_bias_dps = {0.0f, 0.0f, 0.0f};
     float            upper_peak_dps = 0.0f;
     float            lower_peak_dps = 0.0f;
-    uint32_t         upper_count = 0U;
-    uint32_t         lower_count = 0U;
+    uint32_t         upper_processed_count = 0U;
+    uint32_t         lower_processed_count = 0U;
+    uint32_t         upper_ready_count = 0U;
+    uint32_t         lower_ready_count = 0U;
     uint32_t         upper_spike_count = 0U;
     uint32_t         lower_spike_count = 0U;
     uint32_t         last_report_time_us = imu_time_now_us(&s_imu_app.timebase);
@@ -531,6 +539,8 @@ static void imu_run_zero_drift_monitor(void)
         icm42688Float3_t lower_effective_bias_rad_s = {0.0f, 0.0f, 0.0f};
         uint32_t         upper_sample_time_us = 0U;
         uint32_t         lower_sample_time_us = 0U;
+        uint32_t         upper_sample_ready_count = 0U;
+        uint32_t         lower_sample_ready_count = 0U;
         uint32_t         loop_time_us = 0U;
         bool             upper_updated;
         bool             lower_updated;
@@ -541,6 +551,7 @@ static void imu_run_zero_drift_monitor(void)
                                             &upper_raw_gyro_rad_s,
                                             &upper_temperature_c,
                                             &upper_sample_time_us,
+                                            &upper_sample_ready_count,
                                             &s_imu_app.timebase);
         lower_updated = imu_try_read_sample(&s_imu_app.lower_imu,
                                             bsp_IcmSciGetScaledData,
@@ -548,6 +559,7 @@ static void imu_run_zero_drift_monitor(void)
                                             &lower_raw_gyro_rad_s,
                                             &lower_temperature_c,
                                             &lower_sample_time_us,
+                                            &lower_sample_ready_count,
                                             &s_imu_app.timebase);
 
         if (upper_updated)
@@ -584,7 +596,8 @@ static void imu_run_zero_drift_monitor(void)
                 upper_spike_count++;
             }
 
-            upper_count++;
+            upper_processed_count++;
+            upper_ready_count += upper_sample_ready_count;
             loop_time_us = upper_sample_time_us;
         }
 
@@ -622,7 +635,8 @@ static void imu_run_zero_drift_monitor(void)
                 lower_spike_count++;
             }
 
-            lower_count++;
+            lower_processed_count++;
+            lower_ready_count += lower_sample_ready_count;
             if ((!upper_updated) || (lower_sample_time_us > loop_time_us))
             {
                 loop_time_us = lower_sample_time_us;
@@ -645,14 +659,15 @@ static void imu_run_zero_drift_monitor(void)
                    (unsigned long) loop_time_us,
                    (float) window_us / 1000.0f);
 
-            if (upper_count > 0U)
+            if (upper_processed_count > 0U)
             {
                 imu_print_zero_drift_metrics("UPPER",
                                              &s_imu_app.upper_imu,
                                              &upper_sum_dps,
                                              &upper_abs_sum_dps,
                                              &upper_effective_bias_dps,
-                                             upper_count,
+                                             upper_processed_count,
+                                             upper_ready_count,
                                              window_us);
                 printf("UPPER_PEAK_DPS,%.5f,UPPER_SPIKE_COUNT,%lu,",
                        upper_peak_dps,
@@ -663,14 +678,15 @@ static void imu_run_zero_drift_monitor(void)
                 printf("UPPER_GRADE,NA,UPPER_RATE_HZ,NA,UPPER_TEMP_C,NA,UPPER_DTEMP_C,NA,UPPER_BIAS_NORM_DPS,NA,UPPER_RES_NORM_DPS,NA,UPPER_ACTIVITY_NORM_DPS,NA,UPPER_MAX_AXIS_DPS,NA,UPPER_AVG_DPS,NA,NA,NA,UPPER_ABS_DPS,NA,NA,NA,UPPER_BIAS_DPS,NA,NA,NA,UPPER_PEAK_DPS,NA,UPPER_SPIKE_COUNT,NA,");
             }
 
-            if (lower_count > 0U)
+            if (lower_processed_count > 0U)
             {
                 imu_print_zero_drift_metrics("LOWER",
                                              &s_imu_app.lower_imu,
                                              &lower_sum_dps,
                                              &lower_abs_sum_dps,
                                              &lower_effective_bias_dps,
-                                             lower_count,
+                                             lower_processed_count,
+                                             lower_ready_count,
                                              window_us);
                 printf("LOWER_PEAK_DPS,%.5f,LOWER_SPIKE_COUNT,%lu\r\n",
                        lower_peak_dps,
@@ -695,8 +711,10 @@ static void imu_run_zero_drift_monitor(void)
             lower_abs_sum_dps.z = 0.0f;
             upper_peak_dps = 0.0f;
             lower_peak_dps = 0.0f;
-            upper_count = 0U;
-            lower_count = 0U;
+            upper_processed_count = 0U;
+            lower_processed_count = 0U;
+            upper_ready_count = 0U;
+            lower_ready_count = 0U;
             upper_spike_count = 0U;
             lower_spike_count = 0U;
             last_report_time_us = loop_time_us;

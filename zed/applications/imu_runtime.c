@@ -36,7 +36,8 @@ void imu_runtime_reset(imu_runtime_t * p_imu)
     p_imu->current_temperature_c = 0.0f;
     p_imu->filtered_temperature_c = 0.0f;
     p_imu->last_sample_time_us = 0U;
-    p_imu->data_ready = false;
+    p_imu->data_ready_time_us = 0U;
+    p_imu->pending_ready_count = 0U;
     p_imu->has_temperature_reference = false;
     p_imu->has_filtered_temperature = false;
 }
@@ -86,6 +87,20 @@ uint32_t imu_time_now_us(imu_timebase_t * p_timebase)
 #endif
 }
 
+void imu_mark_data_ready(imu_runtime_t * p_imu, imu_timebase_t * p_timebase)
+{
+    if (NULL == p_imu)
+    {
+        return;
+    }
+
+    p_imu->data_ready_time_us = imu_time_now_us(p_timebase);
+    if (p_imu->pending_ready_count < UINT16_MAX)
+    {
+        p_imu->pending_ready_count++;
+    }
+}
+
 float imu_calc_dt_sec(imu_runtime_t * p_imu, uint32_t sample_time_us)
 {
     /* 把 dt 限制在合理范围，避免中断丢失或时间异常时把姿态滤波器冲坏。 */
@@ -102,7 +117,7 @@ float imu_calc_dt_sec(imu_runtime_t * p_imu, uint32_t sample_time_us)
         }
         else if (dt_sec > IMU_SAMPLE_DT_MAX_SEC)
         {
-            dt_sec = IMU_SAMPLE_DT_DEFAULT_SEC;
+            dt_sec = IMU_SAMPLE_DT_MAX_SEC;
         }
     }
 
@@ -325,15 +340,18 @@ void imu_read_sample_blocking(imu_runtime_t * p_imu,
                               float * p_temp_c)
 {
     /* 启动阶段允许阻塞等待下一帧数据就绪，确保零偏采样拿到的是新数据。 */
+    FSP_CRITICAL_SECTION_DEFINE;
     uint32_t wait_ms = 0U;
 
-    while ((!p_imu->data_ready) && (wait_ms < IMU_IRQ_WAIT_TIMEOUT_MS))
+    while ((0U == p_imu->pending_ready_count) && (wait_ms < IMU_IRQ_WAIT_TIMEOUT_MS))
     {
         R_BSP_SoftwareDelay(1U, BSP_DELAY_UNITS_MILLISECONDS);
         wait_ms++;
     }
 
-    p_imu->data_ready = false;
+    FSP_CRITICAL_SECTION_ENTER;
+    p_imu->pending_ready_count = 0U;
+    FSP_CRITICAL_SECTION_EXIT;
     read_sample(p_acc_g, p_gyro_rad_s, p_temp_c);
 }
 
@@ -343,20 +361,36 @@ bool imu_try_read_sample(imu_runtime_t * p_imu,
                          icm42688Float3_t * p_gyro_rad_s,
                          float * p_temp_c,
                          uint32_t * p_sample_time_us,
+                         uint32_t * p_ready_count,
                          imu_timebase_t * p_timebase)
 {
     /* 正常运行阶段保持非阻塞：如果这轮还没有新中断，就直接跳过这次读取。 */
-    if (!p_imu->data_ready)
+    FSP_CRITICAL_SECTION_DEFINE;
+    uint16_t sample_ready_count;
+    uint32_t sample_time_us;
+
+    FSP_CRITICAL_SECTION_ENTER;
+    sample_ready_count = p_imu->pending_ready_count;
+    sample_time_us = p_imu->data_ready_time_us;
+    p_imu->pending_ready_count = 0U;
+    FSP_CRITICAL_SECTION_EXIT;
+
+    if (0U == sample_ready_count)
     {
         return false;
     }
 
-    p_imu->data_ready = false;
     read_sample(p_acc_g, p_gyro_rad_s, p_temp_c);
 
     if (NULL != p_sample_time_us)
     {
-        *p_sample_time_us = imu_time_now_us(p_timebase);
+        (void) p_timebase;
+        *p_sample_time_us = sample_time_us;
+    }
+
+    if (NULL != p_ready_count)
+    {
+        *p_ready_count = (uint32_t) sample_ready_count;
     }
 
     return true;
