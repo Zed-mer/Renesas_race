@@ -69,10 +69,11 @@ zed/applications/app_uart_test.o: ../zed/applications/app_uart_test.c \
  D:/SOFYWARE/renesas/IMU/ra/fsp/inc/instances/r_sci_uart.h \
  D:/SOFYWARE/renesas/IMU/ra/fsp/inc/api/r_uart_api.h \
  D:/SOFYWARE/renesas/IMU/ra_cfg/fsp_cfg/r_sci_uart_cfg.h \
- D:/SOFYWARE/renesas/IMU/zed/drivers/drv_adc0.h \
  D:/SOFYWARE/renesas/IMU/zed/drivers/drv_uart.h \
  D:/SOFYWARE/renesas/IMU/zed/drivers/icm42688.h \
- D:/SOFYWARE/renesas/IMU/zed/drivers/drv_MG996.h
+ ../zed/applications/imu_app_context.h \
+ ../zed/applications/imu_calibration.h ../zed/applications/imu_protocol.h \
+ ../zed/applications/imu_runtime.h
 ../zed/applications/app.h:
 D:/SOFYWARE/renesas/IMU/ra_gen/hal_data.h:
 D:/SOFYWARE/renesas/IMU/ra/fsp/inc/api/bsp_api.h:
@@ -144,7 +145,9 @@ D:/SOFYWARE/renesas/IMU/ra/fsp/inc/api/r_elc_api.h:
 D:/SOFYWARE/renesas/IMU/ra/fsp/inc/instances/r_sci_uart.h:
 D:/SOFYWARE/renesas/IMU/ra/fsp/inc/api/r_uart_api.h:
 D:/SOFYWARE/renesas/IMU/ra_cfg/fsp_cfg/r_sci_uart_cfg.h:
-D:/SOFYWARE/renesas/IMU/zed/drivers/drv_adc0.h:
 D:/SOFYWARE/renesas/IMU/zed/drivers/drv_uart.h:
 D:/SOFYWARE/renesas/IMU/zed/drivers/icm42688.h:
-D:/SOFYWARE/renesas/IMU/zed/drivers/drv_MG996.h:
+../zed/applications/imu_app_context.h:
+../zed/applications/imu_calibration.h:
+../zed/applications/imu_protocol.h:
+../zed/applications/imu_runtime.h:

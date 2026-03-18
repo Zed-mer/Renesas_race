@@ -8,21 +8,24 @@ C_SRCS += \
 ../zed/drivers/drv_SG996.c \
 ../zed/drivers/drv_adc0.c \
 ../zed/drivers/drv_uart.c \
-../zed/drivers/icm42688.c 
+../zed/drivers/icm42688.c \
+../zed/drivers/icm42688_bus.c 
 
 C_DEPS += \
 ./zed/drivers/drv_MG996.d \
 ./zed/drivers/drv_SG996.d \
 ./zed/drivers/drv_adc0.d \
 ./zed/drivers/drv_uart.d \
-./zed/drivers/icm42688.d 
+./zed/drivers/icm42688.d \
+./zed/drivers/icm42688_bus.d 
 
 OBJS += \
 ./zed/drivers/drv_MG996.o \
 ./zed/drivers/drv_SG996.o \
 ./zed/drivers/drv_adc0.o \
 ./zed/drivers/drv_uart.o \
-./zed/drivers/icm42688.o 
+./zed/drivers/icm42688.o \
+./zed/drivers/icm42688_bus.o 
 
 SREC += \
 IMU.srec 

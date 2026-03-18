@@ -5,6 +5,19 @@
 #include <stdlib.h>
 #include <string.h>
 
+/*
+ * 标定模块总览
+ *
+ * 这套算法的核心思路不是“读取一个姿态角直接映射到舵机”，
+ * 而是先学习每个机械臂自由度在 IMU 姿态空间中的代表性方向，
+ * 再在运行时把当前姿态分解到这些代表性方向上。
+ *
+ * 因此它本质上是一套“基于标定样本的姿态投影映射”：
+ * - 标定阶段：学习动作基向量和缩放关系；
+ * - 运行阶段：把实时姿态投影到这些基向量上。
+ */
+
+/* 标定模块的任务是学习“人体/IMU 的动作”如何映射到机械臂支持的几个舵机自由度。 */
 static int32_t          imu_clamp_int32(int32_t value, int32_t min_value, int32_t max_value);
 static void             imu_set_flash_pattern(imu_app_context_t * p_ctx, uint8_t pulses, uint32_t now_us);
 static bool             imu_capture_motion_components(imu_app_context_t * p_ctx, imu_motion_components_t * p_motion);
@@ -34,6 +47,7 @@ static uint8_t          imu_get_grip_percent(void);
 
 void imu_calibration_reset(imu_app_context_t * p_ctx)
 {
+    /* 清空所有已学习的轴映射，并把姿态偏置恢复成单位姿态参考。 */
     memset(&p_ctx->calibration, 0, sizeof(p_ctx->calibration));
     imu_quaternion_identity(&p_ctx->calibration.upper_offset);
     imu_quaternion_identity(&p_ctx->calibration.lower_offset);
@@ -43,6 +57,7 @@ void imu_calibration_reset(imu_app_context_t * p_ctx)
 
 void imu_calibration_begin(imu_app_context_t * p_ctx, uint32_t now_us)
 {
+    /* 重新开始引导式标定，同时通过串口告知外部当前应执行的第一步动作。 */
     imu_calibration_reset(p_ctx);
     p_ctx->calibration.last_button_time_us = now_us - IMU_BUTTON_DEBOUNCE_US;
     imu_set_flash_pattern(p_ctx, 1U, now_us);
@@ -51,6 +66,7 @@ void imu_calibration_begin(imu_app_context_t * p_ctx, uint32_t now_us)
 
 void imu_calibration_handle_next(imu_app_context_t * p_ctx, uint32_t now_us)
 {
+    /* 记录当前姿态并校验它是否足够清晰、可用于学习当前自由度；成功后推进下一步。 */
     imu_cal_result_t result;
     imu_cal_step_t   finished_step;
 
@@ -99,6 +115,15 @@ void imu_calibration_handle_next(imu_app_context_t * p_ctx, uint32_t now_us)
 
 bool imu_try_build_servo_pose(imu_app_context_t * p_ctx, imu_servo_pose_t * p_pose)
 {
+    /*
+     * 运行时姿态映射主入口。
+     *
+     * 这里会先构造上臂姿态和前臂相对姿态，
+     * 再把它们转换成旋转向量，
+     * 然后把当前旋转向量分解到标定阶段学到的基向量上，
+     * 最终生成 hY / hZ / eZ / wX 四个舵机角。
+     */
+    /* 把当前骨段姿态投影到已学习到的运动基底上，得到每个舵机的目标输出角。 */
     imu_motion_components_t motion = {0};
     icm42688Float3_t        upper_current_vec = {0.0f, 0.0f, 0.0f};
     icm42688Float3_t        upper_hy_vec = {0.0f, 0.0f, 0.0f};
@@ -180,6 +205,7 @@ static int32_t imu_clamp_int32(int32_t value, int32_t min_value, int32_t max_val
 
 static void imu_set_flash_pattern(imu_app_context_t * p_ctx, uint8_t pulses, uint32_t now_us)
 {
+    /* 用闪灯次数表达当前反馈状态，这样即使没连串口也能看到标定提示。 */
     p_ctx->calibration.led_flash_active = (pulses > 0U);
     p_ctx->calibration.led_flash_pulses = pulses;
     p_ctx->calibration.led_flash_start_us = now_us;
@@ -187,6 +213,14 @@ static void imu_set_flash_pattern(imu_app_context_t * p_ctx, uint8_t pulses, uin
 
 static bool imu_capture_motion_components(imu_app_context_t * p_ctx, imu_motion_components_t * p_motion)
 {
+    /*
+     * 这一层把原始 IMU 姿态转换成骨段姿态：
+     * - upper_bone：上臂骨段姿态；
+     * - lower_bone：下臂骨段姿态；
+     * - relative_bone：下臂相对于上臂的姿态。
+     *
+     * relative_bone 是后续肘部/腕部自由度映射的关键输入。
+     */
     Quaternion_t upper_bone;
     Quaternion_t lower_bone;
     Quaternion_t upper_bone_inverse;
@@ -199,8 +233,10 @@ static bool imu_capture_motion_components(imu_app_context_t * p_ctx, imu_motion_
         return false;
     }
 
+    /* 先把 T 姿态记录下来的偏置应用进去，把两个 IMU 都转换到机械臂模型坐标系。 */
     upper_bone = imu_quaternion_multiply(&p_ctx->upper_imu.quat, &p_ctx->calibration.upper_offset);
     lower_bone = imu_quaternion_multiply(&p_ctx->lower_imu.quat, &p_ctx->calibration.lower_offset);
+    /* 再把下臂姿态转换到上臂坐标系下，后续肘部和腕部映射都依赖这个相对姿态。 */
     upper_bone_inverse = imu_quaternion_inverse(&upper_bone);
     relative_bone = imu_quaternion_multiply(&upper_bone_inverse, &lower_bone);
 
@@ -217,6 +253,14 @@ static imu_cal_result_t imu_learn_axis_map(imu_axis_map_t * p_map,
                                            int16_t center_deg,
                                            float target_delta_deg)
 {
+    /*
+     * 学习单个自由度的映射参数。
+     * 这里会从当前姿态样本中提取：
+     * - 主运动轴；
+     * - 当前动作幅度；
+     * - 原始动作到目标舵机角的缩放关系。
+     */
+    /* 把当前标定姿态提取成轴角表达，作为某一个舵机通道的原始学习样本。 */
     icm42688Float3_t axis = {0.0f, 0.0f, 0.0f};
     float            raw_angle_deg = 0.0f;
 
@@ -257,6 +301,11 @@ static bool imu_measure_swing_deg(Quaternion_t const * p_pose,
                                   icm42688Float3_t const * p_axis,
                                   float * p_angle_deg)
 {
+    /*
+     * swing 表示绕目标轴之外的摆动。
+     * 算法通过把向量投影到垂直于该轴的平面，再在平面内测夹角来估计它。
+     */
+    /* 通过把参考向量投影到垂直于目标轴的平面上，测量该自由度对应的摆动角。 */
     icm42688Float3_t ref_projected;
     icm42688Float3_t current_vector;
     icm42688Float3_t current_projected;
@@ -298,6 +347,11 @@ static bool imu_measure_twist_deg(Quaternion_t const * p_pose,
                                   icm42688Float3_t const * p_axis,
                                   float * p_angle_deg)
 {
+    /*
+     * twist 表示绕目标轴本身的扭转。
+     * 它不是普通摆角，所以这里需要从四元数中单独提取沿主轴的旋转成分。
+     */
+    /* 通过把四元数虚部投影到学习到的主轴上，尽量把绕该轴的扭转量单独提取出来。 */
     Quaternion_t     pose = {0.0f, 0.0f, 0.0f, 0.0f};
     Quaternion_t     twist = {0.0f, 0.0f, 0.0f, 0.0f};
     icm42688Float3_t quaternion_vector = {0.0f, 0.0f, 0.0f};
@@ -356,6 +410,11 @@ static bool imu_solve_basis_coefficients(icm42688Float3_t const * p_basis1,
                                          float * p_coeff1,
                                          float * p_coeff2)
 {
+    /*
+     * 把当前旋转向量近似分解成两个标定基向量的线性组合。
+     * 分解系数就代表当前姿态里各自由度成分各占多少。
+     */
+    /* 求当前旋转向量在两个标定基向量上的分解系数，用来估计两个舵机通道各自的贡献。 */
     float a11;
     float a12;
     float a22;
@@ -387,6 +446,7 @@ static bool imu_solve_basis_coefficients(icm42688Float3_t const * p_basis1,
 
 static bool imu_finalize_upper_axis_maps(imu_app_context_t * p_ctx)
 {
+    /* 肩部两个自由度都存在正负方向歧义，这里挑选与目标动作最匹配的符号组合。 */
     float          best_score = 1.0e9f;
     bool           found = false;
     imu_axis_map_t hy_map = p_ctx->calibration.hY_map;
@@ -454,6 +514,7 @@ static bool imu_finalize_upper_axis_maps(imu_app_context_t * p_ctx)
 
 static bool imu_finalize_lower_axis_maps(imu_app_context_t * p_ctx)
 {
+    /* 对肘摆动和腕扭转执行同样的符号消歧，避免轴方向取反导致输出反向。 */
     float          best_score = 1.0e9f;
     bool           found = false;
     imu_axis_map_t ez_map = p_ctx->calibration.eZ_map;
@@ -520,6 +581,11 @@ static bool imu_finalize_lower_axis_maps(imu_app_context_t * p_ctx)
 
 static imu_cal_result_t imu_record_current_step(imu_app_context_t * p_ctx, uint32_t now_us)
 {
+    /*
+     * 标定流程调度器。
+     * 根据当前所处步骤，把这一帧姿态解释成 T 姿态偏置或某个自由度的学习样本。
+     */
+    /* 按照当前所处的标定步骤，解释这一刻的姿态，并把结果写入对应映射结构。 */
     imu_motion_components_t motion = {0};
 
     (void) now_us;
@@ -620,6 +686,11 @@ static imu_cal_result_t imu_record_current_step(imu_app_context_t * p_ctx, uint3
 
 static bool imu_apply_axis_map(imu_axis_map_t * p_map, float raw_deg, int32_t * p_output_deg)
 {
+    /*
+     * 输出整形层：
+     * 限速、滤波、死区都在这里执行，用来减少抖动和突变。
+     */
+    /* 在输出舵机角前做限速、滤波和死区处理，减少抖动和跳变。 */
     float   delta_deg;
     int32_t output_deg;
 

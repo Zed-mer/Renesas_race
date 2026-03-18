@@ -5,12 +5,19 @@
 #include <stdio.h>
 #include <string.h>
 
+/*
+ * 文本串口协议层：
+ * 用简单的文本帧完成标定提示、状态查询和姿态输出。
+ */
+
+/* 这是一个很轻量的串口文本协议，用于标定提示、状态查询和姿态帧输出。 */
 static void        imu_ascii_to_upper(char * p_text);
 static char const * imu_cal_step_name(imu_cal_step_t step);
 static char const * imu_cal_result_name(imu_cal_result_t result);
 
 void imu_protocol_send_text(imu_app_context_t * p_ctx, char const * p_text)
 {
+    /* 上层所有串口输出最终都会走到这里，统一做发送和发送完成等待。 */
     size_t text_len;
 
     if ((NULL == p_ctx) || (NULL == p_text) || !p_ctx->uart_ready)
@@ -53,6 +60,7 @@ void imu_protocol_send_textf(imu_app_context_t * p_ctx, char const * p_format, .
 
 void imu_protocol_send_cal_step(imu_app_context_t * p_ctx)
 {
+    /* 告诉上位机或串口助手，当前应该采集哪一个标定姿态。 */
     imu_protocol_send_textf(p_ctx,
                             "CAL,STEP,%u,%s\r\n",
                             (unsigned int) (p_ctx->calibration.current_step + 1U),
@@ -97,6 +105,7 @@ void imu_protocol_send_cal_state(imu_app_context_t * p_ctx)
 
 void imu_protocol_send_pose_frame(imu_app_context_t * p_ctx, imu_servo_pose_t const * p_pose)
 {
+    /* 用紧凑的 CSV 文本格式输出当前舵机目标角，方便上位机直接解析。 */
     char frame[32] = {0};
     int  frame_len;
 
@@ -122,6 +131,7 @@ void imu_protocol_send_pose_frame(imu_app_context_t * p_ctx, imu_servo_pose_t co
 
 void imu_protocol_handle_uart_commands(imu_app_context_t * p_ctx, uint32_t now_us)
 {
+    /* 命令集合刻意保持很小，方便直接用串口助手手工输入调试。 */
     char line[IMU_UART_LINE_MAX_LEN] = {0};
 
     while (drv_uart_read_line(line, sizeof(line)))
@@ -150,6 +160,7 @@ void imu_protocol_handle_uart_commands(imu_app_context_t * p_ctx, uint32_t now_u
 
 static void imu_ascii_to_upper(char * p_text)
 {
+    /* 命令大小写不敏感，减少手工输入时因为大小写导致的调试摩擦。 */
     if (NULL == p_text)
     {
         return;

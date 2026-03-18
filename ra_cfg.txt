@@ -500,7 +500,7 @@ FSP Configuration
       MOSI Idle State: MOSI Idle Value Fixing Disable
       Parity Mode: Disabled
       Byte Swapping: Disable
-      Bitrate: 50000000
+      Bitrate: 8000000
       Clock Delay: 1 Clock
       SSL Negation Delay: 1 Clock
       Next Access Delay: 1 Clock

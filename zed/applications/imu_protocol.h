@@ -3,6 +3,7 @@
 
 #include "imu_app_context.h"
 
+/* 串口协议辅助函数：负责调试文本、标定提示和姿态帧输出。 */
 void imu_protocol_send_text(imu_app_context_t * p_ctx, char const * p_text);
 void imu_protocol_send_textf(imu_app_context_t * p_ctx, char const * p_format, ...);
 void imu_protocol_send_cal_step(imu_app_context_t * p_ctx);

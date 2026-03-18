@@ -3,6 +3,7 @@
 
 #include "imu_app_context.h"
 
+/* 运行时姿态解算和标定模块共用的向量/四元数工具函数。 */
 float            imu_vector_norm(icm42688Float3_t const * p_vector);
 float            imu_vector_dot(icm42688Float3_t const * p_left, icm42688Float3_t const * p_right);
 icm42688Float3_t imu_vector_cross(icm42688Float3_t const * p_left, icm42688Float3_t const * p_right);

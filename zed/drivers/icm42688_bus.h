@@ -15,6 +15,7 @@ typedef struct st_icm42688_bus
 
 fsp_err_t icm42688_bus_init(icm42688_bus_t const * p_bus);
 fsp_err_t icm42688_bus_get_raw_data(icm42688_bus_t const * p_bus,
+                                    int16_t * p_temp_raw,
                                     icm42688RawData_t * p_acc_data,
                                     icm42688RawData_t * p_gyro_data);
 

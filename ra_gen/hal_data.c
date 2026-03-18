@@ -468,7 +468,7 @@ const spi_extended_cfg_t g_spi0_ext_cfg =
   .byte_swap = SPI_BYTE_SWAP_DISABLE,
   .spck_div =
   {
-  /* Actual calculated bitrate: 50000000. */.spbr = 0,
+  /* Actual calculated bitrate: 7142857. */.spbr = 6,
     .brdv = 0 },
   .spck_delay = SPI_DELAY_COUNT_1,
   .ssl_negation_delay = SPI_DELAY_COUNT_1,

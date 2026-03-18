@@ -64,19 +64,19 @@ fsp_err_t icm42688_bus_init(icm42688_bus_t const * p_bus)
         return err;
     }
 
-    err = icm42688_write_reg(p_bus, ICM42688_ACCEL_CONFIG0, (uint8_t) ((AFS_4G << 5) | AODR_100Hz));
+    err = icm42688_write_reg(p_bus, ICM42688_ACCEL_CONFIG0, (uint8_t) ((AFS_4G << 5) | AODR_500Hz));
     if (FSP_SUCCESS != err)
     {
         return err;
     }
 
-    err = icm42688_write_reg(p_bus, ICM42688_GYRO_CONFIG0, (uint8_t) ((GFS_1000DPS << 5) | GODR_100Hz));
+    err = icm42688_write_reg(p_bus, ICM42688_GYRO_CONFIG0, (uint8_t) ((GFS_1000DPS << 5) | GODR_500Hz));
     if (FSP_SUCCESS != err)
     {
         return err;
     }
 
-    err = icm42688_write_reg(p_bus, ICM42688_PWR_MGMT0, 0x2FU);
+    err = icm42688_write_reg(p_bus, ICM42688_PWR_MGMT0, 0x0FU);
     if (FSP_SUCCESS != err)
     {
         return err;
@@ -88,15 +88,21 @@ fsp_err_t icm42688_bus_init(icm42688_bus_t const * p_bus)
 }
 
 fsp_err_t icm42688_bus_get_raw_data(icm42688_bus_t const * p_bus,
+                                    int16_t * p_temp_raw,
                                     icm42688RawData_t * p_acc_data,
                                     icm42688RawData_t * p_gyro_data)
 {
     fsp_err_t err;
-    uint8_t   buf[12] = {0};
+    uint8_t   buf[14] = {0};
 
-    err = icm42688_read_regs(p_bus, ICM42688_ACCEL_DATA_X1, buf, sizeof(buf));
+    err = icm42688_read_regs(p_bus, ICM42688_TEMP_DATA1, buf, sizeof(buf));
     if (FSP_SUCCESS != err)
     {
+        if (NULL != p_temp_raw)
+        {
+            *p_temp_raw = 0;
+        }
+
         if (NULL != p_acc_data)
         {
             p_acc_data->x = 0;
@@ -114,18 +120,23 @@ fsp_err_t icm42688_bus_get_raw_data(icm42688_bus_t const * p_bus,
         return err;
     }
 
+    if (NULL != p_temp_raw)
+    {
+        *p_temp_raw = (int16_t) ((buf[0] << 8) | buf[1]);
+    }
+
     if (NULL != p_acc_data)
     {
-        p_acc_data->x = (int16_t) ((buf[0] << 8) | buf[1]);
-        p_acc_data->y = (int16_t) ((buf[2] << 8) | buf[3]);
-        p_acc_data->z = (int16_t) ((buf[4] << 8) | buf[5]);
+        p_acc_data->x = (int16_t) ((buf[2] << 8) | buf[3]);
+        p_acc_data->y = (int16_t) ((buf[4] << 8) | buf[5]);
+        p_acc_data->z = (int16_t) ((buf[6] << 8) | buf[7]);
     }
 
     if (NULL != p_gyro_data)
     {
-        p_gyro_data->x = (int16_t) ((buf[6] << 8) | buf[7]);
-        p_gyro_data->y = (int16_t) ((buf[8] << 8) | buf[9]);
-        p_gyro_data->z = (int16_t) ((buf[10] << 8) | buf[11]);
+        p_gyro_data->x = (int16_t) ((buf[8] << 8) | buf[9]);
+        p_gyro_data->y = (int16_t) ((buf[10] << 8) | buf[11]);
+        p_gyro_data->z = (int16_t) ((buf[12] << 8) | buf[13]);
     }
 
     return FSP_SUCCESS;

@@ -2,7 +2,9 @@
 #include "icm42688_bus.h"
 #include <stdbool.h>
 
-#define DEG_TO_RAD  0.01745329251994329577f
+#define DEG_TO_RAD                      0.01745329251994329577f
+#define ICM42688_TEMP_SENSITIVITY_LSB_C 132.48f
+#define ICM42688_TEMP_OFFSET_C          25.0f
 
 static volatile bool g_spi0_txc_flag = false;
 static volatile bool g_spi1_txc_flag = false;
@@ -27,6 +29,7 @@ static void icm42688_scale_data(icm42688RawData_t const * p_raw_acc,
                                 icm42688RawData_t const * p_raw_gyro,
                                 icm42688Float3_t * p_acc_data,
                                 icm42688Float3_t * p_gyro_data);
+static float icm42688_scale_temperature_c(int16_t temp_raw);
 
 void spi0_callback(spi_callback_args_t * p_args)
 {
@@ -70,32 +73,42 @@ fsp_err_t bsp_Icm42688SciInit(void)
     return err;
 }
 
-void bsp_IcmGetRawData(icm42688RawData_t * p_acc_data, icm42688RawData_t * p_gyro_data)
+void bsp_IcmGetRawData(icm42688RawData_t * p_acc_data, icm42688RawData_t * p_gyro_data, int16_t * p_temp_raw)
 {
-    (void) icm42688_bus_get_raw_data(&g_upper_imu_bus, p_acc_data, p_gyro_data);
+    (void) icm42688_bus_get_raw_data(&g_upper_imu_bus, p_temp_raw, p_acc_data, p_gyro_data);
 }
 
-void bsp_IcmSciGetRawData(icm42688RawData_t * p_acc_data, icm42688RawData_t * p_gyro_data)
+void bsp_IcmSciGetRawData(icm42688RawData_t * p_acc_data, icm42688RawData_t * p_gyro_data, int16_t * p_temp_raw)
 {
-    (void) icm42688_bus_get_raw_data(&g_lower_imu_bus, p_acc_data, p_gyro_data);
+    (void) icm42688_bus_get_raw_data(&g_lower_imu_bus, p_temp_raw, p_acc_data, p_gyro_data);
 }
 
-void bsp_IcmGetScaledData(icm42688Float3_t * p_acc_data, icm42688Float3_t * p_gyro_data)
+void bsp_IcmGetScaledData(icm42688Float3_t * p_acc_data, icm42688Float3_t * p_gyro_data, float * p_temp_c)
 {
     icm42688RawData_t raw_acc = {0};
     icm42688RawData_t raw_gyro = {0};
+    int16_t           raw_temp = 0;
 
-    (void) icm42688_bus_get_raw_data(&g_upper_imu_bus, &raw_acc, &raw_gyro);
+    (void) icm42688_bus_get_raw_data(&g_upper_imu_bus, &raw_temp, &raw_acc, &raw_gyro);
     icm42688_scale_data(&raw_acc, &raw_gyro, p_acc_data, p_gyro_data);
+    if (NULL != p_temp_c)
+    {
+        *p_temp_c = icm42688_scale_temperature_c(raw_temp);
+    }
 }
 
-void bsp_IcmSciGetScaledData(icm42688Float3_t * p_acc_data, icm42688Float3_t * p_gyro_data)
+void bsp_IcmSciGetScaledData(icm42688Float3_t * p_acc_data, icm42688Float3_t * p_gyro_data, float * p_temp_c)
 {
     icm42688RawData_t raw_acc = {0};
     icm42688RawData_t raw_gyro = {0};
+    int16_t           raw_temp = 0;
 
-    (void) icm42688_bus_get_raw_data(&g_lower_imu_bus, &raw_acc, &raw_gyro);
+    (void) icm42688_bus_get_raw_data(&g_lower_imu_bus, &raw_temp, &raw_acc, &raw_gyro);
     icm42688_scale_data(&raw_acc, &raw_gyro, p_acc_data, p_gyro_data);
+    if (NULL != p_temp_c)
+    {
+        *p_temp_c = icm42688_scale_temperature_c(raw_temp);
+    }
 }
 
 static void icm42688_scale_data(icm42688RawData_t const * p_raw_acc,
@@ -116,4 +129,13 @@ static void icm42688_scale_data(icm42688RawData_t const * p_raw_acc,
         p_gyro_data->y = ((float) p_raw_gyro->y) * g_gyro_sensitivity * DEG_TO_RAD;
         p_gyro_data->z = ((float) p_raw_gyro->z) * g_gyro_sensitivity * DEG_TO_RAD;
     }
+}
+
+static float icm42688_scale_temperature_c(int16_t temp_raw)
+{
+    /*
+     * ICM-42688-P 数据手册给出的换算关系：
+     * Temp(C) = TEMP_DATA / 132.48 + 25
+     */
+    return (((float) temp_raw) / ICM42688_TEMP_SENSITIVITY_LSB_C) + ICM42688_TEMP_OFFSET_C;
 }

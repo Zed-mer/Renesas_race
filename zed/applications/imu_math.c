@@ -1,6 +1,11 @@
 #include "imu_math.h"
 #include <math.h>
 
+/*
+ * 数学工具层：
+ * 这里提供向量和四元数的基础运算，供姿态融合和标定映射复用。
+ */
+
 float imu_vector_norm(icm42688Float3_t const * p_vector)
 {
     return sqrtf((p_vector->x * p_vector->x) + (p_vector->y * p_vector->y) + (p_vector->z * p_vector->z));
@@ -31,6 +36,7 @@ bool imu_vector_normalize_unit(icm42688Float3_t * p_vector)
         return false;
     }
 
+    /* 过小的向量在后续做归一化和投影时会数值不稳定，这里直接判失败。 */
     norm = imu_vector_norm(p_vector);
     if (norm <= IMU_VECTOR_EPSILON)
     {
@@ -61,6 +67,7 @@ float imu_clampf(float value, float min_value, float max_value)
 
 void imu_quaternion_normalize(Quaternion_t * p_quat)
 {
+    /* 四元数在连续积分和连乘后会有数值漂移，这里强制拉回单位四元数。 */
     float norm = sqrtf((p_quat->q0 * p_quat->q0) + (p_quat->q1 * p_quat->q1) +
                        (p_quat->q2 * p_quat->q2) + (p_quat->q3 * p_quat->q3));
 
@@ -94,6 +101,8 @@ void imu_quaternion_identity(Quaternion_t * p_quat)
 
 Quaternion_t imu_quaternion_multiply(Quaternion_t const * p_left, Quaternion_t const * p_right)
 {
+    /* 四元数连乘表示旋转组合，在本项目里常用于姿态修正与坐标系变换。 */
+    /* 四元数连乘用于组合两个旋转，结果表示按既定顺序叠加后的总旋转。 */
     Quaternion_t result = {0.0f, 0.0f, 0.0f, 0.0f};
 
     result.q0 = (p_left->q0 * p_right->q0) - (p_left->q1 * p_right->q1) -
@@ -111,6 +120,7 @@ Quaternion_t imu_quaternion_multiply(Quaternion_t const * p_left, Quaternion_t c
 
 Quaternion_t imu_quaternion_inverse(Quaternion_t const * p_quat)
 {
+    /* 对单位四元数来说，求逆等价于取共轭，计算量更小。 */
     Quaternion_t result = {0.0f, 0.0f, 0.0f, 0.0f};
 
     result.q0 = p_quat->q0;
@@ -124,6 +134,7 @@ Quaternion_t imu_quaternion_inverse(Quaternion_t const * p_quat)
 
 icm42688Float3_t imu_quaternion_rotate_vector(Quaternion_t const * p_quat, icm42688Float3_t const * p_vector)
 {
+    /* 直接用四元数旋转向量，避免额外构造旋转矩阵。 */
     icm42688Float3_t q_vector = {p_quat->q1, p_quat->q2, p_quat->q3};
     icm42688Float3_t uv = imu_vector_cross(&q_vector, p_vector);
     icm42688Float3_t uuv = imu_vector_cross(&q_vector, &uv);
@@ -156,6 +167,7 @@ bool imu_quaternion_extract_axis_angle(Quaternion_t const * p_quat,
         return false;
     }
 
+    /* 统一四元数符号，避免同一物理姿态出现正负两种等价表示。 */
     quat = *p_quat;
     imu_quaternion_normalize(&quat);
     if (quat.q0 < 0.0f)
@@ -188,6 +200,7 @@ bool imu_quaternion_extract_axis_angle(Quaternion_t const * p_quat,
 bool imu_quaternion_extract_rotation_vector_deg(Quaternion_t const * p_quat,
                                                 icm42688Float3_t * p_rotation_vec_deg)
 {
+    /* 旋转向量把“旋转轴”和“旋转角”编码成一个向量，便于后续做基向量分解。 */
     Quaternion_t     quat = {0.0f, 0.0f, 0.0f, 0.0f};
     icm42688Float3_t quat_vector = {0.0f, 0.0f, 0.0f};
     float            vector_norm_deg;
@@ -199,6 +212,7 @@ bool imu_quaternion_extract_rotation_vector_deg(Quaternion_t const * p_quat,
         return false;
     }
 
+    /* 把四元数换成“旋转轴乘角度”的旋转向量形式，便于后续做基向量分解。 */
     quat = *p_quat;
     imu_quaternion_normalize(&quat);
     if (quat.q0 < 0.0f)
