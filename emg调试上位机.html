@@ -1,0 +1,1007 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EMG Tuning Dashboard</title>
+    <style>
+        :root {
+            --bg-body: #f1f5f9;
+            --bg-card: #ffffff;
+            --bg-header: #ffffff;
+            --text-main: #0f172a;
+            --text-muted: #64748b;
+            --border: #e2e8f0;
+            --border-hover: #cbd5e1;
+            
+            --primary: #3b82f6;
+            --primary-hover: #2563eb;
+            --danger: #ef4444;
+            --danger-hover: #dc2626;
+            --success: #10b981;
+            --warning: #f59e0b;
+            
+            --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+            --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            
+            --radius-md: 8px;
+            --radius-lg: 12px;
+            
+            --font-sans: "Inter", "Segoe UI", "Microsoft YaHei", sans-serif;
+            --font-mono: "JetBrains Mono", "Consolas", monospace;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        
+        body {
+            background-color: var(--bg-body);
+            color: var(--text-main);
+            font-family: var(--font-sans);
+            line-height: 1.5;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* --- 顶部导航栏 --- */
+        .topbar {
+            background: var(--bg-header);
+            height: 64px;
+            padding: 0 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid var(--border);
+            box-shadow: var(--shadow-sm);
+            flex-shrink: 0;
+            z-index: 10;
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .brand h1 {
+            font-size: 20px;
+            font-weight: 700;
+            color: var(--text-main);
+            letter-spacing: -0.02em;
+        }
+
+        .tag {
+            padding: 4px 8px;
+            border-radius: 6px;
+            background: #eff6ff;
+            color: var(--primary);
+            font-size: 12px;
+            font-weight: 600;
+            font-family: var(--font-mono);
+        }
+
+        .topbar-controls {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .status-wrapper {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 12px;
+            background: var(--bg-body);
+            border-radius: 20px;
+            border: 1px solid var(--border);
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--text-muted);
+        }
+
+        .status-chip {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .status-chip::before {
+            content: "";
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #cbd5e1;
+            transition: all 0.3s ease;
+        }
+
+        .status-chip[data-state="online"]::before { 
+            background: var(--success); 
+            box-shadow: 0 0 8px rgba(16, 185, 129, 0.4);
+        }
+        .status-chip[data-state="pending"]::before { 
+            background: var(--warning); 
+            animation: pulse 1.5s infinite;
+        }
+        .status-chip[data-state="error"]::before { 
+            background: var(--danger); 
+            box-shadow: 0 0 8px rgba(239, 68, 68, 0.4);
+        }
+
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.4); }
+            70% { box-shadow: 0 0 0 6px rgba(245, 158, 11, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0); }
+        }
+
+        /* --- 按钮样式 --- */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 8px 16px;
+            border-radius: var(--radius-md);
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: 1px solid transparent;
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            pointer-events: none;
+        }
+
+        .btn-primary { background: var(--primary); color: white; }
+        .btn-primary:hover { background: var(--primary-hover); }
+        
+        .btn-danger { background: white; border-color: var(--danger); color: var(--danger); }
+        .btn-danger:hover { background: #fef2f2; }
+
+        .btn-outline { background: white; border-color: var(--border); color: var(--text-main); }
+        .btn-outline:hover { background: var(--bg-body); border-color: var(--border-hover); }
+
+        .btn-ghost { background: transparent; color: var(--primary); }
+        .btn-ghost:hover { background: #eff6ff; }
+
+        .btn-sm { padding: 6px 12px; font-size: 13px; }
+
+        /* --- 主体布局 --- */
+        .main-container {
+            flex: 1;
+            padding: 24px;
+            overflow-y: auto;
+            display: grid;
+            grid-template-columns: 1fr 420px;
+            gap: 24px;
+            max-width: 1600px;
+            margin: 0 auto;
+            width: 100%;
+        }
+
+        .col-left { display: flex; flex-direction: column; gap: 24px; min-width: 0; }
+        .col-right { display: flex; flex-direction: column; gap: 24px; height: calc(100vh - 112px); }
+
+        /* --- 卡片样式 --- */
+        .card {
+            background: var(--bg-card);
+            border-radius: var(--radius-lg);
+            border: 1px solid var(--border);
+            box-shadow: var(--shadow-sm);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .card-header {
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--border);
+            font-weight: 600;
+            font-size: 15px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: #f8fafc;
+        }
+
+        .card-body { padding: 20px; }
+
+        /* --- 数据看板 (Metrics) --- */
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+            gap: 12px;
+        }
+
+        .metric-box {
+            background: var(--bg-body);
+            padding: 12px 16px;
+            border-radius: var(--radius-md);
+            border: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+        }
+
+        .metric-box .label {
+            font-size: 11px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 4px;
+        }
+
+        .metric-box .value {
+            font-size: 20px;
+            font-weight: 700;
+            font-family: var(--font-mono);
+            color: var(--text-main);
+        }
+
+        /* --- 图表区域 --- */
+        .chart-wrap {
+            width: 100%;
+            height: 320px;
+            position: relative;
+        }
+        
+        canvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+
+        .legend {
+            display: flex;
+            justify-content: center;
+            gap: 16px;
+            flex-wrap: wrap;
+            margin-top: 16px;
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+
+        .legend span { display: inline-flex; align-items: center; gap: 6px; }
+        .legend i { width: 12px; height: 3px; border-radius: 2px; display: inline-block; }
+
+        /* --- 日志报文区 --- */
+        .log-area {
+            font-family: var(--font-mono);
+            font-size: 13px;
+            background: #1e293b;
+            color: #e2e8f0;
+            padding: 12px 16px;
+            border-radius: var(--radius-md);
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        
+        .log-area .error { color: #f87171; min-height: 19px; }
+        .log-row { display: flex; gap: 12px; }
+        .log-label { color: #94a3b8; width: 60px; flex-shrink: 0; }
+        .log-value { word-break: break-all; color: #34d399; }
+
+        /* --- 右侧参数列表 --- */
+        .scrollable-params {
+            flex: 1;
+            overflow-y: auto;
+            padding: 0;
+        }
+
+        /* 自定义滚动条 */
+        .scrollable-params::-webkit-scrollbar { width: 6px; }
+        .scrollable-params::-webkit-scrollbar-track { background: transparent; }
+        .scrollable-params::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+        .scrollable-params::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+        .param-list { display: flex; flex-direction: column; }
+
+        .param-item {
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--border);
+            transition: background 0.2s;
+        }
+        .param-item:hover { background: #f8fafc; }
+        .param-item:last-child { border-bottom: none; }
+
+        .param-title {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 6px;
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        .param-name {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            color: var(--primary);
+            background: #eff6ff;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-weight: 500;
+        }
+
+        .param-desc {
+            font-size: 12px;
+            color: var(--text-muted);
+            margin-bottom: 12px;
+            line-height: 1.5;
+        }
+
+        .param-controls {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        /* --- 控件表单样式 --- */
+        input[type="range"] {
+            flex: 1;
+            height: 6px;
+            background: #e2e8f0;
+            border-radius: 3px;
+            appearance: none;
+            outline: none;
+        }
+        
+        input[type="range"]::-webkit-slider-thumb {
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: var(--primary);
+            cursor: pointer;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+            transition: transform 0.1s;
+        }
+        
+        input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.15); }
+
+        input[type="number"] {
+            width: 86px;
+            height: 32px;
+            border-radius: 6px;
+            border: 1px solid var(--border);
+            padding: 4px 8px;
+            font-family: var(--font-mono);
+            font-size: 13px;
+            text-align: right;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        
+        input[type="number"]:focus {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
+        }
+
+        textarea {
+            width: 100%;
+            height: 220px;
+            padding: 12px;
+            border-radius: var(--radius-md);
+            border: 1px solid var(--border);
+            background: #f8fafc;
+            resize: none;
+            font-family: var(--font-mono);
+            font-size: 12px;
+            line-height: 1.5;
+            color: #0f172a;
+            outline: none;
+        }
+        
+        textarea:focus {
+            border-color: var(--primary);
+            background: white;
+        }
+
+        .btn-group { display: flex; gap: 8px; }
+
+        @media (max-width: 1024px) {
+            .main-container { grid-template-columns: 1fr; }
+            .col-right { height: auto; }
+            body { overflow: auto; }
+            .scrollable-params { overflow-y: visible; }
+        }
+        
+        @media (max-width: 768px) {
+            .metrics-grid { grid-template-columns: repeat(3, 1fr); }
+            .topbar { flex-wrap: wrap; height: auto; padding: 12px 16px; gap: 12px; }
+            .topbar-controls { width: 100%; justify-content: space-between; }
+        }
+    </style>
+</head>
+<body>
+
+<header class="topbar">
+    <div class="brand">
+        <h1>EMG Tuning</h1>
+        <span class="tag">Dashboard</span>
+    </div>
+    <div class="topbar-controls">
+        <div class="status-wrapper">
+            <div id="status-chip" class="status-chip" data-state="offline"></div>
+            <span id="status-text">未连接</span>
+        </div>
+        <button id="connect-btn" class="btn btn-primary">连接串口</button>
+        <button id="disconnect-btn" class="btn btn-danger" disabled>断开</button>
+    </div>
+</header>
+
+<div class="main-container">
+    <!-- 左侧：波形与数据看板 -->
+    <div class="col-left">
+        <!-- 实时波形 -->
+        <div class="card">
+            <div class="card-header">实时波形 (Real-time Chart)</div>
+            <div class="card-body">
+                <div class="chart-wrap">
+                    <canvas id="chart"></canvas>
+                </div>
+                <div class="legend">
+                    <span><i style="background:#ef4444;"></i>Envelope</span>
+                    <span><i style="background:#3b82f6;"></i>Rest</span>
+                    <span><i style="background:#f59e0b;"></i>Th On</span>
+                    <span><i style="background:#8b5cf6;"></i>Th Off</span>
+                    <span><i style="background:#10b981;"></i>Grip</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- 实时状态指标 -->
+        <div class="card">
+            <div class="card-header">状态指标 (Metrics)</div>
+            <div class="card-body">
+                <div class="metrics-grid">
+                    <div class="metric-box"><div class="label">raw</div><div id="metric-raw" class="value">0</div></div>
+                    <div class="metric-box"><div class="label">filtered</div><div id="metric-filtered" class="value">0.000</div></div>
+                    <div class="metric-box"><div class="label">envelope</div><div id="metric-envelope" class="value">0.000</div></div>
+                    <div class="metric-box"><div class="label">rest</div><div id="metric-rest" class="value">0.000</div></div>
+                    <div class="metric-box"><div class="label">peak</div><div id="metric-peak" class="value">0.000</div></div>
+                    <div class="metric-box"><div class="label">th_on</div><div id="metric-th-on" class="value">0.000</div></div>
+                    <div class="metric-box"><div class="label">th_off</div><div id="metric-th-off" class="value">0.000</div></div>
+                    <div class="metric-box"><div class="label">grip</div><div id="metric-grip" class="value">0%</div></div>
+                    <div class="metric-box"><div class="label">active</div><div id="metric-active" class="value" style="color:#64748b;">IDLE</div></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 调试报文 -->
+        <div class="card">
+            <div class="card-header">终端报文 (Terminal)</div>
+            <div class="card-body log-area">
+                <div class="log-row">
+                    <span class="log-label">Time:</span>
+                    <span id="last-update" class="log-value" style="color:#94a3b8;">--</span>
+                </div>
+                <div class="log-row">
+                    <span class="log-label">Frame:</span>
+                    <span id="raw-frame" class="log-value">等待串口数据...</span>
+                </div>
+                <div id="error-text" class="error"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 右侧：参数控制与导出 -->
+    <div class="col-right">
+        <!-- 调参面板 -->
+        <div class="card" style="flex: 1; display: flex; flex-direction: column; overflow: hidden;">
+            <div class="card-header">
+                <span>控制面板 (Parameters)</span>
+                <div class="btn-group">
+                    <button id="read-btn" class="btn btn-sm btn-ghost" disabled>读取</button>
+                    <button id="reset-btn" class="btn btn-sm btn-ghost" disabled>重置</button>
+                    <button id="apply-btn" class="btn btn-sm btn-primary" disabled>全量应用</button>
+                </div>
+            </div>
+            <div class="card-body scrollable-params">
+                <div id="param-list" class="param-list"></div>
+            </div>
+        </div>
+
+        <!-- 代码导出 -->
+        <div class="card">
+            <div class="card-header">
+                <span>配置导出 (Export)</span>
+                <button id="export-btn" class="btn btn-sm btn-outline">复制宏定义</button>
+            </div>
+            <div class="card-body" style="padding: 16px;">
+                <textarea id="export-box" placeholder="点击“复制宏定义”后，这里会生成可直接回填到 emg_tune_cfg.h 的宏定义块。"></textarea>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+const paramDefs = [
+    { name:'ENV_ATTACK_ALPHA', label:'包络上升系数', min:0.001, max:1.000, step:0.001, defaultValue:0.35, desc:'越大越灵敏，收缩起量更快。' },
+    { name:'ENV_RELEASE_ALPHA', label:'包络释放系数', min:0.001, max:1.000, step:0.001, defaultValue:0.08, desc:'越大回零越快，越小拖尾越明显。' },
+    { name:'REST_RISE_ALPHA', label:'静息上升系数', min:0.0001, max:0.1000, step:0.0001, defaultValue:0.002, desc:'长期噪声抬高时，rest 跟上去的速度。' },
+    { name:'REST_FALL_ALPHA', label:'静息下降系数', min:0.0001, max:1.0000, step:0.0001, defaultValue:0.10, desc:'噪声下降后，rest 回落的速度。' },
+    { name:'PEAK_DECAY_ALPHA', label:'峰值衰减系数', min:0.0001, max:0.1000, step:0.0001, defaultValue:0.004, desc:'大收缩结束后，peak 回落的速度。' },
+    { name:'MIN_SPAN', label:'最小动态跨度', min:1.0, max:300.0, step:0.1, defaultValue:18.0, desc:'越大越稳，越小越灵敏。' },
+    { name:'ON_RATIO', label:'进入比例', min:0.01, max:0.95, step:0.01, defaultValue:0.22, desc:'超过该比例才允许进入激活。' },
+    { name:'OFF_RATIO', label:'退出比例', min:0.00, max:0.90, step:0.01, defaultValue:0.12, desc:'低于该比例才允许退出激活，必须小于进入比例。' },
+    { name:'ENTER_COUNT', label:'连续进入样本数', min:1, max:20, step:1, defaultValue:3, desc:'连续多少个样本过门限才算真的激活。', integer:true },
+    { name:'EXIT_COUNT', label:'连续退出样本数', min:1, max:30, step:1, defaultValue:8, desc:'连续多少个样本低于门限才退出。', integer:true },
+    { name:'DEADZONE_RATIO', label:'死区比例', min:0.00, max:0.50, step:0.01, defaultValue:0.10, desc:'把最靠近静息的一段直接压成 0。' },
+    { name:'OUTPUT_GAMMA', label:'输出曲线指数', min:0.10, max:3.00, step:0.01, defaultValue:1.20, desc:'大于 1 前段更稳，小于 1 前段更灵敏。' },
+    { name:'OUTPUT_ATTACK_ALPHA', label:'输出上升平滑', min:0.001, max:1.000, step:0.001, defaultValue:0.30, desc:'越大 grip 上升越快。' },
+    { name:'OUTPUT_RELEASE_ALPHA', label:'输出下降平滑', min:0.001, max:1.000, step:0.001, defaultValue:0.12, desc:'越大 grip 回落越快。' }
+];
+
+const ui = {
+    connectBtn: document.getElementById('connect-btn'),
+    disconnectBtn: document.getElementById('disconnect-btn'),
+    readBtn: document.getElementById('read-btn'),
+    resetBtn: document.getElementById('reset-btn'),
+    applyBtn: document.getElementById('apply-btn'),
+    exportBtn: document.getElementById('export-btn'),
+    statusChip: document.getElementById('status-chip'),
+    statusText: document.getElementById('status-text'),
+    rawFrame: document.getElementById('raw-frame'),
+    lastUpdate: document.getElementById('last-update'),
+    errorText: document.getElementById('error-text'),
+    paramList: document.getElementById('param-list'),
+    exportBox: document.getElementById('export-box')
+};
+
+const metrics = {
+    raw: document.getElementById('metric-raw'),
+    filtered: document.getElementById('metric-filtered'),
+    envelope: document.getElementById('metric-envelope'),
+    rest: document.getElementById('metric-rest'),
+    peak: document.getElementById('metric-peak'),
+    thOn: document.getElementById('metric-th-on'),
+    thOff: document.getElementById('metric-th-off'),
+    grip: document.getElementById('metric-grip'),
+    active: document.getElementById('metric-active')
+};
+
+const chartCanvas = document.getElementById('chart');
+const chartCtx = chartCanvas.getContext('2d');
+const metricState = { raw:0, filtered:0, envelope:0, rest:0, peak:0, thOn:0, thOff:0, grip:0, active:false };
+const paramState = new Map();
+const paramControls = new Map();
+const pendingTimers = new Map();
+const chartPoints = [];
+
+let serialPort = null;
+let serialReader = null;
+let readLoopPromise = null;
+let keepReading = false;
+let isConnecting = false;
+let isDisconnecting = false;
+let serialBuffer = '';
+let inConfigDump = false;
+let lastFrameTime = 0;
+
+function setStatus(text, state) {
+    ui.statusText.textContent = text;
+    ui.statusChip.dataset.state = state;
+}
+
+function setError(text) {
+    ui.errorText.textContent = text || '';
+}
+
+function fmt(value, digits = 3) {
+    return Number.isFinite(value) ? value.toFixed(digits) : '--';
+}
+
+function clamp(value, min, max) {
+    return Math.min(max, Math.max(min, value));
+}
+
+function updateButtons() {
+    const unsupported = !('serial' in navigator);
+    const connected = Boolean(serialPort);
+    const busy = isConnecting || isDisconnecting;
+    ui.connectBtn.disabled = unsupported || busy || connected;
+    ui.disconnectBtn.disabled = unsupported || busy || !connected;
+    ui.readBtn.disabled = unsupported || busy || !connected;
+    ui.resetBtn.disabled = unsupported || busy || !connected;
+    ui.applyBtn.disabled = unsupported || busy || !connected;
+}
+
+function renderMetrics() {
+    metrics.raw.textContent = String(metricState.raw);
+    metrics.filtered.textContent = fmt(metricState.filtered);
+    metrics.envelope.textContent = fmt(metricState.envelope);
+    metrics.rest.textContent = fmt(metricState.rest);
+    metrics.peak.textContent = fmt(metricState.peak);
+    metrics.thOn.textContent = fmt(metricState.thOn);
+    metrics.thOff.textContent = fmt(metricState.thOff);
+    metrics.grip.textContent = `${Math.round(metricState.grip)}%`;
+    metrics.active.textContent = metricState.active ? 'ACTIVE' : 'IDLE';
+    // 为了匹配新主题，这里微调了JS原有的颜色逻辑为主题色
+    metrics.active.style.color = metricState.active ? '#10b981' : '#64748b';
+}
+
+function resizeChart() {
+    const rect = chartCanvas.parentElement.getBoundingClientRect();
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    chartCanvas.width = Math.max(1, Math.floor(rect.width * dpr));
+    chartCanvas.height = Math.max(1, Math.floor(rect.height * dpr));
+    chartCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    drawChart();
+}
+
+function drawChart() {
+    const width = chartCanvas.clientWidth;
+    const height = chartCanvas.clientHeight;
+    const pad = { top: 16, right: 12, bottom: 24, left: 40 };
+    const innerW = Math.max(1, width - pad.left - pad.right);
+    const innerH = Math.max(1, height - pad.top - pad.bottom);
+    const now = performance.now();
+    const start = now - 5000;
+    const maxValue = Math.max(100, ...chartPoints.map((p) => Math.max(p.envelope, p.rest, p.thOn, p.thOff, p.peak)));
+
+    chartCtx.clearRect(0, 0, width, height);
+    // 匹配新UI主题的网格线与背景色
+    chartCtx.fillStyle = '#ffffff';
+    chartCtx.fillRect(0, 0, width, height);
+    chartCtx.strokeStyle = '#f1f5f9';
+    
+    for (let i = 0; i <= 4; i += 1) {
+        const y = pad.top + innerH * i / 4;
+        chartCtx.beginPath();
+        chartCtx.moveTo(pad.left, y);
+        chartCtx.lineTo(width - pad.right, y);
+        chartCtx.stroke();
+    }
+
+    const xOf = (time) => pad.left + ((time - start) / 5000) * innerW;
+    const yOf = (value) => pad.top + innerH - (clamp(value, 0, maxValue) / maxValue) * innerH;
+
+    function line(color, getter) {
+        chartCtx.beginPath();
+        chartCtx.strokeStyle = color;
+        chartCtx.lineWidth = 2;
+        chartCtx.lineJoin = 'round';
+        let started = false;
+        chartPoints.forEach((point) => {
+            if (point.time < start) { return; }
+            const x = xOf(point.time);
+            const y = yOf(getter(point));
+            if (!started) {
+                chartCtx.moveTo(x, y);
+                started = true;
+            } else {
+                chartCtx.lineTo(x, y);
+            }
+        });
+        if (started) { chartCtx.stroke(); }
+    }
+
+    // 更新了图表线色以匹配新的极客主题
+    line('#ef4444', (p) => p.envelope);  // 红
+    line('#3b82f6', (p) => p.rest);      // 蓝
+    line('#f59e0b', (p) => p.thOn);      // 黄
+    line('#8b5cf6', (p) => p.thOff);     // 紫
+    line('#10b981', (p) => p.grip);      // 绿
+
+    chartCtx.fillStyle = '#94a3b8';
+    chartCtx.font = '12px "JetBrains Mono", Consolas, monospace';
+    chartCtx.fillText('0', 16, height - 10);
+    chartCtx.fillText(String(Math.round(maxValue)), 6, pad.top + 4);
+    chartCtx.fillText('-5s', pad.left, height - 8);
+    chartCtx.fillText('now', width - 34, height - 8);
+}
+
+function pushChartPoint() {
+    const now = performance.now();
+    chartPoints.push({
+        time: now,
+        envelope: metricState.envelope,
+        rest: metricState.rest,
+        thOn: metricState.thOn,
+        thOff: metricState.thOff,
+        peak: metricState.peak,
+        grip: metricState.grip
+    });
+    while (chartPoints.length > 0 && (now - chartPoints[0].time) > 5200) {
+        chartPoints.shift();
+    }
+}
+
+function updateParamControl(name, value) {
+    const def = paramDefs.find((item) => item.name === name);
+    const control = paramControls.get(name);
+    if (!def || !control) { return; }
+    const displayValue = def.integer ? Math.round(value) : value;
+    control.range.value = String(displayValue);
+    control.number.value = def.integer ? String(Math.round(displayValue)) : Number(displayValue).toFixed(4);
+}
+
+function sendValue(def, value) {
+    const finalValue = def.integer ? Math.round(clamp(Number(value), def.min, def.max)) : clamp(Number(value), def.min, def.max);
+    paramState.set(def.name, finalValue);
+    updateParamControl(def.name, finalValue);
+    if (!serialPort) { return; }
+    if (pendingTimers.has(def.name)) {
+        clearTimeout(pendingTimers.get(def.name));
+    }
+    const timerId = window.setTimeout(() => {
+        pendingTimers.delete(def.name);
+        sendSerialCommand(`EMGCFG,SET,${def.name},${finalValue}`);
+    }, 100);
+    pendingTimers.set(def.name, timerId);
+}
+
+function buildExportText() {
+    return [
+        `#define EMG_TUNE_ENV_ATTACK_ALPHA        ${Number(paramState.get('ENV_ATTACK_ALPHA')).toFixed(6)}f`,
+        `#define EMG_TUNE_ENV_RELEASE_ALPHA       ${Number(paramState.get('ENV_RELEASE_ALPHA')).toFixed(6)}f`,
+        `#define EMG_TUNE_REST_RISE_ALPHA         ${Number(paramState.get('REST_RISE_ALPHA')).toFixed(6)}f`,
+        `#define EMG_TUNE_REST_FALL_ALPHA         ${Number(paramState.get('REST_FALL_ALPHA')).toFixed(6)}f`,
+        `#define EMG_TUNE_PEAK_DECAY_ALPHA        ${Number(paramState.get('PEAK_DECAY_ALPHA')).toFixed(6)}f`,
+        `#define EMG_TUNE_MIN_SPAN                ${Number(paramState.get('MIN_SPAN')).toFixed(6)}f`,
+        `#define EMG_TUNE_ON_RATIO                ${Number(paramState.get('ON_RATIO')).toFixed(6)}f`,
+        `#define EMG_TUNE_OFF_RATIO               ${Number(paramState.get('OFF_RATIO')).toFixed(6)}f`,
+        `#define EMG_TUNE_ENTER_COUNT             ${Math.round(Number(paramState.get('ENTER_COUNT')))}U`,
+        `#define EMG_TUNE_EXIT_COUNT              ${Math.round(Number(paramState.get('EXIT_COUNT')))}U`,
+        `#define EMG_TUNE_DEADZONE_RATIO          ${Number(paramState.get('DEADZONE_RATIO')).toFixed(6)}f`,
+        `#define EMG_TUNE_OUTPUT_GAMMA            ${Number(paramState.get('OUTPUT_GAMMA')).toFixed(6)}f`,
+        `#define EMG_TUNE_OUTPUT_ATTACK_ALPHA     ${Number(paramState.get('OUTPUT_ATTACK_ALPHA')).toFixed(6)}f`,
+        `#define EMG_TUNE_OUTPUT_RELEASE_ALPHA    ${Number(paramState.get('OUTPUT_RELEASE_ALPHA')).toFixed(6)}f`
+    ].join('\n');
+}
+
+async function sendSerialCommand(command) {
+    if (!serialPort || !serialPort.writable) { return false; }
+    const writer = serialPort.writable.getWriter();
+    try {
+        await writer.write(new TextEncoder().encode(command + '\r\n'));
+        return true;
+    } catch (error) {
+        setError(`串口发送失败：${error.message || error}`);
+        return false;
+    } finally {
+        writer.releaseLock();
+    }
+}
+
+function handleEmgDbg(parts) {
+    if (parts.length !== 10) {
+        setError('EMGDBG 字段数量不正确。');
+        return;
+    }
+    metricState.raw = parseInt(parts[1], 10);
+    metricState.filtered = parseFloat(parts[2]);
+    metricState.envelope = parseFloat(parts[3]);
+    metricState.rest = parseFloat(parts[4]);
+    metricState.peak = parseFloat(parts[5]);
+    metricState.thOn = parseFloat(parts[6]);
+    metricState.thOff = parseFloat(parts[7]);
+    metricState.grip = parseFloat(parts[8]);
+    metricState.active = parts[9] === '1';
+    renderMetrics();
+    pushChartPoint();
+    drawChart();
+    setStatus('已连接，调参中', 'online');
+    setError('');
+    const now = new Date();
+    ui.lastUpdate.textContent = `${now.getHours().toString().padStart(2,'0')}:${now.getMinutes().toString().padStart(2,'0')}:${now.getSeconds().toString().padStart(2,'0')}.${now.getMilliseconds().toString().padStart(3,'0')}`;
+    lastFrameTime = Date.now();
+}
+
+function handleEmgCfg(parts) {
+    const action = parts[1];
+    if (action === 'BEGIN') {
+        inConfigDump = true;
+        setStatus('正在读取参数...', 'pending');
+        return;
+    }
+    if (action === 'VALUE' && parts.length >= 4) {
+        const name = parts[2];
+        const value = parseFloat(parts[3]);
+        if (paramState.has(name) && Number.isFinite(value)) {
+            paramState.set(name, value);
+            updateParamControl(name, value);
+        }
+        return;
+    }
+    if (action === 'END') {
+        inConfigDump = false;
+        setStatus('已连接，调参中', 'online');
+        setError('');
+        return;
+    }
+    if (action === 'OK') {
+        setStatus('已连接，调参中', 'online');
+        if (parts[2] === 'RESET') {
+            window.setTimeout(() => sendSerialCommand('EMGCFG,GET'), 80);
+        }
+        return;
+    }
+    if (action === 'ERR') {
+        setStatus('调参出错', 'error');
+        setError(`参数命令失败：${parts.slice(2).join(', ')}`);
+    }
+}
+
+function handleFrame(frame) {
+    const text = frame.trim();
+    if (!text) { return; }
+    ui.rawFrame.textContent = text;
+    if (text.startsWith('EMGDBG,')) {
+        handleEmgDbg(text.split(',').map((item) => item.trim()));
+        return;
+    }
+    if (text.startsWith('EMGCFG,')) {
+        handleEmgCfg(text.split(',').map((item) => item.trim()));
+        return;
+    }
+    setError('收到未知报文，当前页面只解析 EMGDBG / EMGCFG。');
+}
+
+function processBuffer() {
+    const frames = serialBuffer.split(/\r?\n/);
+    serialBuffer = frames.pop();
+    frames.forEach(handleFrame);
+}
+
+async function readSerialLoop() {
+    const decoder = new TextDecoder();
+    try {
+        serialReader = serialPort.readable.getReader();
+        while (keepReading) {
+            const { value, done } = await serialReader.read();
+            if (done) { break; }
+            if (!value) { continue; }
+            serialBuffer += decoder.decode(value, { stream:true });
+            processBuffer();
+        }
+        serialBuffer += decoder.decode();
+        processBuffer();
+    } catch (error) {
+        if (keepReading) {
+            setError(`串口读取失败：${error.message || error}`);
+        }
+    } finally {
+        if (serialReader) {
+            serialReader.releaseLock();
+            serialReader = null;
+        }
+        keepReading = false;
+        readLoopPromise = null;
+    }
+}
+
+async function connectSerial() {
+    if (!('serial' in navigator) || isConnecting || serialPort) { return; }
+    isConnecting = true;
+    updateButtons();
+    setStatus('等待选择串口', 'pending');
+    setError('');
+    try {
+        serialPort = await navigator.serial.requestPort();
+        await serialPort.open({ baudRate:115200, dataBits:8, stopBits:1, parity:'none', flowControl:'none' });
+        keepReading = true;
+        serialBuffer = '';
+        ui.rawFrame.textContent = '等待串口数据...';
+        setStatus('已连接，等待参数', 'pending');
+        readLoopPromise = readSerialLoop();
+        await sendSerialCommand('EMGCFG,GET');
+    } catch (error) {
+        if (serialPort) {
+            await serialPort.close().catch(() => {});
+            serialPort = null;
+        }
+        setStatus('未连接', 'error');
+        setError(error && error.name === 'NotFoundError' ? '用户取消了串口选择。' : `串口连接失败：${error.message || error}`);
+    } finally {
+        isConnecting = false;
+        updateButtons();
+    }
+}
+
+async function disconnectSerial() {
+    if (isDisconnecting) { return; }
+    isDisconnecting = true;
+    updateButtons();
+    keepReading = false;
+    serialBuffer = '';
+    if (serialReader) {
+        await serialReader.cancel().catch(() => {});
+    }
+    if (readLoopPromise) {
+        await readLoopPromise.catch(() => {});
+        readLoopPromise = null;
+    }
+    if (serialPort) {
+        await serialPort.close().catch(() => {});
+        serialPort = null;
+    }
+    setStatus('未连接', 'offline');
+    isDisconnecting = false;
+    updateButtons();
+}
+
+async function applyAllParams() {
+    for (const def of paramDefs) {
+        const value = paramState.get(def.name);
+        await sendSerialCommand(`EMGCFG,SET,${def.name},${value}`);
+        await new Promise((resolve) => window.setTimeout(resolve, 25));
+    }
+}
+
+function createParamItem(def) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'param-item';
+    const title = document.createElement('div');
+    title.className = 'param-title';
+    title.innerHTML = `<span>${def.label}</span><span class="param-name">${def.name}</span>`;
+    const desc = document.createElement('div');
+    desc.className = 'param-desc';
+    desc.textContent = def.desc;
+    const controls = document.createElement('div');
+    controls.className = 'param-controls';
+    const range = document.createElement('input');
+    range.type = 'range';
+    range.min = String(def.min);
+    range.max = String(def.max);
+    range.step = String(def.step);
+    range.value = String(def.defaultValue);
+    const number = document.createElement('input');
+    number.type = 'number';
+    number.min = String(def.min);
+    number.max = String(def.max);
+    number.step = String(def.step);
+    number.value = String(def.defaultValue);
+    range.addEventListener('input', () => sendValue(def, range.value));
+    number.addEventListener('change', () => sendValue(def, number.value));
+    controls.append(range, number);
+    wrapper.append(title, desc, controls);
+    ui.paramList.appendChild(wrapper);
+    paramState.set(def.name, def.defaultValue);
+    paramControls.set(def.name, { range, number });
+}
+
+function initPage() {
+    if (!('serial' in navigator)) {
+        setStatus('浏览器不支持', 'error');
+        setError('请使用最新版 Chrome / Edge，并通过 localhost 或 https 打开页面。');
+    }
+
+    paramDefs.forEach(createParamItem);
+    renderMetrics();
+    updateButtons();
+    resizeChart();
+
+    ui.connectBtn.addEventListener('click', connectSerial);
+    ui.disconnectBtn.addEventListener('click', disconnectSerial);
+    ui.readBtn.addEventListener('click', () => sendSerialCommand('EMGCFG,GET'));
+    ui.resetBtn.addEventListener('click', () => sendSerialCommand('EMGCFG,RESET'));
+    ui.applyBtn.addEventListener('click', applyAllParams);
+    ui.exportBtn.addEventListener('click', async () => {
+        const text = buildExportText();
+        ui.exportBox.value = text;
+        try {
+            await navigator.clipboard.writeText(text);
+        } catch (error) {
+            /* 某些环境不允许写剪贴板时，保留文本框内容即可。 */
+        }
+    });
+
+    window.addEventListener('resize', resizeChart);
+    window.setInterval(() => {
+        if (serialPort && lastFrameTime > 0 && (Date.now() - lastFrameTime) > 1500 && !inConfigDump) {
+            setStatus('已连接，等待新帧...', 'pending');
+        }
+    }, 500);
+}
+
+initPage();
+</script>
+</body>
+</html>

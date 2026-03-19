@@ -1,0 +1,101 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="1080" viewBox="0 0 1500 1080">
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L10,4 L0,8 z" fill="#425466"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="1500" height="1080" fill="#ffffff"/>
+
+  <text x="56" y="52" font-family="Microsoft YaHei, SimSun, Arial" font-size="28" font-weight="700" fill="#17324d">
+    IMU_V9 软件控制流程图
+  </text>
+  <text x="56" y="84" font-family="Microsoft YaHei, SimSun, Arial" font-size="16" fill="#4b5f73">
+    适用场景：正常工作模式（IMU 姿态输出 + EMG Grip 融合）
+  </text>
+
+  <rect x="40" y="110" width="860" height="920" fill="#f7fbff" stroke="#a8bfd3" stroke-width="2"/>
+  <text x="60" y="144" font-family="Microsoft YaHei, SimSun, Arial" font-size="20" font-weight="700" fill="#274c77">主控制流程</text>
+
+  <rect x="940" y="110" width="520" height="920" fill="#f8fcf8" stroke="#a9c9b3" stroke-width="2"/>
+  <text x="960" y="144" font-family="Microsoft YaHei, SimSun, Arial" font-size="20" font-weight="700" fill="#2d6a4f">EMG Grip 处理链路</text>
+
+  <rect x="180" y="170" width="260" height="64" fill="#eef5fb" stroke="#406080" stroke-width="2"/>
+  <text x="310" y="208" text-anchor="middle" font-family="Microsoft YaHei, SimSun, Arial" font-size="16" fill="#1f2937">上电进入主业务</text>
+
+  <rect x="140" y="280" width="340" height="108" fill="#ffffff" stroke="#406080" stroke-width="2"/>
+  <text x="310" y="320" text-anchor="middle" font-family="Microsoft YaHei, SimSun, Arial" font-size="16" fill="#1f2937">基础通信与时间基准初始化</text>
+  <text x="310" y="350" text-anchor="middle" font-family="Microsoft YaHei, SimSun, Arial" font-size="14" fill="#425466">串口通信建立</text>
+  <text x="310" y="374" text-anchor="middle" font-family="Microsoft YaHei, SimSun, Arial" font-size="14" fill="#425466">系统时间与轮询节拍建立</text>
+
+  <rect x="140" y="430" width="340" height="112" fill="#eef5fb" stroke="#406080" stroke-width="2"/>
+  <text x="310" y="470" text-anchor="middle" font-family="Microsoft YaHei, SimSun, Arial" font-size="16" fill="#1f2937">EMG 采集链路初始化</text>
+  <text x="310" y="500" text-anchor="middle" font-family="Microsoft YaHei, SimSun, Arial" font-size="14" fill="#425466">建立定时触发、ADC 采样与 DMA 搬运</text>
+  <text x="310" y="524" text-anchor="middle" font-family="Microsoft YaHei, SimSun, Arial" font-size="14" fill="#425466">准备 Grip 运行时状态</text>
+
+  <rect x="140" y="590" width="340" height="148" fill="#ffffff" stroke="#406080" stroke-width="2"/>
+  <text x="310" y="630" text-anchor="middle" font-family="Microsoft YaHei, SimSun, Arial" font-size="16" fill="#1f2937">IMU 主链路初始化</text>
+  <text x="310" y="660" text-anchor="middle" font-family="Microsoft YaHei, SimSun, Arial" font-size="14" fill="#425466">上下肢 IMU 建链</text>
+  <text x="310" y="684" text-anchor="middle" font-family="Microsoft YaHei, SimSun, Arial" font-size="14" fill="#425466">中断使能与数据就绪通知建立</text>
+  <text x="310" y="708" text-anchor="middle" font-family="Microsoft YaHei, SimSun, Arial" font-size="14" fill="#425466">启动初始标定与零偏采集</text>
+
+  <rect x="110" y="800" width="400" height="194" fill="#ffffff" stroke="#406080" stroke-width="2"/>
+  <text x="310" y="840" text-anchor="middle" font-family="Microsoft YaHei, SimSun, Arial" font-size="16" fill="#1f2937">主循环</text>
+  <text x="310" y="872" text-anchor="middle" font-family="Microsoft YaHei, SimSun, Arial" font-size="14" fill="#425466">读取上下肢 IMU 数据</text>
+  <text x="310" y="898" text-anchor="middle" font-family="Microsoft YaHei, SimSun, Arial" font-size="14" fill="#425466">完成温漂补偿、异常尖峰抑制与姿态更新</text>
+  <text x="310" y="924" text-anchor="middle" font-family="Microsoft YaHei, SimSun, Arial" font-size="14" fill="#425466">同步推进 EMG Grip 计算</text>
+  <text x="310" y="950" text-anchor="middle" font-family="Microsoft YaHei, SimSun, Arial" font-size="14" fill="#425466">处理按键、标定命令与状态指示</text>
+  <text x="310" y="976" text-anchor="middle" font-family="Microsoft YaHei, SimSun, Arial" font-size="14" fill="#425466">满足发送条件后生成姿态与 Grip 输出帧</text>
+
+  <rect x="590" y="850" width="240" height="100" fill="#eef5fb" stroke="#406080" stroke-width="2"/>
+  <text x="710" y="890" text-anchor="middle" font-family="Microsoft YaHei, SimSun, Arial" font-size="16" fill="#1f2937">上位机输出</text>
+  <text x="710" y="920" text-anchor="middle" font-family="Microsoft YaHei, SimSun, Arial" font-size="14" fill="#425466">姿态角 + Grip 百分比</text>
+
+  <rect x="1010" y="180" width="380" height="96" fill="#eefaf3" stroke="#32735b" stroke-width="2"/>
+  <text x="1200" y="220" text-anchor="middle" font-family="Microsoft YaHei, SimSun, Arial" font-size="16" fill="#1f2937">硬件采样</text>
+  <text x="1200" y="248" text-anchor="middle" font-family="Microsoft YaHei, SimSun, Arial" font-size="14" fill="#425466">定时触发 ADC 单通道采样</text>
+  <text x="1200" y="272" text-anchor="middle" font-family="Microsoft YaHei, SimSun, Arial" font-size="14" fill="#425466">DMA 自动搬运采样结果</text>
+
+  <rect x="1010" y="326" width="380" height="96" fill="#eefaf3" stroke="#32735b" stroke-width="2"/>
+  <text x="1200" y="366" text-anchor="middle" font-family="Microsoft YaHei, SimSun, Arial" font-size="16" fill="#1f2937">前端滤波与整流</text>
+  <text x="1200" y="394" text-anchor="middle" font-family="Microsoft YaHei, SimSun, Arial" font-size="14" fill="#425466">保持现有滤波系数</text>
+  <text x="1200" y="418" text-anchor="middle" font-family="Microsoft YaHei, SimSun, Arial" font-size="14" fill="#425466">提取幅值信息</text>
+
+  <rect x="1010" y="472" width="380" height="108" fill="#eefaf3" stroke="#32735b" stroke-width="2"/>
+  <text x="1200" y="512" text-anchor="middle" font-family="Microsoft YaHei, SimSun, Arial" font-size="16" fill="#1f2937">包络跟踪</text>
+  <text x="1200" y="540" text-anchor="middle" font-family="Microsoft YaHei, SimSun, Arial" font-size="14" fill="#425466">采用快起慢落的时间常数</text>
+  <text x="1200" y="564" text-anchor="middle" font-family="Microsoft YaHei, SimSun, Arial" font-size="14" fill="#425466">兼顾响应速度与稳定性</text>
+
+  <rect x="1010" y="630" width="380" height="116" fill="#eefaf3" stroke="#32735b" stroke-width="2"/>
+  <text x="1200" y="670" text-anchor="middle" font-family="Microsoft YaHei, SimSun, Arial" font-size="16" fill="#1f2937">自适应基线与峰值估计</text>
+  <text x="1200" y="698" text-anchor="middle" font-family="Microsoft YaHei, SimSun, Arial" font-size="14" fill="#425466">静息段更新基线</text>
+  <text x="1200" y="722" text-anchor="middle" font-family="Microsoft YaHei, SimSun, Arial" font-size="14" fill="#425466">收缩段更新有效峰值范围</text>
+
+  <rect x="1010" y="796" width="380" height="108" fill="#eefaf3" stroke="#32735b" stroke-width="2"/>
+  <text x="1200" y="836" text-anchor="middle" font-family="Microsoft YaHei, SimSun, Arial" font-size="16" fill="#1f2937">激活判定</text>
+  <text x="1200" y="864" text-anchor="middle" font-family="Microsoft YaHei, SimSun, Arial" font-size="14" fill="#425466">双门限迟滞 + 连续计数</text>
+  <text x="1200" y="888" text-anchor="middle" font-family="Microsoft YaHei, SimSun, Arial" font-size="14" fill="#425466">降低静息抖动误触发</text>
+
+  <rect x="1010" y="954" width="380" height="108" fill="#eefaf3" stroke="#32735b" stroke-width="2"/>
+  <text x="1200" y="994" text-anchor="middle" font-family="Microsoft YaHei, SimSun, Arial" font-size="16" fill="#1f2937">Grip 映射</text>
+  <text x="1200" y="1022" text-anchor="middle" font-family="Microsoft YaHei, SimSun, Arial" font-size="14" fill="#425466">死区 + 非线性增益 + 平滑</text>
+  <text x="1200" y="1046" text-anchor="middle" font-family="Microsoft YaHei, SimSun, Arial" font-size="14" fill="#425466">输出 0~100 的张合程度</text>
+
+  <line x1="310" y1="234" x2="310" y2="280" stroke="#425466" stroke-width="2.5" marker-end="url(#arrow)"/>
+  <line x1="310" y1="388" x2="310" y2="430" stroke="#425466" stroke-width="2.5" marker-end="url(#arrow)"/>
+  <line x1="310" y1="542" x2="310" y2="590" stroke="#425466" stroke-width="2.5" marker-end="url(#arrow)"/>
+  <line x1="310" y1="738" x2="310" y2="800" stroke="#425466" stroke-width="2.5" marker-end="url(#arrow)"/>
+  <line x1="510" y1="900" x2="590" y2="900" stroke="#425466" stroke-width="2.5" marker-end="url(#arrow)"/>
+
+  <line x1="1200" y1="276" x2="1200" y2="326" stroke="#425466" stroke-width="2.5" marker-end="url(#arrow)"/>
+  <line x1="1200" y1="422" x2="1200" y2="472" stroke="#425466" stroke-width="2.5" marker-end="url(#arrow)"/>
+  <line x1="1200" y1="580" x2="1200" y2="630" stroke="#425466" stroke-width="2.5" marker-end="url(#arrow)"/>
+  <line x1="1200" y1="746" x2="1200" y2="796" stroke="#425466" stroke-width="2.5" marker-end="url(#arrow)"/>
+  <line x1="1200" y1="904" x2="1200" y2="954" stroke="#425466" stroke-width="2.5" marker-end="url(#arrow)"/>
+
+  <path d="M1010 1008 L920 1008 L920 900 L830 900" fill="none" stroke="#6b7280" stroke-width="2" stroke-dasharray="8 6" marker-end="url(#arrow)"/>
+  <text x="888" y="882" font-family="Microsoft YaHei, SimSun, Arial" font-size="14" fill="#506273">Grip 融合进入输出帧</text>
+
+  <path d="M1010 230 L930 230 L930 486 L480 486" fill="none" stroke="#6b7280" stroke-width="2" stroke-dasharray="8 6" marker-end="url(#arrow)"/>
+  <text x="806" y="212" font-family="Microsoft YaHei, SimSun, Arial" font-size="14" fill="#506273">采样链路在启动阶段建立</text>
+</svg>

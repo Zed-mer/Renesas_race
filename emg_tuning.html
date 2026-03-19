@@ -271,20 +271,16 @@
 
 <script>
 const paramDefs = [
-    { name:'ENV_ATTACK_ALPHA', label:'包络上升系数', min:0.001, max:1.000, step:0.001, defaultValue:0.35, desc:'越大越灵敏，收缩起量更快。' },
-    { name:'ENV_RELEASE_ALPHA', label:'包络释放系数', min:0.001, max:1.000, step:0.001, defaultValue:0.08, desc:'越大回零越快，越小拖尾越明显。' },
-    { name:'REST_RISE_ALPHA', label:'静息上升系数', min:0.0001, max:0.1000, step:0.0001, defaultValue:0.002, desc:'长期噪声抬高时，rest 跟上去的速度。' },
-    { name:'REST_FALL_ALPHA', label:'静息下降系数', min:0.0001, max:1.0000, step:0.0001, defaultValue:0.10, desc:'噪声下降后，rest 回落的速度。' },
-    { name:'PEAK_DECAY_ALPHA', label:'峰值衰减系数', min:0.0001, max:0.1000, step:0.0001, defaultValue:0.004, desc:'大收缩结束后，peak 回落的速度。' },
-    { name:'MIN_SPAN', label:'最小动态跨度', min:1.0, max:300.0, step:0.1, defaultValue:18.0, desc:'越大越稳，越小越灵敏。' },
-    { name:'ON_RATIO', label:'进入比例', min:0.01, max:0.95, step:0.01, defaultValue:0.22, desc:'超过该比例才允许进入激活。' },
-    { name:'OFF_RATIO', label:'退出比例', min:0.00, max:0.90, step:0.01, defaultValue:0.12, desc:'低于该比例才允许退出激活，必须小于进入比例。' },
-    { name:'ENTER_COUNT', label:'连续进入样本数', min:1, max:20, step:1, defaultValue:3, desc:'连续多少个样本过门限才算真的激活。', integer:true },
-    { name:'EXIT_COUNT', label:'连续退出样本数', min:1, max:30, step:1, defaultValue:8, desc:'连续多少个样本低于门限才退出。', integer:true },
-    { name:'DEADZONE_RATIO', label:'死区比例', min:0.00, max:0.50, step:0.01, defaultValue:0.10, desc:'把最靠近静息的一段直接压成 0。' },
-    { name:'OUTPUT_GAMMA', label:'输出曲线指数', min:0.10, max:3.00, step:0.01, defaultValue:1.20, desc:'大于 1 前段更稳，小于 1 前段更灵敏。' },
-    { name:'OUTPUT_ATTACK_ALPHA', label:'输出上升平滑', min:0.001, max:1.000, step:0.001, defaultValue:0.30, desc:'越大 grip 上升越快。' },
-    { name:'OUTPUT_RELEASE_ALPHA', label:'输出下降平滑', min:0.001, max:1.000, step:0.001, defaultValue:0.12, desc:'越大 grip 回落越快。' }
+    {
+        name: 'ENVELOPE_WINDOW_SIZE',
+        label: '包络窗口长度',
+        min: 1,
+        max: 64,
+        step: 1,
+        defaultValue: 16,
+        integer: true,
+        desc: '对 fabs(filtered) 做滑动平均的窗口长度。16 对齐老工程；调大更平稳，调小更灵敏。'
+    }
 ];
 
 const ui = {
@@ -483,20 +479,7 @@ function sendValue(def, value) {
 
 function buildExportText() {
     return [
-        `#define EMG_TUNE_ENV_ATTACK_ALPHA        ${Number(paramState.get('ENV_ATTACK_ALPHA')).toFixed(6)}f`,
-        `#define EMG_TUNE_ENV_RELEASE_ALPHA       ${Number(paramState.get('ENV_RELEASE_ALPHA')).toFixed(6)}f`,
-        `#define EMG_TUNE_REST_RISE_ALPHA         ${Number(paramState.get('REST_RISE_ALPHA')).toFixed(6)}f`,
-        `#define EMG_TUNE_REST_FALL_ALPHA         ${Number(paramState.get('REST_FALL_ALPHA')).toFixed(6)}f`,
-        `#define EMG_TUNE_PEAK_DECAY_ALPHA        ${Number(paramState.get('PEAK_DECAY_ALPHA')).toFixed(6)}f`,
-        `#define EMG_TUNE_MIN_SPAN                ${Number(paramState.get('MIN_SPAN')).toFixed(6)}f`,
-        `#define EMG_TUNE_ON_RATIO                ${Number(paramState.get('ON_RATIO')).toFixed(6)}f`,
-        `#define EMG_TUNE_OFF_RATIO               ${Number(paramState.get('OFF_RATIO')).toFixed(6)}f`,
-        `#define EMG_TUNE_ENTER_COUNT             ${Math.round(Number(paramState.get('ENTER_COUNT')))}U`,
-        `#define EMG_TUNE_EXIT_COUNT              ${Math.round(Number(paramState.get('EXIT_COUNT')))}U`,
-        `#define EMG_TUNE_DEADZONE_RATIO          ${Number(paramState.get('DEADZONE_RATIO')).toFixed(6)}f`,
-        `#define EMG_TUNE_OUTPUT_GAMMA            ${Number(paramState.get('OUTPUT_GAMMA')).toFixed(6)}f`,
-        `#define EMG_TUNE_OUTPUT_ATTACK_ALPHA     ${Number(paramState.get('OUTPUT_ATTACK_ALPHA')).toFixed(6)}f`,
-        `#define EMG_TUNE_OUTPUT_RELEASE_ALPHA    ${Number(paramState.get('OUTPUT_RELEASE_ALPHA')).toFixed(6)}f`
+        `#define EMG_TUNE_ENVELOPE_WINDOW_SIZE ${Math.round(Number(paramState.get('ENVELOPE_WINDOW_SIZE')))}U`
     ].join('\n');
 }
 

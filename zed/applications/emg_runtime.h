@@ -7,39 +7,21 @@
 #include <stdint.h>
 
 /*
- * 这份结构体保存“可以通过串口调参的那组算法参数”。
- * 之所以把参数集中成结构体，而不是散落成一堆全局变量，
- * 是为了同时满足三件事：
- * 1. 固件内部运行时可以统一读写；
- * 2. 串口协议可以批量导出和回灌；
- * 3. 上位机导出的宏定义可以一一对应到默认值。
+ * 当前版本对外只开放一个调参量：包络滑动窗口长度。
+ * 这样做是为了和老工程 ra6m5_ds_musle 的“16 点滑动平均包络”保持一致，
+ * 让调参动作重新回到“调窗口大小”这个更直观的维度。
  */
 typedef struct st_emg_tune_params
 {
-    float    env_attack_alpha;
-    float    env_release_alpha;
-    float    rest_rise_alpha;
-    float    rest_fall_alpha;
-    float    peak_decay_alpha;
-    float    min_span;
-    float    on_ratio;
-    float    off_ratio;
-    uint16_t enter_count;
-    uint16_t exit_count;
-    float    deadzone_ratio;
-    float    output_gamma;
-    float    output_attack_alpha;
-    float    output_release_alpha;
+    uint16_t envelope_window_size;
 } emg_tune_params_t;
 
 /*
- * 这份快照专门给调试串口和上位机使用。
- * 它把算法内部最关键的观测量集中暴露出来，便于判断：
- * - 原始采样有没有在跳；
- * - 滤波后有没有成形；
- * - 包络是否稳定；
- * - rest / peak 是否在合理范围；
- * - 当前 grip 是被阈值卡住了，还是被映射曲线压住了。
+ * 调试快照仍然保留完整内部观测量，方便上位机判断：
+ * - filtered 是否正常成形；
+ * - envelope 是否过抖或过钝；
+ * - rest / peak / threshold 是否处于合理区间；
+ * - active 和 grip 是否符合预期。
  */
 typedef struct st_emg_debug_snapshot
 {
@@ -57,18 +39,11 @@ typedef struct st_emg_debug_snapshot
 
 fsp_err_t emg_runtime_init(void);
 void      emg_runtime_poll(uint32_t now_us);
-
-/*
- * 正式模式只需要一个 0~100 的 grip 输出。
- * 上层通过这个接口拿到“已经调完算法后的最终结果”，
- * 不需要知道内部 rest / peak / threshold 的细节。
- */
 uint8_t   emg_runtime_get_grip_percent(void);
 
 /*
- * 下面这几个接口主要服务于测试模式和调参模式。
- * 纯 EMG 数据流模式用 last_filtered / last_envelope 输出简洁文本，
- * 调参模式则通过 get_params / set_param / get_debug_snapshot 和上位机交互。
+ * 下面这些接口主要服务于纯 EMG 文本流模式和调参模式。
+ * 正式主业务只需要最终的 grip 百分比。
  */
 uint16_t  emg_runtime_get_last_raw_sample(void);
 float     emg_runtime_get_last_filtered_value(void);

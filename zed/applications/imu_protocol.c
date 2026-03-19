@@ -23,7 +23,6 @@ static void         imu_protocol_send_emg_config_dump(imu_app_context_t * p_ctx)
 static void         imu_protocol_send_emg_config_value(imu_app_context_t * p_ctx, char const * p_name, float value);
 static void         imu_protocol_send_emg_config_ok(imu_app_context_t * p_ctx, char const * p_name, float value);
 static void         imu_protocol_send_emg_config_error(imu_app_context_t * p_ctx, char const * p_name, char const * p_reason);
-static float        imu_protocol_parse_count(uint16_t value);
 #endif
 
 void imu_protocol_send_text(imu_app_context_t * p_ctx, char const * p_text)
@@ -336,20 +335,13 @@ static void imu_protocol_send_emg_config_dump(imu_app_context_t * p_ctx)
 
     emg_runtime_get_params(&params);
     imu_protocol_send_text(p_ctx, "EMGCFG,BEGIN\r\n");
-    imu_protocol_send_emg_config_value(p_ctx, "ENV_ATTACK_ALPHA", params.env_attack_alpha);
-    imu_protocol_send_emg_config_value(p_ctx, "ENV_RELEASE_ALPHA", params.env_release_alpha);
-    imu_protocol_send_emg_config_value(p_ctx, "REST_RISE_ALPHA", params.rest_rise_alpha);
-    imu_protocol_send_emg_config_value(p_ctx, "REST_FALL_ALPHA", params.rest_fall_alpha);
-    imu_protocol_send_emg_config_value(p_ctx, "PEAK_DECAY_ALPHA", params.peak_decay_alpha);
-    imu_protocol_send_emg_config_value(p_ctx, "MIN_SPAN", params.min_span);
-    imu_protocol_send_emg_config_value(p_ctx, "ON_RATIO", params.on_ratio);
-    imu_protocol_send_emg_config_value(p_ctx, "OFF_RATIO", params.off_ratio);
-    imu_protocol_send_emg_config_value(p_ctx, "ENTER_COUNT", imu_protocol_parse_count(params.enter_count));
-    imu_protocol_send_emg_config_value(p_ctx, "EXIT_COUNT", imu_protocol_parse_count(params.exit_count));
-    imu_protocol_send_emg_config_value(p_ctx, "DEADZONE_RATIO", params.deadzone_ratio);
-    imu_protocol_send_emg_config_value(p_ctx, "OUTPUT_GAMMA", params.output_gamma);
-    imu_protocol_send_emg_config_value(p_ctx, "OUTPUT_ATTACK_ALPHA", params.output_attack_alpha);
-    imu_protocol_send_emg_config_value(p_ctx, "OUTPUT_RELEASE_ALPHA", params.output_release_alpha);
+    /*
+     * 当前版本按用户要求把调参入口收敛成“包络窗口大小”一个量。
+     * 这样上位机、默认宏和老工程的使用习惯都能保持一致。
+     */
+    imu_protocol_send_emg_config_value(p_ctx,
+                                       "ENVELOPE_WINDOW_SIZE",
+                                       (float) params.envelope_window_size);
     imu_protocol_send_text(p_ctx, "EMGCFG,END\r\n");
 }
 
@@ -375,10 +367,5 @@ static void imu_protocol_send_emg_config_error(imu_app_context_t * p_ctx, char c
                             "EMGCFG,ERR,%s,%s\r\n",
                             (NULL != p_name) ? p_name : "UNKNOWN",
                             (NULL != p_reason) ? p_reason : "ERR");
-}
-
-static float imu_protocol_parse_count(uint16_t value)
-{
-    return (float) value;
 }
 #endif
