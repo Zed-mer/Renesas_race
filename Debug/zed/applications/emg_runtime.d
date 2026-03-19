@@ -1,5 +1,5 @@
 zed/applications/emg_runtime.o: ../zed/applications/emg_runtime.c \
- ../zed/applications/emg_runtime.h \
+ ../zed/applications/emg_runtime.h ../zed/applications/emg_tune_cfg.h \
  C:/Users/user/e2_studio/workspace/IMU_V9/ra_gen/hal_data.h \
  C:/Users/user/e2_studio/workspace/IMU_V9/ra/fsp/inc/api/bsp_api.h \
  C:/Users/user/e2_studio/workspace/IMU_V9/ra/fsp/inc/api/fsp_common_api.h \
@@ -70,6 +70,7 @@ zed/applications/emg_runtime.o: ../zed/applications/emg_runtime.c \
  C:/Users/user/e2_studio/workspace/IMU_V9/ra_cfg/fsp_cfg/r_sci_uart_cfg.h \
  C:/Users/user/e2_studio/workspace/IMU_V9/zed/drivers/drv_emg_adc.h
 ../zed/applications/emg_runtime.h:
+../zed/applications/emg_tune_cfg.h:
 C:/Users/user/e2_studio/workspace/IMU_V9/ra_gen/hal_data.h:
 C:/Users/user/e2_studio/workspace/IMU_V9/ra/fsp/inc/api/bsp_api.h:
 C:/Users/user/e2_studio/workspace/IMU_V9/ra/fsp/inc/api/fsp_common_api.h:

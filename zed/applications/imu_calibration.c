@@ -955,5 +955,18 @@ static bool imu_apply_axis_map(imu_axis_map_t * p_map, float raw_deg, int32_t * 
 
 static uint8_t imu_get_grip_percent(void)
 {
+#if emg_do
+    /*
+     * 正式融合模式下，手掌张合度由 EMG 算法接管。
+     * 这里故意只暴露最终 grip 百分比，不把 EMG 内部状态泄漏到 IMU 标定模块，
+     * 让 IMU 侧继续只关心“我现在应该发多少 grip”。
+     */
     return emg_runtime_get_grip_percent();
+#else
+    /*
+     * 当 emg_do 关闭时，主业务保持当前行为，不让 EMG 正式接管 grip。
+     * 这样可以先单独验证 IMU 链路，再决定何时把肌电融合进去。
+     */
+    return 0U;
+#endif
 }

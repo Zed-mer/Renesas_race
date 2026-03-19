@@ -68,7 +68,7 @@ zed/applications/app_uart_test.o: ../zed/applications/app_uart_test.c \
  C:/Users/user/e2_studio/workspace/IMU_V9/ra/fsp/inc/instances/r_sci_uart.h \
  C:/Users/user/e2_studio/workspace/IMU_V9/ra/fsp/inc/api/r_uart_api.h \
  C:/Users/user/e2_studio/workspace/IMU_V9/ra_cfg/fsp_cfg/r_sci_uart_cfg.h \
- ../zed/applications/emg_runtime.h \
+ ../zed/applications/emg_runtime.h ../zed/applications/emg_tune_cfg.h \
  C:/Users/user/e2_studio/workspace/IMU_V9/zed/drivers/drv_uart.h \
  C:/Users/user/e2_studio/workspace/IMU_V9/zed/drivers/icm42688.h \
  ../zed/applications/imu_app_context.h \
@@ -144,6 +144,7 @@ C:/Users/user/e2_studio/workspace/IMU_V9/ra/fsp/inc/instances/r_sci_uart.h:
 C:/Users/user/e2_studio/workspace/IMU_V9/ra/fsp/inc/api/r_uart_api.h:
 C:/Users/user/e2_studio/workspace/IMU_V9/ra_cfg/fsp_cfg/r_sci_uart_cfg.h:
 ../zed/applications/emg_runtime.h:
+../zed/applications/emg_tune_cfg.h:
 C:/Users/user/e2_studio/workspace/IMU_V9/zed/drivers/drv_uart.h:
 C:/Users/user/e2_studio/workspace/IMU_V9/zed/drivers/icm42688.h:
 ../zed/applications/imu_app_context.h:

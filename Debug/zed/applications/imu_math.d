@@ -1,5 +1,6 @@
 zed/applications/imu_math.o: ../zed/applications/imu_math.c \
  ../zed/applications/imu_math.h ../zed/applications/imu_app_context.h \
+ ../zed/applications/app.h \
  C:/Users/user/e2_studio/workspace/IMU_V9/ra_gen/hal_data.h \
  C:/Users/user/e2_studio/workspace/IMU_V9/ra/fsp/inc/api/bsp_api.h \
  C:/Users/user/e2_studio/workspace/IMU_V9/ra/fsp/inc/api/fsp_common_api.h \
@@ -71,6 +72,7 @@ zed/applications/imu_math.o: ../zed/applications/imu_math.c \
  C:/Users/user/e2_studio/workspace/IMU_V9/zed/drivers/icm42688.h
 ../zed/applications/imu_math.h:
 ../zed/applications/imu_app_context.h:
+../zed/applications/app.h:
 C:/Users/user/e2_studio/workspace/IMU_V9/ra_gen/hal_data.h:
 C:/Users/user/e2_studio/workspace/IMU_V9/ra/fsp/inc/api/bsp_api.h:
 C:/Users/user/e2_studio/workspace/IMU_V9/ra/fsp/inc/api/fsp_common_api.h:

@@ -1,9 +1,9 @@
-<!DOCTYPE html>
+﻿﻿<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>体感机械臂姿态映射仿真系统 (写实版)</title>
+    <title>体感机械臂姿态映射仿真系统 (完整串口版)</title>
     <style>
         :root {
             --safe-top: max(12px, env(safe-area-inset-top, 0px));
@@ -499,7 +499,7 @@
     <div class="info-line"><span>舵机2 (大臂抬升):</span> <span class="highlight" id="servo2-val">90°</span></div>
     <div class="info-line"><span>舵机3 (小臂抬升):</span> <span class="highlight" id="servo3-val">90°</span></div>
     <div class="info-line"><span>舵机4 (手腕翻滚):</span> <span class="highlight" id="servo4-val">90°</span></div>
-    <div class="info-line" style="border-top: 1px dashed #444; padding-top: 8px;"><span>手爪张合度:</span> <span class="highlight" id="grip-val-out">0%</span></div>
+    <div class="info-line" style="border-top: 1px dashed #444; padding-top: 8px;"><span>手爪张合度:</span> <span class="highlight" id="grip-val-out">30%</span></div>
 </div>
 
 <div class="coordinate-info overlay-panel" data-panel="axes">
@@ -507,7 +507,7 @@
     <div class="axis-label"><span class="dot" style="background:#ff4757"></span> X轴: 向后</div>
     <div class="axis-label"><span class="dot" style="background:#2ed573"></span> Y轴: 向右</div>
     <div class="axis-label"><span class="dot" style="background:#1e90ff"></span> Z轴: 向上</div>
-    <div style="margin-top: 15px; font-style: italic; font-size: 12px; color: #888;">*左侧为人体，右侧为复刻机械臂<br>*支持鼠标拖拽旋转、滚轮缩放</div>
+    <div style="margin-top: 15px; font-style: italic; font-size: 12px; color: #888;">*左侧为机械仿生臂，右侧为复刻机械臂<br>*支持鼠标拖拽旋转、滚轮缩放</div>
 </div>
 
 <div id="ui-panel" class="overlay-panel" data-panel="serial">
@@ -519,6 +519,7 @@
         <div class="serial-actions">
             <button class="serial-button" id="connect-serial-btn" type="button">连接串口</button>
             <button class="serial-button secondary" id="disconnect-serial-btn" type="button" disabled>断开串口</button>
+            <button class="serial-button secondary" onclick="window.location.href='/sub_mapping.html'" type="button">人手映射机械臂</button>
         </div>
     </div>
     <div class="serial-grid">
@@ -560,7 +561,7 @@
                 </div>
                 <div class="serial-pose-item">
                     <div class="serial-pose-name">手爪</div>
-                    <div class="serial-pose-readout" id="pose-grip">0%</div>
+                    <div class="serial-pose-readout" id="pose-grip">30%</div>
                 </div>
             </div>
         </div>
@@ -568,7 +569,6 @@
     <div class="calibration-panel">
         <div class="serial-label">动作标定</div>
         <div class="calibration-actions">
-            <button class="serial-button" id="cal-start-btn" type="button" disabled>开始标定</button>
             <button class="serial-button" id="cal-next-btn" type="button" disabled>确认当前动作</button>
             <button class="serial-button secondary" id="cal-reset-btn" type="button" disabled>重置标定</button>
             <button class="serial-button secondary" id="cal-status-btn" type="button" disabled>查询步骤</button>
@@ -611,19 +611,19 @@
     controls.enableDamping = true;
     controls.target.set(0, 15, 0);
 
-    // 灯光设置 (更真实的影棚打光)
-    const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 0.6);
+    // 灯光设置
+    const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 0.7);
     hemiLight.position.set(0, 50, 0);
     scene.add(hemiLight);
 
-    const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+    const dirLight = new THREE.DirectionalLight(0xffffff, 0.85);
     dirLight.position.set(30, 50, 30);
     dirLight.castShadow = true;
     dirLight.shadow.mapSize.width = 2048;
     dirLight.shadow.mapSize.height = 2048;
     scene.add(dirLight);
 
-    const backLight = new THREE.DirectionalLight(0x00e5ff, 0.3);
+    const backLight = new THREE.DirectionalLight(0x00e5ff, 0.4);
     backLight.position.set(-30, 20, -30);
     scene.add(backLight);
 
@@ -644,227 +644,566 @@
     scene.add(gridHelper);
 
     // ==========================================
-    // 材质定义
+    // 材质定义 (赛博格写实装甲与线框风格)
     // ==========================================
-    // 人体材质
-    function createHandTexture(baseColor, lineColor, mode) {
-        const canvas = document.createElement('canvas');
-        const ctx = canvas.getContext('2d');
-        canvas.width = 256;
-        canvas.height = 256;
-        ctx.fillStyle = baseColor;
-        ctx.fillRect(0, 0, 256, 256);
+    // --- 新增：程序化纹理生成器，用于在无外部贴图情况下实现极度写实的物理材质 ---
+    function createBrushedMetalMaps() {
+        const size = 512;
+        const canvasColor = document.createElement('canvas');
+        const canvasRough = document.createElement('canvas');
+        const canvasBump = document.createElement('canvas');
+        canvasColor.width = canvasRough.width = canvasBump.width = size;
+        canvasColor.height = canvasRough.height = canvasBump.height = size;
+        
+        const ctxColor = canvasColor.getContext('2d');
+        const ctxRough = canvasRough.getContext('2d');
+        const ctxBump = canvasBump.getContext('2d');
 
-        const gloss = ctx.createLinearGradient(0, 0, 256, 256);
-        gloss.addColorStop(0, 'rgba(255,255,255,0.16)');
-        gloss.addColorStop(1, 'rgba(0,0,0,0.12)');
-        ctx.fillStyle = gloss;
-        ctx.fillRect(0, 0, 256, 256);
+        // 基础金属底色
+        ctxColor.fillStyle = '#6a737b'; // 偏冷的蓝灰装甲色
+        ctxColor.fillRect(0, 0, size, size);
+        ctxRough.fillStyle = '#999999'; // 中等粗糙度基底
+        ctxRough.fillRect(0, 0, size, size);
+        ctxBump.fillStyle = '#808080'; // 中性法线/凹凸基底
+        ctxBump.fillRect(0, 0, size, size);
 
-        ctx.strokeStyle = lineColor;
-        ctx.lineCap = 'round';
-        ctx.lineWidth = mode === 'palm' ? 5 : 4;
+        // 生成金属拉丝和颗粒感噪点
+        for (let i = 0; i < 8000; i++) {
+            const x = Math.random() * size;
+            const y = Math.random() * size;
+            const w = Math.random() * 40 + 10;
+            const h = Math.random() * 1.5 + 0.5;
+            
+            const alpha = Math.random() * 0.1;
+            const isLight = Math.random() > 0.5;
+            
+            ctxColor.fillStyle = isLight ? `rgba(255,255,255,${alpha})` : `rgba(0,0,0,${alpha})`;
+            ctxColor.fillRect(x, y, w, h);
 
-        if (mode === 'palm' || mode === 'pad') {
-            ctx.globalAlpha = 0.42;
-            [[42, 62, 214, 72], [54, 110, 208, 126], [76, 164, 196, 188], [94, 202, 176, 218]].forEach((line) => {
-                ctx.beginPath();
-                ctx.moveTo(line[0], line[1]);
-                ctx.quadraticCurveTo((line[0] + line[2]) / 2, line[1] - 18, line[2], line[3]);
-                ctx.stroke();
-            });
-            ctx.beginPath();
-            ctx.arc(90, 186, 44, Math.PI * 0.28, Math.PI * 1.55);
-            ctx.stroke();
-        } else {
-            ctx.globalAlpha = 0.36;
-            [[44, 72, 212, 92], [60, 122, 204, 148], [84, 178, 192, 210]].forEach((line) => {
-                ctx.beginPath();
-                ctx.moveTo(line[0], line[1]);
-                ctx.lineTo(line[2], line[3]);
-                ctx.stroke();
-            });
-            ctx.fillStyle = 'rgba(255,255,255,0.12)';
-            [[84, 58, 42, 14], [118, 84, 42, 14], [152, 110, 40, 14], [184, 138, 36, 14]].forEach((oval) => {
-                ctx.beginPath();
-                ctx.ellipse(oval[0], oval[1], oval[2], oval[3], 0, 0, Math.PI * 2);
-                ctx.fill();
-            });
+            ctxRough.fillStyle = isLight ? `rgba(255,255,255,${alpha * 2})` : `rgba(0,0,0,${alpha * 2})`;
+            ctxRough.fillRect(x, y, w, h);
+
+            ctxBump.fillStyle = isLight ? `rgba(255,255,255,${alpha * 1.5})` : `rgba(0,0,0,${alpha * 1.5})`;
+            ctxBump.fillRect(x, y, w, h);
         }
 
-        const texture = new THREE.CanvasTexture(canvas);
-        texture.needsUpdate = true;
-        return texture;
+        // 增加硬核战斗磨损划痕
+        for(let i=0; i<300; i++) {
+            const x = Math.random() * size;
+            const y = Math.random() * size;
+            const len = Math.random() * 30 + 5;
+            const angle = Math.random() * Math.PI * 2;
+            
+            ctxBump.beginPath();
+            ctxBump.moveTo(x, y);
+            ctxBump.lineTo(x + Math.cos(angle)*len, y + Math.sin(angle)*len);
+            ctxBump.strokeStyle = `rgba(0,0,0,0.4)`; // 划痕处凹陷
+            ctxBump.lineWidth = 0.5;
+            ctxBump.stroke();
+
+            ctxRough.beginPath();
+            ctxRough.moveTo(x, y);
+            ctxRough.lineTo(x + Math.cos(angle)*len, y + Math.sin(angle)*len);
+            ctxRough.strokeStyle = `rgba(255,255,255,0.5)`; // 划痕处更粗糙无反光
+            ctxRough.lineWidth = 0.5;
+            ctxRough.stroke();
+        }
+
+        const map = new THREE.CanvasTexture(canvasColor);
+        const roughMap = new THREE.CanvasTexture(canvasRough);
+        const bumpMap = new THREE.CanvasTexture(canvasBump);
+        
+        [map, roughMap, bumpMap].forEach(t => { t.wrapS = t.wrapT = THREE.RepeatWrapping; });
+        return { map, roughMap, bumpMap };
     }
 
-    const skinMat = new THREE.MeshStandardMaterial({ color: 0xe0ac69, roughness: 0.4, metalness: 0.1 });
-    const shirtMat = new THREE.MeshStandardMaterial({ color: 0x2c3e50, roughness: 0.9 });
-    const jointSkinMat = new THREE.MeshStandardMaterial({ color: 0xd49b55, roughness: 0.5 }); // 关节处稍微深色
-    const palmMat = new THREE.MeshStandardMaterial({
-        color: 0xf0c491,
-        roughness: 0.58,
-        metalness: 0.02,
-        map: createHandTexture('#efbc8b', 'rgba(130,74,52,0.95)', 'palm')
-    });
-    const handBackMat = new THREE.MeshStandardMaterial({
-        color: 0xca9166,
-        roughness: 0.66,
-        metalness: 0.03,
-        map: createHandTexture('#c88f62', 'rgba(82,54,40,0.95)', 'back')
-    });
-    const handSideMat = new THREE.MeshStandardMaterial({ color: 0xdcab78, roughness: 0.54, metalness: 0.03 });
-    const fingerPadMat = new THREE.MeshStandardMaterial({
-        color: 0xf4c99f,
-        roughness: 0.63,
-        metalness: 0.02,
-        map: createHandTexture('#f0be90', 'rgba(150,98,66,0.78)', 'pad')
-    });
-    const nailMat = new THREE.MeshStandardMaterial({
-        color: 0xc88a63,
-        roughness: 0.68,
-        metalness: 0.03,
-        map: createHandTexture('#c48961', 'rgba(74,48,36,0.82)', 'nail')
-    });
-    
-    // 机械臂材质 (还原图片：黑色主体，灰色圆柱关节)
-    const robotBodyMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.6, metalness: 0.3 }); // 黑色方块
-    const robotJointMat = new THREE.MeshStandardMaterial({ color: 0x888888, roughness: 0.3, metalness: 0.6 }); // 灰色金属铰链
+    function createKnurledMetalMaps() {
+        const size = 256;
+        const canvasColor = document.createElement('canvas');
+        const canvasRough = document.createElement('canvas');
+        const canvasBump = document.createElement('canvas');
+        canvasColor.width = canvasRough.width = canvasBump.width = size;
+        canvasColor.height = canvasRough.height = canvasBump.height = size;
+        
+        const ctxColor = canvasColor.getContext('2d');
+        const ctxRough = canvasRough.getContext('2d');
+        const ctxBump = canvasBump.getContext('2d');
 
-    // 尺寸定义
+        ctxColor.fillStyle = '#1e1e1e'; // 极度深邃的内构黑
+        ctxColor.fillRect(0, 0, size, size);
+        ctxRough.fillStyle = '#aaaaaa'; 
+        ctxRough.fillRect(0, 0, size, size);
+        ctxBump.fillStyle = '#808080';
+        ctxBump.fillRect(0, 0, size, size);
+
+        // 菱形滚花/防滑阵列纹理 (Knurling Grid)
+        const step = 8;
+        for (let x = 0; x < size; x += step) {
+            for (let y = 0; y < size; y += step) {
+                ctxBump.fillStyle = `rgba(255,255,255,0.35)`;
+                ctxBump.beginPath();
+                ctxBump.arc(x + step/2, y + step/2, step/2.5, 0, Math.PI*2);
+                ctxBump.fill();
+                
+                ctxRough.fillStyle = `rgba(0,0,0,0.4)`;
+                ctxRough.beginPath();
+                ctxRough.arc(x + step/2, y + step/2, step/2.5, 0, Math.PI*2);
+                ctxRough.fill();
+            }
+        }
+
+        const map = new THREE.CanvasTexture(canvasColor);
+        const roughMap = new THREE.CanvasTexture(canvasRough);
+        const bumpMap = new THREE.CanvasTexture(canvasBump);
+
+        [map, roughMap, bumpMap].forEach(t => {
+            t.wrapS = t.wrapT = THREE.RepeatWrapping;
+            t.repeat.set(4, 4); // 密集重复贴图
+        });
+        return { map, roughMap, bumpMap };
+    }
+
+    const brushedMaps = createBrushedMetalMaps();
+    const knurledMaps = createKnurledMetalMaps();
+
+    // --- 新增：程序化皮肤与布料纹理生成器 ---
+    function createSkinMaps() {
+        const size = 512;
+        const canvasColor = document.createElement('canvas');
+        const canvasBump = document.createElement('canvas');
+        canvasColor.width = canvasBump.width = size;
+        canvasColor.height = canvasBump.height = size;
+        const ctxColor = canvasColor.getContext('2d');
+        const ctxBump = canvasBump.getContext('2d');
+
+        ctxColor.fillStyle = '#e8b890'; // 亚洲人自然肤色基底
+        ctxColor.fillRect(0, 0, size, size);
+        ctxBump.fillStyle = '#808080';
+        ctxBump.fillRect(0, 0, size, size);
+
+        for (let i = 0; i < 40000; i++) {
+            const x = Math.random() * size;
+            const y = Math.random() * size;
+            const r = Math.random() * 1.5 + 0.5;
+            
+            // 次表面散射质感：微弱的血色斑点噪点
+            ctxColor.fillStyle = Math.random() > 0.5 ? 'rgba(210, 130, 110, 0.04)' : 'rgba(250, 220, 200, 0.05)';
+            ctxColor.beginPath();
+            ctxColor.arc(x, y, r * 2, 0, Math.PI * 2);
+            ctxColor.fill();
+
+            // 皮肤毛孔微观凹凸
+            ctxBump.fillStyle = 'rgba(100, 100, 100, 0.3)';
+            ctxBump.fillRect(x, y, 1, 1);
+        }
+
+        const map = new THREE.CanvasTexture(canvasColor);
+        const bumpMap = new THREE.CanvasTexture(canvasBump);
+        [map, bumpMap].forEach(t => { t.wrapS = t.wrapT = THREE.RepeatWrapping; });
+        return { map, bumpMap };
+    }
+
+    function createFabricMaps() {
+        const size = 256;
+        const canvasColor = document.createElement('canvas');
+        const canvasBump = document.createElement('canvas');
+        canvasColor.width = canvasBump.width = size;
+        canvasColor.height = canvasBump.height = size;
+        const ctxColor = canvasColor.getContext('2d');
+        const ctxBump = canvasBump.getContext('2d');
+
+        ctxColor.fillStyle = '#2c3e50'; // 深邃藏青色布料
+        ctxColor.fillRect(0, 0, size, size);
+        ctxBump.fillStyle = '#808080';
+        ctxBump.fillRect(0, 0, size, size);
+
+        // 纺织品经纬线交叉纹理
+        ctxBump.fillStyle = 'rgba(255,255,255,0.2)';
+        ctxColor.fillStyle = 'rgba(0,0,0,0.15)';
+        for (let i = 0; i < size; i += 4) {
+            ctxBump.fillRect(0, i, size, 2);
+            ctxBump.fillRect(i, 0, 2, size);
+            ctxColor.fillRect(0, i, size, 1);
+            ctxColor.fillRect(i, 0, 1, size);
+        }
+
+        const map = new THREE.CanvasTexture(canvasColor);
+        const bumpMap = new THREE.CanvasTexture(canvasBump);
+        [map, bumpMap].forEach(t => { 
+            t.wrapS = t.wrapT = THREE.RepeatWrapping; 
+            t.repeat.set(8, 8); // 缩小纹理提升布料密度
+        });
+        return { map, bumpMap };
+    }
+
+    const skinMaps = createSkinMaps();
+    const fabricMaps = createFabricMaps();
+
+    const skinMat = new THREE.MeshStandardMaterial({
+        map: skinMaps.map,
+        bumpMap: skinMaps.bumpMap,
+        bumpScale: 0.008,
+        roughness: 0.45,
+        metalness: 0.05
+    });
+
+    const shirtMat = new THREE.MeshStandardMaterial({
+        map: fabricMaps.map,
+        bumpMap: fabricMaps.bumpMap,
+        bumpScale: 0.025,
+        roughness: 0.9,
+        metalness: 0.0
+    });
+
+    // 主装甲材质 (赋予拉丝金属、划痕凹凸、强反光金属度)
+    const armorMat = new THREE.MeshStandardMaterial({
+        map: brushedMaps.map,
+        roughnessMap: brushedMaps.roughMap,
+        bumpMap: brushedMaps.bumpMap,
+        bumpScale: 0.015,
+        metalness: 0.65,
+        polygonOffset: true,
+        polygonOffsetFactor: 1, 
+        polygonOffsetUnits: 1
+    });
+
+    // 机械内构与关节材质 (赋予网格滚花防滑纹理、高粗糙哑光感)
+    const jointMat = new THREE.MeshStandardMaterial({
+        map: knurledMaps.map,
+        roughnessMap: knurledMaps.roughMap,
+        bumpMap: knurledMaps.bumpMap,
+        bumpScale: 0.04,
+        metalness: 0.7,
+        polygonOffset: true,
+        polygonOffsetFactor: 1,
+        polygonOffsetUnits: 1
+    });
+
+    // 拓扑线框材质 (压暗并调整透明度，适配高亮度的金属反射)
+    const wireMat = new THREE.LineBasicMaterial({
+        color: 0x000000,
+        transparent: true,
+        opacity: 0.35,
+        linewidth: 1
+    });
+
+    // 右侧草图机械臂材质 (顺便升级使其更具物理质感，不再是纯黑死灰)
+    const robotBodyMat = new THREE.MeshStandardMaterial({ 
+        color: 0x1a1a1a, roughnessMap: brushedMaps.roughMap, metalness: 0.5 
+    }); 
+    const robotJointMat = new THREE.MeshStandardMaterial({ 
+        color: 0x555555, map: knurledMaps.map, bumpMap: knurledMaps.bumpMap, bumpScale: 0.02, roughness: 0.4, metalness: 0.7 
+    });
+
+    // 通用函数：为网格添加黑色线框贴花
+    function addWireframe(mesh) {
+        const wireframe = new THREE.LineSegments(
+            new THREE.WireframeGeometry(mesh.geometry),
+            wireMat
+        );
+        mesh.add(wireframe);
+    }
+
+    function createShadowedMechMesh(geometry, material) {
+        const mesh = new THREE.Mesh(geometry, material);
+        mesh.castShadow = true;
+        addWireframe(mesh);
+        return mesh;
+    }
+
+    // 新增：专用于纯净人体材质（无赛博格线框）
+    function createShadowedMesh(geometry, material) {
+        const mesh = new THREE.Mesh(geometry, material);
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        return mesh;
+    }
+
+    // =========================================================
+    // --- 核心：程序化高精度机械肢体生成函数 ---
+    // =========================================================
+    function createMechLimbGeometry(length, keypoints, radialSegments = 26, heightSegments = 28) {
+        const vertices = [];
+        const uvs = [];
+        const indices = [];
+
+        function catmullRom(t, p0, p1, p2, p3) {
+            const v0 = (p2 - p0) * 0.5;
+            const v1 = (p3 - p1) * 0.5;
+            const t2 = t * t;
+            const t3 = t * t2;
+            return (2 * p1 - 2 * p2 + v0 + v1) * t3 + (-3 * p1 + 3 * p2 - 2 * v0 - v1) * t2 + v0 * t + p1;
+        }
+
+        function evaluateProfile(t) {
+            let i = 0;
+            while (i < keypoints.length - 2 && keypoints[i+1].t <= t) i++;
+            const p0 = keypoints[Math.max(0, i-1)];
+            const p1 = keypoints[i];
+            const p2 = keypoints[Math.min(keypoints.length-1, i+1)];
+            const p3 = keypoints[Math.min(keypoints.length-1, i+2)];
+
+            const range = p2.t - p1.t;
+            const lt = range === 0 ? 0 : (t - p1.t) / range;
+
+            const res = {};
+            ['rx', 'ry', 'ox', 'oy', 'bicep', 'tricep', 'brach'].forEach(k => {
+                const v0 = p0[k]||0, v1 = p1[k]||0, v2 = p2[k]||0, v3 = p3[k]||0;
+                res[k] = catmullRom(lt, v0, v1, v2, v3);
+            });
+            return res;
+        }
+
+        for (let y = 0; y <= heightSegments; y++) {
+            const v = y / heightSegments;
+            const z = -v * length;
+            const sec = evaluateProfile(v);
+
+            for (let x = 0; x <= radialSegments; x++) {
+                const u = x / radialSegments;
+                const theta = u * Math.PI * 2;
+
+                let px = Math.cos(theta) * sec.rx + sec.ox;
+                let py = Math.sin(theta) * sec.ry + sec.oy;
+
+                if (sec.bicep && Math.sin(theta) > 0) py += Math.pow(Math.sin(theta), 2) * sec.bicep;
+                if (sec.tricep && Math.sin(theta) < 0) py -= Math.pow(Math.sin(theta), 2) * sec.tricep;
+                if (sec.brach) {
+                     let w1 = Math.max(0, Math.cos(theta - 2.5));
+                     px += Math.cos(2.5) * w1 * sec.brach;
+                     py += Math.sin(2.5) * w1 * sec.brach;
+                     let w2 = Math.max(0, Math.cos(theta - 0.5));
+                     px += Math.cos(0.5) * w2 * sec.brach * 0.6;
+                     py += Math.sin(0.5) * w2 * sec.brach * 0.6;
+                }
+
+                vertices.push(px, py, z);
+                uvs.push(u, 1.0 - v);
+            }
+        }
+
+        for (let y = 0; y < heightSegments; y++) {
+            for (let x = 0; x < radialSegments; x++) {
+                const a = y * (radialSegments + 1) + x;
+                const b = a + radialSegments + 1;
+                const c = a + 1;
+                const d = b + 1;
+                indices.push(a, b, c);
+                indices.push(c, b, d);
+            }
+        }
+
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+        geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+        geo.setIndex(indices);
+        geo.computeVertexNormals();
+        return geo;
+    }
+
     const upperArmLength = 14;
     const forearmLength = 12;
 
     // ==========================================
-    // 1. 构建写实人体 (左侧)
+    // 1. 构建写实肉体躯干 (左侧)
     // ==========================================
     const humanGroup = new THREE.Group();
     humanGroup.position.set(-18, 0, 0);
     scene.add(humanGroup);
 
-    // 躯干
-    const torsoGeo = new THREE.BoxGeometry(12, 22, 7);
-    const torso = new THREE.Mesh(torsoGeo, shirtMat);
+    // 躯干 (布料材质)
+    const torsoGeo = new THREE.BoxGeometry(12, 22, 7, 2, 2, 2);
+    const torso = createShadowedMesh(torsoGeo, shirtMat);
     torso.position.y = 20;
-    torso.castShadow = true;
     humanGroup.add(torso);
 
-    // 头部
+    // 头部 (皮肤材质)
     const headGeo = new THREE.SphereGeometry(4, 32, 32);
-    const head = new THREE.Mesh(headGeo, skinMat);
+    const head = createShadowedMesh(headGeo, skinMat);
     head.position.y = 35;
-    head.castShadow = true;
     humanGroup.add(head);
 
-    // 脖子
-    const neckGeo = new THREE.CylinderGeometry(1.5, 1.8, 3);
-    const neck = new THREE.Mesh(neckGeo, skinMat);
+    // 脖颈 (皮肤材质)
+    const neckGeo = new THREE.CylinderGeometry(1.5, 1.8, 3, 32);
+    const neck = createShadowedMesh(neckGeo, skinMat);
     neck.position.y = 32;
-    neck.castShadow = true;
     humanGroup.add(neck);
 
-    // 你的坐标系辅助线 (放在人体脚下)
+    // 坐标系辅助线
     const axesHelperHuman = new THREE.AxesHelper(10);
     humanGroup.add(axesHelperHuman);
 
-    // --- 右手臂骨骼系统搭建 ---
-    // 肩膀基准点 (Pivot)
+    // --- 右手臂运动学链搭建 ---
     const rightShoulderPivot = new THREE.Group();
-    rightShoulderPivot.position.set(7, 28, 0); // 躯干右上方
+    rightShoulderPivot.position.set(7, 28, 0);
     humanGroup.add(rightShoulderPivot);
 
-    // 肩膀关节球
-    const shoulderJoint = new THREE.Mesh(new THREE.SphereGeometry(2.5, 32, 32), shirtMat);
-    rightShoulderPivot.add(shoulderJoint);
+    const shoulderInnerJoint = createShadowedMechMesh(new THREE.SphereGeometry(2.0, 24, 24), jointMat);
+    rightShoulderPivot.add(shoulderInnerJoint);
 
-    // 大臂 (Mesh偏移使基准点在肩膀处)
-    const upperArmMesh = new THREE.Mesh(new THREE.CylinderGeometry(2, 1.5, upperArmLength, 32), skinMat);
-    // 默认手臂向前伸直 (沿着你的-X轴，也就是Three.js的-Z轴)
-    upperArmMesh.rotation.x = Math.PI / 2; 
-    upperArmMesh.position.z = -upperArmLength / 2;
-    upperArmMesh.castShadow = true;
-    rightShoulderPivot.add(upperArmMesh);
+    const upperArmVisual = new THREE.Group();
+    rightShoulderPivot.add(upperArmVisual);
 
-    // 肘部基准点 (位于大臂末端)
+    // 外部肩甲
+    const shoulderPadGeo = new THREE.SphereGeometry(2.6, 26, 16, 0, Math.PI * 2, 0, Math.PI * 0.55);
+    const shoulderPad = createShadowedMechMesh(shoulderPadGeo, armorMat);
+    shoulderPad.rotation.x = Math.PI / 2;
+    upperArmVisual.add(shoulderPad);
+
+    // 大臂机械外壳
+    const upperArmKeypoints = [
+        { t: 0.02, rx: 1.8, ry: 1.9, ox: 0.1, oy: 0.1, bicep: 0.0, tricep: 0.0, brach: 0.0 },
+        { t: 0.15, rx: 1.9, ry: 2.2, ox: 0.1, oy: 0.2, bicep: 0.6, tricep: 0.6, brach: 0.0 },
+        { t: 0.40, rx: 1.8, ry: 2.0, ox: 0.0, oy: 0.1, bicep: 1.5, tricep: 1.4, brach: 0.0 },
+        { t: 0.70, rx: 1.6, ry: 1.8, ox: 0.0, oy: 0.0, bicep: 0.8, tricep: 0.7, brach: 0.0 },
+        { t: 0.95, rx: 1.3, ry: 1.3, ox: 0.0, oy: 0.0, bicep: 0.0, tricep: 0.0, brach: 0.0 }
+    ];
+    const upperArmGeo = createMechLimbGeometry(upperArmLength, upperArmKeypoints);
+    const upperArmMain = createShadowedMechMesh(upperArmGeo, armorMat);
+    upperArmVisual.add(upperArmMain);
+
     const elbowPivot = new THREE.Group();
     elbowPivot.position.set(0, 0, -upperArmLength);
     rightShoulderPivot.add(elbowPivot);
 
-    // 肘关节球
-    const elbowJoint = new THREE.Mesh(new THREE.SphereGeometry(1.8, 32, 32), jointSkinMat);
-    elbowPivot.add(elbowJoint);
+    const elbowSphere = createShadowedMechMesh(new THREE.SphereGeometry(1.4, 24, 24), jointMat);
+    elbowPivot.add(elbowSphere);
+    const elbowHinge = createShadowedMechMesh(new THREE.CylinderGeometry(1.45, 1.45, 3.2, 24), jointMat);
+    elbowHinge.rotation.x = Math.PI / 2;
+    elbowPivot.add(elbowHinge);
 
-    // 小臂
-    const forearmMesh = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.2, forearmLength, 32), skinMat);
-    forearmMesh.rotation.x = Math.PI / 2;
-    forearmMesh.position.z = -forearmLength / 2;
-    forearmMesh.castShadow = true;
-    elbowPivot.add(forearmMesh);
+    const forearmVisual = new THREE.Group();
+    elbowPivot.add(forearmVisual);
 
-    // 手腕基准点
+    // 小臂机械外壳
+    const forearmKeypoints = [
+        { t: 0.02, rx: 1.3, ry: 1.3, ox: 0.0, oy: 0.0, brach: 0.0 },
+        { t: 0.15, rx: 1.6, ry: 1.4, ox: -0.2, oy: 0.1, brach: 0.6 },
+        { t: 0.40, rx: 1.4, ry: 1.2, ox: -0.1, oy: 0.1, brach: 0.4 },
+        { t: 0.75, rx: 1.0, ry: 0.9, ox: 0.0, oy: 0.0, brach: 0.0 },
+        { t: 0.98, rx: 0.9, ry: 0.7, ox: 0.0, oy: 0.0, brach: 0.0 }
+    ];
+    const forearmGeo = createMechLimbGeometry(forearmLength, forearmKeypoints);
+    const forearmMain = createShadowedMechMesh(forearmGeo, armorMat);
+    forearmVisual.add(forearmMain);
+
     const wristPivot = new THREE.Group();
     wristPivot.position.set(0, 0, -forearmLength);
     elbowPivot.add(wristPivot);
 
-    // 手腕关节
-    const wristJoint = new THREE.Mesh(new THREE.SphereGeometry(1.3, 32, 32), jointSkinMat);
+    const wristJoint = createShadowedMechMesh(new THREE.SphereGeometry(0.9, 24, 24), jointMat);
     wristPivot.add(wristJoint);
 
-    // 手掌与五指：掌心/手背分明，五指独立可见，握拳时整体收拢
-    const palm = new THREE.Mesh(
-        new THREE.BoxGeometry(1.45, 4.3, 2.45),
-        [handBackMat, palmMat, handSideMat, handSideMat, handSideMat, handSideMat]
-    );
-    palm.position.set(0.42, 0, -1.08);
-    palm.castShadow = true;
-    wristPivot.add(palm);
+    // ==========================================
+    // 构建手掌与手指 (回退的精细拼接体 + 线框拓扑)
+    // ==========================================
+    const handSphereGeo = new THREE.SphereGeometry(1, 16, 16);
+    const handJointGeo = new THREE.SphereGeometry(1, 14, 14);
+    const handCylinderGeo = new THREE.CylinderGeometry(1, 1, 1, 14, 1, false);
 
-    const palmHeel = new THREE.Mesh(new THREE.SphereGeometry(0.95, 24, 24), palmMat);
-    palmHeel.scale.set(0.72, 1.15, 0.78);
-    palmHeel.position.set(-0.12, 0, 0.08);
-    palmHeel.castShadow = true;
-    wristPivot.add(palmHeel);
+    function addScaledSphere(parent, material, scale, position, rotation) {
+        const mesh = createShadowedMechMesh(handSphereGeo, material);
+        mesh.scale.set(scale[0], scale[1], scale[2]);
+        mesh.position.set(position[0], position[1], position[2]);
+        if (rotation) {
+            mesh.rotation.set(rotation[0], rotation[1], rotation[2]);
+        }
+        parent.add(mesh);
+        return mesh;
+    }
 
-    const knuckleBand = new THREE.Mesh(
-        new THREE.BoxGeometry(1.1, 3.8, 0.44),
-        [handBackMat, palmMat, handSideMat, handSideMat, handSideMat, handSideMat]
-    );
-    knuckleBand.position.set(0.25, 0, -2.15);
-    knuckleBand.castShadow = true;
-    wristPivot.add(knuckleBand);
+    function addScaledCylinder(parent, material, scale, position, rotation) {
+        const mesh = createShadowedMechMesh(handCylinderGeo, material);
+        mesh.scale.set(scale[0], scale[1], scale[2]);
+        mesh.position.set(position[0], position[1], position[2]);
+        if (rotation) {
+            mesh.rotation.set(rotation[0], rotation[1], rotation[2]);
+        }
+        parent.add(mesh);
+        return mesh;
+    }
 
-    const thenarPad = new THREE.Mesh(new THREE.SphereGeometry(0.72, 20, 20), palmMat);
-    thenarPad.scale.set(0.46, 0.72, 0.56);
-    thenarPad.position.set(-0.36, 1.18, -0.92);
-    thenarPad.castShadow = true;
-    wristPivot.add(thenarPad);
+    const handMassGroup = new THREE.Group();
+    wristPivot.add(handMassGroup);
 
-    const hypothenarPad = new THREE.Mesh(new THREE.SphereGeometry(0.68, 20, 20), palmMat);
-    hypothenarPad.scale.set(0.42, 0.86, 0.62);
-    hypothenarPad.position.set(-0.34, -1.06, -1.08);
-    hypothenarPad.castShadow = true;
-    wristPivot.add(hypothenarPad);
+    addScaledCylinder(handMassGroup, armorMat, [0.58, 1.38, 0.62], [0.2, 0, 0.36], [Math.PI / 2, 0.02, 0]);
+    addScaledSphere(handMassGroup, jointMat, [0.42, 0.56, 0.46], [-0.14, 0, 0.56]);
+    addScaledSphere(handMassGroup, armorMat, [0.36, 0.5, 0.42], [0.72, 0, 0.38]);
+    addScaledSphere(handMassGroup, jointMat, [0.16, 0.22, 0.18], [0.82, 0.76, 0.1]);
+    addScaledSphere(handMassGroup, jointMat, [0.16, 0.22, 0.18], [0.82, -0.76, 0.1]);
 
-    const handBackPlate = new THREE.Mesh(new THREE.BoxGeometry(0.26, 3.2, 1.86), handBackMat);
-    handBackPlate.position.set(0.84, 0, -1.1);
-    handBackPlate.castShadow = true;
-    wristPivot.add(handBackPlate);
+    addScaledCylinder(handMassGroup, armorMat, [0.82, 2.16, 1.38], [0.34, 0, -1.06], [Math.PI / 2, 0.04, 0]);
+    addScaledSphere(handMassGroup, jointMat, [0.62, 1.78, 1.34], [-0.06, 0, -1.04]);
+    addScaledSphere(handMassGroup, armorMat, [0.48, 1.62, 1.18], [0.92, 0, -1.08]);
+    addScaledSphere(handMassGroup, jointMat, [0.72, 1.02, 0.78], [-0.18, 0, 0.12]);
+    addScaledSphere(handMassGroup, jointMat, [0.5, 0.78, 0.68], [-0.54, 1.06, -0.78], [0.14, 0.12, 0.18]);
+    addScaledSphere(handMassGroup, jointMat, [0.44, 0.9, 0.74], [-0.52, -1.08, -1.02], [-0.08, -0.1, 0.1]);
+    addScaledSphere(handMassGroup, armorMat, [0.62, 1.62, 0.42], [0.34, 0, -2.18]);
+    addScaledSphere(handMassGroup, armorMat, [0.26, 1.34, 0.62], [1.02, 0, -1.06], [0.04, 0.08, 0]);
+    addScaledCylinder(handMassGroup, armorMat, [0.08, 0.98, 0.12], [0.98, -0.82, -1.48], [Math.PI / 2, 0.16, 0]);
+    addScaledCylinder(handMassGroup, armorMat, [0.08, 1.06, 0.12], [1.0, 0.04, -1.6], [Math.PI / 2, 0.12, 0]);
+    addScaledCylinder(handMassGroup, armorMat, [0.07, 0.92, 0.11], [0.96, 0.9, -1.42], [Math.PI / 2, 0.08, 0]);
+    addScaledCylinder(handMassGroup, armorMat, [0.34, 0.92, 0.42], [-0.18, 1.62, -0.96], [0.96, 0.16, -0.92]);
 
-    [-1.4, -0.46, 0.48, 1.34].forEach((offsetY, index) => {
-        const knuckleCap = new THREE.Mesh(new THREE.SphereGeometry(0.28 - (index * 0.02), 16, 16), handBackMat);
-        knuckleCap.scale.set(0.6, 0.92, 0.72);
-        knuckleCap.position.set(0.82, offsetY, -2.02 + (index === 0 ? 0.08 : 0));
-        knuckleCap.castShadow = true;
-        wristPivot.add(knuckleCap);
+    [-1.42, -0.48, 0.48, 1.36].forEach((offsetY, index) => {
+        addScaledSphere(
+            handMassGroup,
+            armorMat,
+            [0.18 - (index * 0.01), 0.28, 0.22],
+            [1.0, offsetY, -2.05 + (index === 0 ? 0.08 : 0)]
+        );
     });
 
     const humanGripChains = [];
 
-    function createFingerSegment(width, height, length, tipStyle) {
-        const segment = new THREE.Mesh(
-            new THREE.BoxGeometry(width, height, length),
-            [nailMat, fingerPadMat, handSideMat, handSideMat, handSideMat, tipStyle ? nailMat : handSideMat]
-        );
-        segment.castShadow = true;
+    function createHumanFingerSegment(width, height, length, tipStyle) {
+        const segment = new THREE.Group();
+
+        const core = createShadowedMechMesh(handCylinderGeo, armorMat);
+        core.rotation.x = Math.PI / 2;
+        core.scale.set(width * 0.42, length * 0.76, height * 0.46);
+        core.position.set(0.04, 0, -length * 0.5);
+        segment.add(core);
+
+        const baseCap = createShadowedMechMesh(handJointGeo, armorMat);
+        baseCap.scale.set(width * 0.44, height * 0.5, width * 0.42);
+        baseCap.position.set(0.06, 0, -length * 0.16);
+        segment.add(baseCap);
+
+        const dorsalRidge = createShadowedMechMesh(handCylinderGeo, armorMat);
+        dorsalRidge.rotation.x = Math.PI / 2;
+        dorsalRidge.scale.set(width * 0.14, length * 0.56, height * 0.14);
+        dorsalRidge.position.set(width * 0.22, 0, -length * 0.48);
+        segment.add(dorsalRidge);
+
+        const pad = createShadowedMechMesh(handSphereGeo, jointMat);
+        pad.scale.set(width * 0.44, height * 0.54, length * 0.46);
+        pad.position.set(-width * 0.16, 0, -length * 0.56);
+        segment.add(pad);
+
+        const sideContour = createShadowedMechMesh(handSphereGeo, armorMat);
+        sideContour.scale.set(width * 0.18, height * 0.48, length * 0.3);
+        sideContour.position.set(width * 0.14, 0, -length * 0.42);
+        segment.add(sideContour);
+
+        const tipCap = createShadowedMechMesh(handJointGeo, tipStyle ? jointMat : armorMat);
+        tipCap.scale.set(width * 0.38, height * 0.44, width * 0.36);
+        tipCap.position.set(-width * 0.02, 0, -length * 0.86);
+        segment.add(tipCap);
+
+        if (tipStyle) {
+            const nail = createShadowedMechMesh(handJointGeo, armorMat);
+            nail.scale.set(width * 0.26, height * 0.18, length * 0.2);
+            nail.position.set(width * 0.18, 0, -length * 0.72);
+            nail.rotation.x = 0.2;
+            segment.add(nail);
+
+            const fingertipPad = createShadowedMechMesh(handJointGeo, jointMat);
+            fingertipPad.scale.set(width * 0.32, height * 0.34, length * 0.18);
+            fingertipPad.position.set(-width * 0.12, 0, -length * 0.9);
+            segment.add(fingertipPad);
+        }
+
         return segment;
     }
 
@@ -874,26 +1213,30 @@
         basePivot.rotation.set(options.baseRot[0], options.baseRot[1], options.baseRot[2]);
         wristPivot.add(basePivot);
 
-        const baseKnuckle = new THREE.Mesh(new THREE.SphereGeometry(options.width * 0.42, 18, 18), jointSkinMat);
-        baseKnuckle.scale.set(0.86, 1.0, 0.78);
-        baseKnuckle.castShadow = true;
+        const baseKnuckle = createShadowedMechMesh(handJointGeo, jointMat);
+        baseKnuckle.scale.set(options.width * 0.38, options.height * 0.54, options.width * 0.34);
         basePivot.add(baseKnuckle);
+        const baseKnuckleBack = createShadowedMechMesh(handJointGeo, armorMat);
+        baseKnuckleBack.scale.set(options.width * 0.22, options.height * 0.38, options.width * 0.24);
+        baseKnuckleBack.position.set(options.width * 0.16, 0, -options.lengths[0] * 0.06);
+        basePivot.add(baseKnuckleBack);
 
-        const proximal = createFingerSegment(options.width, options.height, options.lengths[0], false);
-        proximal.position.z = -options.lengths[0] * 0.5;
+        const proximal = createHumanFingerSegment(options.width, options.height, options.lengths[0], false);
         basePivot.add(proximal);
 
         const midPivot = new THREE.Group();
         midPivot.position.z = -options.lengths[0];
         basePivot.add(midPivot);
 
-        const midKnuckle = new THREE.Mesh(new THREE.SphereGeometry(options.width * 0.36, 16, 16), jointSkinMat);
-        midKnuckle.scale.set(0.86, 0.96, 0.74);
-        midKnuckle.castShadow = true;
+        const midKnuckle = createShadowedMechMesh(handJointGeo, jointMat);
+        midKnuckle.scale.set(options.width * 0.32, options.height * 0.48, options.width * 0.28);
         midPivot.add(midKnuckle);
+        const midKnuckleBack = createShadowedMechMesh(handJointGeo, armorMat);
+        midKnuckleBack.scale.set(options.width * 0.18, options.height * 0.3, options.width * 0.18);
+        midKnuckleBack.position.set(options.width * 0.12, 0, -options.lengths[1] * 0.04);
+        midPivot.add(midKnuckleBack);
 
-        const middle = createFingerSegment(options.width * 0.92, options.height * 0.94, options.lengths[1], false);
-        middle.position.z = -options.lengths[1] * 0.5;
+        const middle = createHumanFingerSegment(options.width * 0.92, options.height * 0.94, options.lengths[1], false);
         midPivot.add(middle);
 
         let tipPivot = null;
@@ -902,13 +1245,15 @@
             tipPivot.position.z = -options.lengths[1];
             midPivot.add(tipPivot);
 
-            const tipKnuckle = new THREE.Mesh(new THREE.SphereGeometry(options.width * 0.3, 14, 14), jointSkinMat);
-            tipKnuckle.scale.set(0.82, 0.92, 0.68);
-            tipKnuckle.castShadow = true;
+            const tipKnuckle = createShadowedMechMesh(handJointGeo, jointMat);
+            tipKnuckle.scale.set(options.width * 0.26, options.height * 0.38, options.width * 0.22);
             tipPivot.add(tipKnuckle);
+            const tipKnuckleBack = createShadowedMechMesh(handJointGeo, armorMat);
+            tipKnuckleBack.scale.set(options.width * 0.15, options.height * 0.22, options.width * 0.14);
+            tipKnuckleBack.position.set(options.width * 0.09, 0, -options.lengths[2] * 0.02);
+            tipPivot.add(tipKnuckleBack);
 
-            const tip = createFingerSegment(options.width * 0.82, options.height * 0.86, options.lengths[2], true);
-            tip.position.z = -options.lengths[2] * 0.5;
+            const tip = createHumanFingerSegment(options.width * 0.82, options.height * 0.86, options.lengths[2], true);
             tipPivot.add(tip);
         }
 
@@ -923,56 +1268,30 @@
     }
 
     createHumanFingerChain({
-        base: [0.48, 1.48, -2.28],
-        baseRot: [0.0, 0.06, 0.0],
-        lengths: [1.28, 0.96, 0.82],
-        width: 0.48,
-        height: 0.62,
-        spreadClose: -0.05,
-        curl: [1.00, 0.82, 0.58]
+        base: [0.44, 1.52, -2.46], baseRot: [0.05, 0.1, 0.0], lengths: [1.34, 0.98, 0.82],
+        width: 0.46, height: 0.6, spreadClose: -0.05, curl: [0.98, 0.82, 0.58]
     });
     createHumanFingerChain({
-        base: [0.5, 0.52, -2.34],
-        baseRot: [0.0, 0.02, 0.0],
-        lengths: [1.5, 1.12, 0.94],
-        width: 0.54,
-        height: 0.68,
-        spreadClose: -0.02,
-        curl: [1.05, 0.86, 0.62]
+        base: [0.48, 0.53, -2.58], baseRot: [0.03, 0.03, 0.0], lengths: [1.58, 1.18, 0.98],
+        width: 0.53, height: 0.68, spreadClose: -0.02, curl: [1.04, 0.87, 0.63]
     });
     createHumanFingerChain({
-        base: [0.52, -0.44, -2.38],
-        baseRot: [0.0, -0.02, 0.0],
-        lengths: [1.44, 1.08, 0.9],
-        width: 0.53,
-        height: 0.66,
-        spreadClose: 0.01,
-        curl: [1.03, 0.84, 0.60]
+        base: [0.5, -0.44, -2.54], baseRot: [0.02, -0.03, 0.0], lengths: [1.5, 1.12, 0.92],
+        width: 0.51, height: 0.66, spreadClose: 0.02, curl: [1.02, 0.85, 0.61]
     });
     createHumanFingerChain({
-        base: [0.52, -1.34, -2.3],
-        baseRot: [0.0, -0.06, 0.0],
-        lengths: [1.16, 0.88, 0.76],
-        width: 0.44,
-        height: 0.58,
-        spreadClose: 0.06,
-        curl: [0.96, 0.80, 0.56]
+        base: [0.46, -1.32, -2.38], baseRot: [0.0, -0.1, 0.03], lengths: [1.18, 0.88, 0.72],
+        width: 0.42, height: 0.55, spreadClose: 0.08, curl: [0.95, 0.8, 0.56]
     });
     createHumanFingerChain({
-        base: [0.16, 2.02, -1.02],
-        baseRot: [0.62, -0.58, -0.34],
-        lengths: [1.05, 0.84, 0.0],
-        width: 0.62,
-        height: 0.74,
-        spreadClose: 0.18,
-        curl: [0.42, 0.34, 0.0]
+        base: [0.04, 1.86, -0.92], baseRot: [0.74, -0.78, -0.44], lengths: [1.18, 0.88, 0.0],
+        width: 0.64, height: 0.78, spreadClose: 0.21, curl: [0.44, 0.36, 0.0]
     });
 
-    // 左手臂(静态装饰)
-    const leftArm = new THREE.Group();
-    const lShoulder = new THREE.Mesh(new THREE.SphereGeometry(2.5), shirtMat);
+    // 左手臂 (静态装饰同步，恢复布料与皮肤材质)
+    const lShoulder = createShadowedMesh(new THREE.SphereGeometry(2.5, 32, 32), shirtMat);
     lShoulder.position.set(-7, 28, 0);
-    const lArm = new THREE.Mesh(new THREE.CylinderGeometry(2, 1.5, 24), shirtMat);
+    const lArm = createShadowedMesh(new THREE.CylinderGeometry(2, 1.5, 24, 32), skinMat);
     lArm.position.set(-8, 17, 0);
     humanGroup.add(lShoulder);
     humanGroup.add(lArm);
@@ -981,27 +1300,24 @@
     // ==========================================
     // 2. 构建复刻草图的机械臂 (右侧)
     // ==========================================
-    // 新增：机械臂的参考挂载躯体 (半透明)
     const robotStandGroup = new THREE.Group();
-    robotStandGroup.position.set(18, 0, 0); // 对称于人体的 -18
+    robotStandGroup.position.set(18, 0, 0); 
     scene.add(robotStandGroup);
 
     const dummyMat = new THREE.MeshStandardMaterial({ color: 0x666666, transparent: true, opacity: 0.35, depthWrite: false });
-    const dummyTorso = new THREE.Mesh(torsoGeo, dummyMat);
+    const dummyTorso = new THREE.Mesh(new THREE.BoxGeometry(12, 22, 7), dummyMat);
     dummyTorso.position.y = 20;
     robotStandGroup.add(dummyTorso);
 
-    const dummyHead = new THREE.Mesh(headGeo, dummyMat);
+    const dummyHead = new THREE.Mesh(new THREE.SphereGeometry(4, 32, 32), dummyMat);
     dummyHead.position.y = 35;
     robotStandGroup.add(dummyHead);
 
-    // 机械臂整体组 (挂载在参考躯体的右肩膀处)
     const robotGroup = new THREE.Group();
-    robotGroup.position.set(7, 26, 0); // 高度微调到26，更符合侧边肩部
-    robotGroup.rotation.z = -Math.PI / 2; // 向右旋转90度，使底座完美贴合侧面躯体
+    robotGroup.position.set(7, 26, 0); 
+    robotGroup.rotation.z = -Math.PI / 2; 
     robotStandGroup.add(robotGroup);
 
-    // 1. 底盘与偏航关节 (Yaw) - 对应人体大臂绕Y轴(上下摆)
     const basePivot = new THREE.Group();
     basePivot.position.set(0, 2, 0);
     robotGroup.add(basePivot);
@@ -1009,67 +1325,55 @@
     const baseStand = new THREE.Mesh(new THREE.BoxGeometry(8, 4, 8), robotBodyMat);
     baseStand.position.y = -2;
     baseStand.castShadow = true;
-    baseStand.receiveShadow = true;
     basePivot.add(baseStand);
 
-    // 底座旋转圆盘 (灰色)
     const baseRotator = new THREE.Mesh(new THREE.CylinderGeometry(3.5, 3.5, 2, 32), robotJointMat);
     baseRotator.position.y = 1;
     baseRotator.castShadow = true;
     basePivot.add(baseRotator);
 
-    // 2. 大臂俯仰关节 (Pitch) - 对应人体大臂绕Z轴(左右摆)
     const shoulderPitchPivot = new THREE.Group();
-    shoulderPitchPivot.position.set(0, 4, 0); // 抬高到铰链中心
+    shoulderPitchPivot.position.set(0, 4, 0);
     basePivot.add(shoulderPitchPivot);
 
-    // 灰色横向圆柱铰链 (X轴向)
     const shoulderHinge = new THREE.Mesh(new THREE.CylinderGeometry(2.5, 2.5, 6, 32), robotJointMat);
-    shoulderHinge.rotation.z = Math.PI / 2; // 横过来
+    shoulderHinge.rotation.z = Math.PI / 2;
     shoulderHinge.castShadow = true;
     shoulderPitchPivot.add(shoulderHinge);
 
-    // 黑色大臂主体 (复刻图片里的方块长条)
     const robotUpperArm = new THREE.Mesh(new THREE.BoxGeometry(3.5, 3.5, upperArmLength), robotBodyMat);
-    robotUpperArm.position.z = -upperArmLength / 2; // 向前延伸
+    robotUpperArm.position.z = -upperArmLength / 2;
     robotUpperArm.castShadow = true;
     shoulderPitchPivot.add(robotUpperArm);
 
-    // 3. 小臂俯仰关节 (Pitch) - 对应人体肘部绕Z轴
     const elbowPitchPivot = new THREE.Group();
     elbowPitchPivot.position.set(0, 0, -upperArmLength);
     shoulderPitchPivot.add(elbowPitchPivot);
 
-    // 灰色横向圆柱铰链
-    const elbowHinge = new THREE.Mesh(new THREE.CylinderGeometry(2, 2, 5, 32), robotJointMat);
-    elbowHinge.rotation.z = Math.PI / 2;
-    elbowHinge.castShadow = true;
-    elbowPitchPivot.add(elbowHinge);
+    const mechElbowHinge = new THREE.Mesh(new THREE.CylinderGeometry(2, 2, 5, 32), robotJointMat);
+    mechElbowHinge.rotation.z = Math.PI / 2;
+    mechElbowHinge.castShadow = true;
+    elbowPitchPivot.add(mechElbowHinge);
 
-    // 黑色小臂主体
     const robotForearm = new THREE.Mesh(new THREE.BoxGeometry(2.8, 2.8, forearmLength), robotBodyMat);
     robotForearm.position.z = -forearmLength / 2;
     robotForearm.castShadow = true;
     elbowPitchPivot.add(robotForearm);
 
-    // 4. 手腕翻滚关节 (Roll) - 对应人体手腕绕X轴
     const wristRollPivot = new THREE.Group();
     wristRollPivot.position.set(0, 0, -forearmLength);
     elbowPitchPivot.add(wristRollPivot);
 
-    // 灰色纵向圆柱铰链 (Z轴向，表示翻滚)
-    const wristHinge = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.5, 2, 32), robotJointMat);
-    wristHinge.rotation.x = Math.PI / 2;
-    wristHinge.castShadow = true;
-    wristRollPivot.add(wristHinge);
+    const mechWristHinge = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.5, 2, 32), robotJointMat);
+    mechWristHinge.rotation.x = Math.PI / 2;
+    mechWristHinge.castShadow = true;
+    wristRollPivot.add(mechWristHinge);
 
-    // 机械手爪基座 (修改为可动铰链结构)
     const gripperBase = new THREE.Mesh(new THREE.BoxGeometry(4, 1.5, 2), robotBodyMat);
     gripperBase.position.z = -1;
     gripperBase.castShadow = true;
     wristRollPivot.add(gripperBase);
 
-    // 左侧机械爪枢纽
     const robotClaw1Pivot = new THREE.Group();
     robotClaw1Pivot.position.set(1.5, 0, -2);
     wristRollPivot.add(robotClaw1Pivot);
@@ -1078,7 +1382,6 @@
     claw1.castShadow = true;
     robotClaw1Pivot.add(claw1);
 
-    // 右侧机械爪枢纽
     const robotClaw2Pivot = new THREE.Group();
     robotClaw2Pivot.position.set(-1.5, 0, -2);
     wristRollPivot.add(robotClaw2Pivot);
@@ -1089,14 +1392,14 @@
 
 
     // ==========================================
-    // 3. 核心运动学与姿态映射逻辑
+    // 3. 核心运动学与姿态映射逻辑 (业务逻辑严格不变)
     // ==========================================
     const poseState = {
         hY: 90,
         hZ: 90,
         eZ: 0,
         wX: 90,
-        grip: 0
+        grip: 30 // 保持初始张合为30%
     };
     const poseRanges = {
         hY: [0, 180],
@@ -1122,7 +1425,6 @@
     const serialUi = {
         connectBtn: document.getElementById('connect-serial-btn'),
         disconnectBtn: document.getElementById('disconnect-serial-btn'),
-        calStartBtn: document.getElementById('cal-start-btn'),
         calNextBtn: document.getElementById('cal-next-btn'),
         calResetBtn: document.getElementById('cal-reset-btn'),
         calStatusBtn: document.getElementById('cal-status-btn'),
@@ -1393,116 +1695,60 @@
 
         serialUi.connectBtn.disabled = unsupported || busy || connected;
         serialUi.disconnectBtn.disabled = unsupported || busy || !connected;
-        serialUi.calStartBtn.disabled = !canControlCalibration;
         serialUi.calNextBtn.disabled = !canControlCalibration;
         serialUi.calResetBtn.disabled = !canControlCalibration;
         serialUi.calStatusBtn.disabled = !canControlCalibration;
     }
 
-    function updatePosesLegacy() {
-        const valHY = poseState.hY;
-        const valHZ = poseState.hZ;
-        const valEZ = poseState.eZ;
-        const valWX = poseState.wX;
-        const valGrip = poseState.grip;
-
-        poseDisplays.hY.innerText = formatAngle(valHY);
-        poseDisplays.hZ.innerText = formatAngle(valHZ);
-        poseDisplays.eZ.innerText = formatAngle(valEZ);
-        poseDisplays.wX.innerText = formatAngle(valWX);
-        poseDisplays.grip.innerText = formatGrip(valGrip);
-
-        // 舵机输出数值反转 (带90度硬件安装偏移)
-        outputs.s1.innerText = formatAngle(valHY);
-        outputs.s2.innerText = formatAngle(180 - valHZ);
-        outputs.s3.innerText = formatAngle(180 - valEZ); // 新版本: 0度伸直(输出180), 180度弯曲(输出0)
-        outputs.s4.innerText = formatAngle(180 - valWX);
-        outputs.gripOut.innerText = formatGrip(valGrip);
-
-        // 默认直线前伸时映射为 0 弧度偏差
-        const radHY = (valHY - 90) * Math.PI / 180;
-        const radHZ = (valHZ - 90) * Math.PI / 180;
-        const radEZ = (valEZ - 0) * Math.PI / 180; // 新版本: 0度即为直线前伸位置
-        const radWX = (valWX - 90) * Math.PI / 180;
-
-        // 张合角度映射 (0% -> 0度不弯曲, 100% -> 向内弯曲闭合)
-        const radGripHuman = (valGrip / 100) * (35 * Math.PI / 180); // 人手最大弯曲35度
-        const radGripRobot = (valGrip / 100) * (25 * Math.PI / 180); // 机械爪最大闭合25度
-
-        // --- 人体手臂动作 (表现层) ---
-        // 你定义的坐标：X向后(Three+Z), Y向右(Three+X), Z向上(Three+Y)
-        // 1. 绕Y轴转动 (手臂上下抬落)：即绕Three.js的X轴旋转
-        rightShoulderPivot.rotation.x = radHY;
-        // 2. 绕Z轴转动 (手臂左右摆动)：即绕Three.js的Y轴旋转
-        rightShoulderPivot.rotation.y = radHZ;
-        // 3. 肘部绕Z轴转动 (小臂左右摆)：即绕Three.js的Y轴旋转
-        elbowPivot.rotation.y = radEZ;
-        // 4. 手腕绕X轴转动 (翻滚)：即绕Three.js的Z轴旋转 (沿着手臂方向转)
-        wristPivot.rotation.z = radWX;
-        
-        // 5. 手指张合 (兼容旧函数，统一驱动五指整体握合)
-        humanGripChains.forEach((chain, index) => {
-            const isThumb = index === humanGripChains.length - 1;
-            chain.basePivot.rotation.x = chain.baseRot[0] - (radGripHuman * chain.curl[0]);
-            chain.basePivot.rotation.y = chain.baseRot[1] + ((valGrip / 100) * chain.spreadClose);
-            chain.basePivot.rotation.z = chain.baseRot[2] + (isThumb ? ((valGrip / 100) * 0.22) : 0);
-            chain.midPivot.rotation.x = -radGripHuman * chain.curl[1];
-            if (chain.tipPivot) {
-                chain.tipPivot.rotation.x = -radGripHuman * chain.curl[2];
-            }
-        });
-
-        // --- 机械臂映射 (严格遵从你的要求，且后三个关节反向) ---
-        // 1. 大臂绕Y转动 -> 机械臂底盘转动 (Yaw偏航，绕竖直Y轴)
-        basePivot.rotation.y = radHY; 
-
-        // 2. 大臂绕Z转动 -> 机械大臂抬升角度，物理反向 (Pitch俯仰，加负号)
-        shoulderPitchPivot.rotation.x = -radHZ;
-
-        // 3. 小臂绕Z转动 -> 机械小臂抬升角度，物理反向 (Pitch俯仰，加负号)
-        elbowPitchPivot.rotation.x = -radEZ;
-
-        // 4. 手腕绕X转动 -> 机械手绕X转动，物理反向 (Roll翻滚，加负号)
-        wristRollPivot.rotation.z = -radWX;
-
-        // 5. 机械爪张合 (绕本地Y轴向内闭合)
-        robotClaw1Pivot.rotation.y = radGripRobot;  // 左爪向内
-        robotClaw2Pivot.rotation.y = -radGripRobot; // 右爪向内
-    }
-
+    // 核心更新：结合我们验证过的全新物理角度映射
     function applyHumanPoseToScene(sourcePose) {
         const radHY = (sourcePose.hY - 90) * Math.PI / 180;
         const radHZ = (sourcePose.hZ - 90) * Math.PI / 180;
-        const radEZ = sourcePose.eZ * Math.PI / 180;
+        const radEZ = (sourcePose.eZ - 0) * Math.PI / 180; 
         const radWX = (sourcePose.wX - 90) * Math.PI / 180;
+
         const gripRatio = sourcePose.grip / 100;
-        const radGripHuman = gripRatio * (54 * Math.PI / 180);
+        const radGripHuman = gripRatio * (95 * Math.PI / 180); // 95度向心完美握拳
 
         rightShoulderPivot.rotation.x = radHY;
         rightShoulderPivot.rotation.y = radHZ;
         elbowPivot.rotation.y = radEZ;
         wristPivot.rotation.z = radWX;
 
+        // 手指张合 (彻底修正解剖学转轴，增加拇指横跨)
         humanGripChains.forEach((chain, index) => {
             const isThumb = index === humanGripChains.length - 1;
 
-            chain.basePivot.rotation.x = chain.baseRot[0];
-            chain.basePivot.rotation.y = chain.baseRot[1];
-            chain.basePivot.rotation.z = chain.baseRot[2];
-
             if (isThumb) {
-                chain.basePivot.rotation.x -= radGripHuman * chain.curl[0];
-                chain.basePivot.rotation.y += gripRatio * chain.spreadClose;
-                chain.basePivot.rotation.z += gripRatio * 0.22;
+                // 拇指特殊的鞍状关节映射：物理铰链在 X 轴向内扣，Y和Z辅助包裹
+                chain.basePivot.rotation.x = chain.baseRot[0] - (radGripHuman * chain.curl[0]); 
+                chain.basePivot.rotation.y = chain.baseRot[1] + (gripRatio * 0.8);
+                chain.basePivot.rotation.z = chain.baseRot[2] + (gripRatio * 0.3);
+
+                chain.midPivot.rotation.x = -radGripHuman * chain.curl[1];
+                chain.midPivot.rotation.y = 0;
+                chain.midPivot.rotation.z = 0;
+
+                if (chain.tipPivot) {
+                    chain.tipPivot.rotation.x = -radGripHuman * chain.curl[2];
+                    chain.tipPivot.rotation.y = 0;
+                    chain.tipPivot.rotation.z = 0;
+                }
             } else {
-                chain.basePivot.rotation.x -= radGripHuman * chain.curl[0];
-                chain.basePivot.rotation.y += gripRatio * chain.spreadClose;
-            }
+                // 其他四指：X轴横向张开，Y轴向心收缩
+                chain.basePivot.rotation.x = chain.baseRot[0] + (gripRatio * chain.spreadClose);
+                chain.basePivot.rotation.y = chain.baseRot[1] + (radGripHuman * chain.curl[0]);
+                chain.basePivot.rotation.z = chain.baseRot[2];
 
-            chain.midPivot.rotation.x = -radGripHuman * chain.curl[1];
+                chain.midPivot.rotation.x = 0;
+                chain.midPivot.rotation.y = radGripHuman * chain.curl[1];
+                chain.midPivot.rotation.z = 0;
 
-            if (chain.tipPivot) {
-                chain.tipPivot.rotation.x = -radGripHuman * chain.curl[2];
+                if (chain.tipPivot) {
+                    chain.tipPivot.rotation.x = 0;
+                    chain.tipPivot.rotation.y = radGripHuman * chain.curl[2];
+                    chain.tipPivot.rotation.z = 0;
+                }
             }
         });
     }
@@ -1510,7 +1756,7 @@
     function applyRobotPoseToScene(sourcePose) {
         const radHY = (sourcePose.hY - 90) * Math.PI / 180;
         const radHZ = (sourcePose.hZ - 90) * Math.PI / 180;
-        const radEZ = sourcePose.eZ * Math.PI / 180;
+        const radEZ = (sourcePose.eZ - 0) * Math.PI / 180; 
         const radWX = (sourcePose.wX - 90) * Math.PI / 180;
         const radGripRobot = (sourcePose.grip / 100) * (25 * Math.PI / 180);
 
@@ -1573,25 +1819,6 @@
         }
 
         return nextPose;
-    }
-
-    function handleSerialFrameLegacy(frame) {
-        const trimmedFrame = frame.trim();
-        if (!trimmedFrame) {
-            return;
-        }
-
-        serialUi.rawFrame.innerText = trimmedFrame;
-        const parsedPose = parsePoseFrame(trimmedFrame);
-        if (!parsedPose) {
-            setError('收到无效报文，已忽略。格式应为 POSE,<hY>,<hZ>,<eZ>,<wX>,<grip>');
-            return;
-        }
-
-        applyPose(parsedPose);
-        serialUi.lastUpdate.innerText = formatTimestamp(new Date());
-        setStatus('已连接，接收中', 'online');
-        setError('');
     }
 
     function handleCalibrationFrame(parts) {
@@ -1863,15 +2090,6 @@
         serialUi.connectBtn.addEventListener('click', connectSerial);
         serialUi.disconnectBtn.addEventListener('click', () => {
             disconnectSerial('', 'offline');
-        });
-        serialUi.calStartBtn.addEventListener('click', async () => {
-            calibrationGuide.completed.clear();
-            showCalibrationStep('TPOSE', '已发送开始标定命令，请先摆出第 1 个动作，再点击“确认当前动作”。');
-            setStatus('已连接，标定进行中', 'pending');
-            setError('');
-            if (await sendSerialCommand('CAL,START')) {
-                await syncCalibrationStatus();
-            }
         });
         serialUi.calNextBtn.addEventListener('click', async () => {
             await sendSerialCommand('CAL,NEXT');

@@ -1,5 +1,6 @@
 zed/applications/app_arm_link.o: ../zed/applications/app_arm_link.c \
  ../zed/applications/app_arm_link.h ../zed/applications/imu_app_context.h \
+ ../zed/applications/app.h \
  C:/Users/user/e2_studio/workspace/IMU_V9/ra_gen/hal_data.h \
  C:/Users/user/e2_studio/workspace/IMU_V9/ra/fsp/inc/api/bsp_api.h \
  C:/Users/user/e2_studio/workspace/IMU_V9/ra/fsp/inc/api/fsp_common_api.h \
@@ -72,6 +73,7 @@ zed/applications/app_arm_link.o: ../zed/applications/app_arm_link.c \
  C:/Users/user/e2_studio/workspace/IMU_V9/zed/drivers/drv_MG996.h
 ../zed/applications/app_arm_link.h:
 ../zed/applications/imu_app_context.h:
+../zed/applications/app.h:
 C:/Users/user/e2_studio/workspace/IMU_V9/ra_gen/hal_data.h:
 C:/Users/user/e2_studio/workspace/IMU_V9/ra/fsp/inc/api/bsp_api.h:
 C:/Users/user/e2_studio/workspace/IMU_V9/ra/fsp/inc/api/fsp_common_api.h:

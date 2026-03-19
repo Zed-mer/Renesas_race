@@ -1,5 +1,6 @@
 zed/applications/imu_protocol.o: ../zed/applications/imu_protocol.c \
  ../zed/applications/imu_protocol.h ../zed/applications/imu_app_context.h \
+ ../zed/applications/app.h \
  C:/Users/user/e2_studio/workspace/IMU_V9/ra_gen/hal_data.h \
  C:/Users/user/e2_studio/workspace/IMU_V9/ra/fsp/inc/api/bsp_api.h \
  C:/Users/user/e2_studio/workspace/IMU_V9/ra/fsp/inc/api/fsp_common_api.h \
@@ -70,9 +71,11 @@ zed/applications/imu_protocol.o: ../zed/applications/imu_protocol.c \
  C:/Users/user/e2_studio/workspace/IMU_V9/ra_cfg/fsp_cfg/r_sci_uart_cfg.h \
  C:/Users/user/e2_studio/workspace/IMU_V9/zed/drivers/icm42688.h \
  C:/Users/user/e2_studio/workspace/IMU_V9/zed/drivers/drv_uart.h \
+ ../zed/applications/emg_runtime.h ../zed/applications/emg_tune_cfg.h \
  ../zed/applications/imu_calibration.h
 ../zed/applications/imu_protocol.h:
 ../zed/applications/imu_app_context.h:
+../zed/applications/app.h:
 C:/Users/user/e2_studio/workspace/IMU_V9/ra_gen/hal_data.h:
 C:/Users/user/e2_studio/workspace/IMU_V9/ra/fsp/inc/api/bsp_api.h:
 C:/Users/user/e2_studio/workspace/IMU_V9/ra/fsp/inc/api/fsp_common_api.h:
@@ -143,4 +146,6 @@ C:/Users/user/e2_studio/workspace/IMU_V9/ra/fsp/inc/api/r_uart_api.h:
 C:/Users/user/e2_studio/workspace/IMU_V9/ra_cfg/fsp_cfg/r_sci_uart_cfg.h:
 C:/Users/user/e2_studio/workspace/IMU_V9/zed/drivers/icm42688.h:
 C:/Users/user/e2_studio/workspace/IMU_V9/zed/drivers/drv_uart.h:
+../zed/applications/emg_runtime.h:
+../zed/applications/emg_tune_cfg.h:
 ../zed/applications/imu_calibration.h:

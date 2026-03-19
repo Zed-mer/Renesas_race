@@ -1,15 +1,12 @@
 #ifndef IMU_APP_CONTEXT_H
 #define IMU_APP_CONTEXT_H
 
+#include "app.h"
 #include "hal_data.h"
 #include "icm42688.h"
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
-
-#ifndef change_v9_1
-#define change_v9_1  1
-#endif
 
 /*
  * applications 层共享的数据字典：

@@ -1,0 +1,750 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EMG Tuning</title>
+    <style>
+        :root {
+            --bg: #f4efe7;
+            --panel: rgba(255,255,255,0.88);
+            --line: rgba(47,34,23,0.12);
+            --ink: #1f1a16;
+            --muted: #6d655d;
+            --accent: #d95d39;
+            --accent2: #2f6f72;
+            --good: #198754;
+            --warn: #d4a62a;
+            --bad: #c44536;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            min-height: 100vh;
+            background:
+                radial-gradient(circle at top left, rgba(217,93,57,0.12), transparent 28%),
+                radial-gradient(circle at top right, rgba(47,111,114,0.12), transparent 30%),
+                linear-gradient(180deg, #faf6ef 0%, var(--bg) 100%);
+            color: var(--ink);
+            font-family: "Microsoft YaHei", "Segoe UI", sans-serif;
+        }
+        .page {
+            width: min(1280px, calc(100vw - 24px));
+            margin: 0 auto;
+            padding: 24px 0 32px;
+        }
+        .panel {
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: 22px;
+            box-shadow: 0 20px 50px rgba(31,26,22,0.10);
+            backdrop-filter: blur(10px);
+        }
+        .hero, .layout {
+            display: grid;
+            gap: 16px;
+        }
+        .hero { grid-template-columns: 1.1fr 0.9fr; margin-bottom: 16px; }
+        .layout { grid-template-columns: 1fr 1fr; }
+        .card { padding: 20px 22px; }
+        h1, h2 { margin: 0; }
+        h1 { font-size: clamp(28px, 4vw, 38px); margin-top: 12px; }
+        h2 { font-size: 22px; margin-bottom: 8px; }
+        p { margin: 0; color: var(--muted); line-height: 1.7; }
+        .tag {
+            display: inline-block;
+            padding: 6px 12px;
+            border-radius: 999px;
+            background: rgba(217,93,57,0.12);
+            color: var(--accent);
+            font-size: 12px;
+            font-weight: 700;
+        }
+        .toolbar, .actions {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-top: 16px;
+        }
+        button {
+            min-height: 42px;
+            padding: 10px 16px;
+            border: 0;
+            border-radius: 999px;
+            background: var(--accent);
+            color: #fff;
+            font-size: 13px;
+            font-weight: 700;
+            cursor: pointer;
+        }
+        button.secondary {
+            background: #fff;
+            color: var(--ink);
+            border: 1px solid var(--line);
+        }
+        button.ghost {
+            background: rgba(47,111,114,0.10);
+            color: var(--accent2);
+        }
+        button:disabled { opacity: 0.45; cursor: not-allowed; }
+        .status-list { display: grid; gap: 12px; }
+        .status-item, .metric, .param-item {
+            padding: 14px 16px;
+            border-radius: 16px;
+            background: rgba(255,255,255,0.70);
+            border: 1px solid var(--line);
+        }
+        .label {
+            color: var(--muted);
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .value {
+            margin-top: 6px;
+            font-size: 16px;
+            font-weight: 700;
+            word-break: break-all;
+        }
+        .status-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .status-chip::before {
+            content: "";
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #9aa0a6;
+        }
+        .status-chip[data-state="online"]::before { background: var(--good); }
+        .status-chip[data-state="pending"]::before { background: var(--warn); }
+        .status-chip[data-state="error"]::before { background: var(--bad); }
+        .metrics {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 12px;
+            margin-top: 16px;
+        }
+        .metric-value {
+            margin-top: 8px;
+            font-size: 24px;
+            font-weight: 700;
+        }
+        .chart-wrap {
+            margin-top: 16px;
+            padding: 12px;
+            border-radius: 18px;
+            background: rgba(255,255,255,0.72);
+            border: 1px solid var(--line);
+        }
+        canvas { width: 100%; height: 280px; display: block; }
+        .legend {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-top: 10px;
+            color: var(--muted);
+            font-size: 12px;
+        }
+        .legend span { display: inline-flex; align-items: center; gap: 6px; }
+        .legend i { width: 12px; height: 3px; border-radius: 999px; display: inline-block; }
+        .param-list { display: grid; gap: 12px; margin-top: 16px; }
+        .param-title {
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+            font-size: 15px;
+            font-weight: 700;
+        }
+        .param-name { color: var(--muted); font-size: 12px; font-family: Consolas, monospace; }
+        .param-desc { margin: 8px 0 10px; color: var(--muted); font-size: 13px; line-height: 1.6; }
+        .param-controls { display: grid; grid-template-columns: 1fr 110px; gap: 12px; }
+        input[type="range"] { width: 100%; accent-color: var(--accent); }
+        input[type="number"] {
+            min-height: 40px;
+            border-radius: 12px;
+            border: 1px solid var(--line);
+            padding: 8px 10px;
+            background: rgba(255,255,255,0.95);
+            font-size: 14px;
+        }
+        textarea {
+            width: 100%;
+            min-height: 200px;
+            margin-top: 16px;
+            padding: 12px;
+            border-radius: 16px;
+            border: 1px solid var(--line);
+            background: rgba(255,255,255,0.92);
+            resize: vertical;
+            font-family: Consolas, monospace;
+            font-size: 13px;
+            line-height: 1.6;
+        }
+        .error {
+            min-height: 20px;
+            margin-top: 12px;
+            color: var(--bad);
+            font-size: 13px;
+        }
+        @media (max-width: 980px) {
+            .hero, .layout { grid-template-columns: 1fr; }
+        }
+        @media (max-width: 720px) {
+            .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            .param-controls { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+<div class="page">
+    <section class="hero">
+        <article class="panel card">
+            <span class="tag">EMGCFG / EMGDBG</span>
+            <h1>肌电抓握调参助手</h1>
+            <p>这个页面配合 `IMU_EMG_ONLY_TEST==1 && emg_dbg==1` 使用。它会读取调试帧、显示曲线、实时下发参数，并导出可直接回填到 `emg_tune_cfg.h` 的宏定义块。</p>
+            <div class="toolbar">
+                <button id="connect-btn">连接串口</button>
+                <button id="disconnect-btn" class="secondary" disabled>断开</button>
+                <button id="read-btn" class="ghost" disabled>读取参数</button>
+                <button id="reset-btn" class="ghost" disabled>恢复默认</button>
+                <button id="apply-btn" class="secondary" disabled>应用当前</button>
+                <button id="export-btn" class="secondary">导出宏</button>
+            </div>
+            <div id="error-text" class="error"></div>
+        </article>
+        <article class="panel card">
+            <div class="status-list">
+                <div class="status-item">
+                    <div class="label">连接状态</div>
+                    <div id="status-chip" class="status-chip" data-state="offline"><span id="status-text" class="value">未连接</span></div>
+                </div>
+                <div class="status-item">
+                    <div class="label">最近报文</div>
+                    <div id="raw-frame" class="value">等待串口数据...</div>
+                </div>
+                <div class="status-item">
+                    <div class="label">最近更新时间</div>
+                    <div id="last-update" class="value">--</div>
+                </div>
+            </div>
+        </article>
+    </section>
+
+    <section class="layout">
+        <article class="panel card">
+            <h2>实时状态</h2>
+            <p>关注 envelope、rest、th_on、th_off 和 grip 的相对位置，能最快判断参数是不是调对了。</p>
+            <div class="metrics">
+                <div class="metric"><div class="label">raw</div><div id="metric-raw" class="metric-value">0</div></div>
+                <div class="metric"><div class="label">filtered</div><div id="metric-filtered" class="metric-value">0.000</div></div>
+                <div class="metric"><div class="label">envelope</div><div id="metric-envelope" class="metric-value">0.000</div></div>
+                <div class="metric"><div class="label">rest</div><div id="metric-rest" class="metric-value">0.000</div></div>
+                <div class="metric"><div class="label">peak</div><div id="metric-peak" class="metric-value">0.000</div></div>
+                <div class="metric"><div class="label">th_on</div><div id="metric-th-on" class="metric-value">0.000</div></div>
+                <div class="metric"><div class="label">th_off</div><div id="metric-th-off" class="metric-value">0.000</div></div>
+                <div class="metric"><div class="label">grip</div><div id="metric-grip" class="metric-value">0%</div></div>
+                <div class="metric"><div class="label">active</div><div id="metric-active" class="metric-value">IDLE</div></div>
+            </div>
+            <div class="chart-wrap">
+                <canvas id="chart"></canvas>
+                <div class="legend">
+                    <span><i style="background:#d95d39;"></i>Envelope</span>
+                    <span><i style="background:#2f6f72;"></i>Rest</span>
+                    <span><i style="background:#e09f3e;"></i>Th On</span>
+                    <span><i style="background:#7f5539;"></i>Th Off</span>
+                    <span><i style="background:#198754;"></i>Grip</span>
+                </div>
+            </div>
+        </article>
+
+        <article class="panel card">
+            <h2>参数面板</h2>
+            <p>每次修改会在 100ms 防抖后自动发送 `EMGCFG,SET`。如果你想整批重发，也可以点“应用当前”。</p>
+            <div id="param-list" class="param-list"></div>
+            <textarea id="export-box" placeholder="点击“导出宏”后，这里会生成可直接回填到 emg_tune_cfg.h 的宏定义块。"></textarea>
+        </article>
+    </section>
+</div>
+
+<script>
+const paramDefs = [
+    { name:'ENV_ATTACK_ALPHA', label:'包络上升系数', min:0.001, max:1.000, step:0.001, defaultValue:0.35, desc:'越大越灵敏，收缩起量更快。' },
+    { name:'ENV_RELEASE_ALPHA', label:'包络释放系数', min:0.001, max:1.000, step:0.001, defaultValue:0.08, desc:'越大回零越快，越小拖尾越明显。' },
+    { name:'REST_RISE_ALPHA', label:'静息上升系数', min:0.0001, max:0.1000, step:0.0001, defaultValue:0.002, desc:'长期噪声抬高时，rest 跟上去的速度。' },
+    { name:'REST_FALL_ALPHA', label:'静息下降系数', min:0.0001, max:1.0000, step:0.0001, defaultValue:0.10, desc:'噪声下降后，rest 回落的速度。' },
+    { name:'PEAK_DECAY_ALPHA', label:'峰值衰减系数', min:0.0001, max:0.1000, step:0.0001, defaultValue:0.004, desc:'大收缩结束后，peak 回落的速度。' },
+    { name:'MIN_SPAN', label:'最小动态跨度', min:1.0, max:300.0, step:0.1, defaultValue:18.0, desc:'越大越稳，越小越灵敏。' },
+    { name:'ON_RATIO', label:'进入比例', min:0.01, max:0.95, step:0.01, defaultValue:0.22, desc:'超过该比例才允许进入激活。' },
+    { name:'OFF_RATIO', label:'退出比例', min:0.00, max:0.90, step:0.01, defaultValue:0.12, desc:'低于该比例才允许退出激活，必须小于进入比例。' },
+    { name:'ENTER_COUNT', label:'连续进入样本数', min:1, max:20, step:1, defaultValue:3, desc:'连续多少个样本过门限才算真的激活。', integer:true },
+    { name:'EXIT_COUNT', label:'连续退出样本数', min:1, max:30, step:1, defaultValue:8, desc:'连续多少个样本低于门限才退出。', integer:true },
+    { name:'DEADZONE_RATIO', label:'死区比例', min:0.00, max:0.50, step:0.01, defaultValue:0.10, desc:'把最靠近静息的一段直接压成 0。' },
+    { name:'OUTPUT_GAMMA', label:'输出曲线指数', min:0.10, max:3.00, step:0.01, defaultValue:1.20, desc:'大于 1 前段更稳，小于 1 前段更灵敏。' },
+    { name:'OUTPUT_ATTACK_ALPHA', label:'输出上升平滑', min:0.001, max:1.000, step:0.001, defaultValue:0.30, desc:'越大 grip 上升越快。' },
+    { name:'OUTPUT_RELEASE_ALPHA', label:'输出下降平滑', min:0.001, max:1.000, step:0.001, defaultValue:0.12, desc:'越大 grip 回落越快。' }
+];
+
+const ui = {
+    connectBtn: document.getElementById('connect-btn'),
+    disconnectBtn: document.getElementById('disconnect-btn'),
+    readBtn: document.getElementById('read-btn'),
+    resetBtn: document.getElementById('reset-btn'),
+    applyBtn: document.getElementById('apply-btn'),
+    exportBtn: document.getElementById('export-btn'),
+    statusChip: document.getElementById('status-chip'),
+    statusText: document.getElementById('status-text'),
+    rawFrame: document.getElementById('raw-frame'),
+    lastUpdate: document.getElementById('last-update'),
+    errorText: document.getElementById('error-text'),
+    paramList: document.getElementById('param-list'),
+    exportBox: document.getElementById('export-box')
+};
+
+const metrics = {
+    raw: document.getElementById('metric-raw'),
+    filtered: document.getElementById('metric-filtered'),
+    envelope: document.getElementById('metric-envelope'),
+    rest: document.getElementById('metric-rest'),
+    peak: document.getElementById('metric-peak'),
+    thOn: document.getElementById('metric-th-on'),
+    thOff: document.getElementById('metric-th-off'),
+    grip: document.getElementById('metric-grip'),
+    active: document.getElementById('metric-active')
+};
+
+const chartCanvas = document.getElementById('chart');
+const chartCtx = chartCanvas.getContext('2d');
+const metricState = { raw:0, filtered:0, envelope:0, rest:0, peak:0, thOn:0, thOff:0, grip:0, active:false };
+const paramState = new Map();
+const paramControls = new Map();
+const pendingTimers = new Map();
+const chartPoints = [];
+
+let serialPort = null;
+let serialReader = null;
+let readLoopPromise = null;
+let keepReading = false;
+let isConnecting = false;
+let isDisconnecting = false;
+let serialBuffer = '';
+let inConfigDump = false;
+let lastFrameTime = 0;
+
+function setStatus(text, state) {
+    ui.statusText.textContent = text;
+    ui.statusChip.dataset.state = state;
+}
+
+function setError(text) {
+    ui.errorText.textContent = text || '';
+}
+
+function fmt(value, digits = 3) {
+    return Number.isFinite(value) ? value.toFixed(digits) : '--';
+}
+
+function clamp(value, min, max) {
+    return Math.min(max, Math.max(min, value));
+}
+
+function updateButtons() {
+    const unsupported = !('serial' in navigator);
+    const connected = Boolean(serialPort);
+    const busy = isConnecting || isDisconnecting;
+    ui.connectBtn.disabled = unsupported || busy || connected;
+    ui.disconnectBtn.disabled = unsupported || busy || !connected;
+    ui.readBtn.disabled = unsupported || busy || !connected;
+    ui.resetBtn.disabled = unsupported || busy || !connected;
+    ui.applyBtn.disabled = unsupported || busy || !connected;
+}
+
+function renderMetrics() {
+    metrics.raw.textContent = String(metricState.raw);
+    metrics.filtered.textContent = fmt(metricState.filtered);
+    metrics.envelope.textContent = fmt(metricState.envelope);
+    metrics.rest.textContent = fmt(metricState.rest);
+    metrics.peak.textContent = fmt(metricState.peak);
+    metrics.thOn.textContent = fmt(metricState.thOn);
+    metrics.thOff.textContent = fmt(metricState.thOff);
+    metrics.grip.textContent = `${Math.round(metricState.grip)}%`;
+    metrics.active.textContent = metricState.active ? 'ACTIVE' : 'IDLE';
+    metrics.active.style.color = metricState.active ? '#198754' : '#6d655d';
+}
+
+function resizeChart() {
+    const rect = chartCanvas.getBoundingClientRect();
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    chartCanvas.width = Math.max(1, Math.floor(rect.width * dpr));
+    chartCanvas.height = Math.max(1, Math.floor(rect.height * dpr));
+    chartCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    drawChart();
+}
+
+function drawChart() {
+    const width = chartCanvas.clientWidth;
+    const height = chartCanvas.clientHeight;
+    const pad = { top: 16, right: 12, bottom: 24, left: 40 };
+    const innerW = Math.max(1, width - pad.left - pad.right);
+    const innerH = Math.max(1, height - pad.top - pad.bottom);
+    const now = performance.now();
+    const start = now - 5000;
+    const maxValue = Math.max(100, ...chartPoints.map((p) => Math.max(p.envelope, p.rest, p.thOn, p.thOff, p.peak)));
+
+    chartCtx.clearRect(0, 0, width, height);
+    chartCtx.fillStyle = '#fffaf4';
+    chartCtx.fillRect(0, 0, width, height);
+    chartCtx.strokeStyle = 'rgba(47,34,23,0.12)';
+    for (let i = 0; i <= 4; i += 1) {
+        const y = pad.top + innerH * i / 4;
+        chartCtx.beginPath();
+        chartCtx.moveTo(pad.left, y);
+        chartCtx.lineTo(width - pad.right, y);
+        chartCtx.stroke();
+    }
+
+    const xOf = (time) => pad.left + ((time - start) / 5000) * innerW;
+    const yOf = (value) => pad.top + innerH - (clamp(value, 0, maxValue) / maxValue) * innerH;
+
+    function line(color, getter) {
+        chartCtx.beginPath();
+        chartCtx.strokeStyle = color;
+        chartCtx.lineWidth = 2;
+        let started = false;
+        chartPoints.forEach((point) => {
+            if (point.time < start) { return; }
+            const x = xOf(point.time);
+            const y = yOf(getter(point));
+            if (!started) {
+                chartCtx.moveTo(x, y);
+                started = true;
+            } else {
+                chartCtx.lineTo(x, y);
+            }
+        });
+        if (started) { chartCtx.stroke(); }
+    }
+
+    line('#d95d39', (p) => p.envelope);
+    line('#2f6f72', (p) => p.rest);
+    line('#e09f3e', (p) => p.thOn);
+    line('#7f5539', (p) => p.thOff);
+    line('#198754', (p) => p.grip);
+
+    chartCtx.fillStyle = '#6d655d';
+    chartCtx.font = '12px Segoe UI';
+    chartCtx.fillText('0', 16, height - 10);
+    chartCtx.fillText(String(Math.round(maxValue)), 6, pad.top + 4);
+    chartCtx.fillText('-5s', pad.left, height - 8);
+    chartCtx.fillText('now', width - 34, height - 8);
+}
+
+function pushChartPoint() {
+    const now = performance.now();
+    chartPoints.push({
+        time: now,
+        envelope: metricState.envelope,
+        rest: metricState.rest,
+        thOn: metricState.thOn,
+        thOff: metricState.thOff,
+        peak: metricState.peak,
+        grip: metricState.grip
+    });
+    while (chartPoints.length > 0 && (now - chartPoints[0].time) > 5200) {
+        chartPoints.shift();
+    }
+}
+
+function updateParamControl(name, value) {
+    const def = paramDefs.find((item) => item.name === name);
+    const control = paramControls.get(name);
+    if (!def || !control) { return; }
+    const displayValue = def.integer ? Math.round(value) : value;
+    control.range.value = String(displayValue);
+    control.number.value = def.integer ? String(Math.round(displayValue)) : Number(displayValue).toFixed(4);
+}
+
+function sendValue(def, value) {
+    const finalValue = def.integer ? Math.round(clamp(Number(value), def.min, def.max)) : clamp(Number(value), def.min, def.max);
+    paramState.set(def.name, finalValue);
+    updateParamControl(def.name, finalValue);
+    if (!serialPort) { return; }
+    if (pendingTimers.has(def.name)) {
+        clearTimeout(pendingTimers.get(def.name));
+    }
+    const timerId = window.setTimeout(() => {
+        pendingTimers.delete(def.name);
+        sendSerialCommand(`EMGCFG,SET,${def.name},${finalValue}`);
+    }, 100);
+    pendingTimers.set(def.name, timerId);
+}
+
+function buildExportText() {
+    return [
+        `#define EMG_TUNE_ENV_ATTACK_ALPHA        ${Number(paramState.get('ENV_ATTACK_ALPHA')).toFixed(6)}f`,
+        `#define EMG_TUNE_ENV_RELEASE_ALPHA       ${Number(paramState.get('ENV_RELEASE_ALPHA')).toFixed(6)}f`,
+        `#define EMG_TUNE_REST_RISE_ALPHA         ${Number(paramState.get('REST_RISE_ALPHA')).toFixed(6)}f`,
+        `#define EMG_TUNE_REST_FALL_ALPHA         ${Number(paramState.get('REST_FALL_ALPHA')).toFixed(6)}f`,
+        `#define EMG_TUNE_PEAK_DECAY_ALPHA        ${Number(paramState.get('PEAK_DECAY_ALPHA')).toFixed(6)}f`,
+        `#define EMG_TUNE_MIN_SPAN                ${Number(paramState.get('MIN_SPAN')).toFixed(6)}f`,
+        `#define EMG_TUNE_ON_RATIO                ${Number(paramState.get('ON_RATIO')).toFixed(6)}f`,
+        `#define EMG_TUNE_OFF_RATIO               ${Number(paramState.get('OFF_RATIO')).toFixed(6)}f`,
+        `#define EMG_TUNE_ENTER_COUNT             ${Math.round(Number(paramState.get('ENTER_COUNT')))}U`,
+        `#define EMG_TUNE_EXIT_COUNT              ${Math.round(Number(paramState.get('EXIT_COUNT')))}U`,
+        `#define EMG_TUNE_DEADZONE_RATIO          ${Number(paramState.get('DEADZONE_RATIO')).toFixed(6)}f`,
+        `#define EMG_TUNE_OUTPUT_GAMMA            ${Number(paramState.get('OUTPUT_GAMMA')).toFixed(6)}f`,
+        `#define EMG_TUNE_OUTPUT_ATTACK_ALPHA     ${Number(paramState.get('OUTPUT_ATTACK_ALPHA')).toFixed(6)}f`,
+        `#define EMG_TUNE_OUTPUT_RELEASE_ALPHA    ${Number(paramState.get('OUTPUT_RELEASE_ALPHA')).toFixed(6)}f`
+    ].join('\n');
+}
+
+async function sendSerialCommand(command) {
+    if (!serialPort || !serialPort.writable) { return false; }
+    const writer = serialPort.writable.getWriter();
+    try {
+        await writer.write(new TextEncoder().encode(command + '\r\n'));
+        return true;
+    } catch (error) {
+        setError(`串口发送失败：${error.message || error}`);
+        return false;
+    } finally {
+        writer.releaseLock();
+    }
+}
+
+function handleEmgDbg(parts) {
+    if (parts.length !== 10) {
+        setError('EMGDBG 字段数量不正确。');
+        return;
+    }
+    metricState.raw = parseInt(parts[1], 10);
+    metricState.filtered = parseFloat(parts[2]);
+    metricState.envelope = parseFloat(parts[3]);
+    metricState.rest = parseFloat(parts[4]);
+    metricState.peak = parseFloat(parts[5]);
+    metricState.thOn = parseFloat(parts[6]);
+    metricState.thOff = parseFloat(parts[7]);
+    metricState.grip = parseFloat(parts[8]);
+    metricState.active = parts[9] === '1';
+    renderMetrics();
+    pushChartPoint();
+    drawChart();
+    setStatus('已连接，调参中', 'online');
+    setError('');
+    ui.lastUpdate.textContent = new Date().toLocaleString('zh-CN', { hour12:false });
+    lastFrameTime = Date.now();
+}
+
+function handleEmgCfg(parts) {
+    const action = parts[1];
+    if (action === 'BEGIN') {
+        inConfigDump = true;
+        setStatus('已连接，正在读取参数', 'pending');
+        return;
+    }
+    if (action === 'VALUE' && parts.length >= 4) {
+        const name = parts[2];
+        const value = parseFloat(parts[3]);
+        if (paramState.has(name) && Number.isFinite(value)) {
+            paramState.set(name, value);
+            updateParamControl(name, value);
+        }
+        return;
+    }
+    if (action === 'END') {
+        inConfigDump = false;
+        setStatus('已连接，调参中', 'online');
+        setError('');
+        return;
+    }
+    if (action === 'OK') {
+        setStatus('已连接，调参中', 'online');
+        if (parts[2] === 'RESET') {
+            window.setTimeout(() => sendSerialCommand('EMGCFG,GET'), 80);
+        }
+        return;
+    }
+    if (action === 'ERR') {
+        setStatus('已连接，调参出错', 'error');
+        setError(`参数命令失败：${parts.slice(2).join(', ')}`);
+    }
+}
+
+function handleFrame(frame) {
+    const text = frame.trim();
+    if (!text) { return; }
+    ui.rawFrame.textContent = text;
+    if (text.startsWith('EMGDBG,')) {
+        handleEmgDbg(text.split(',').map((item) => item.trim()));
+        return;
+    }
+    if (text.startsWith('EMGCFG,')) {
+        handleEmgCfg(text.split(',').map((item) => item.trim()));
+        return;
+    }
+    setError('收到未知报文，当前页面只解析 EMGDBG / EMGCFG。');
+}
+
+function processBuffer() {
+    const frames = serialBuffer.split(/\r?\n/);
+    serialBuffer = frames.pop();
+    frames.forEach(handleFrame);
+}
+
+async function readSerialLoop() {
+    const decoder = new TextDecoder();
+    try {
+        serialReader = serialPort.readable.getReader();
+        while (keepReading) {
+            const { value, done } = await serialReader.read();
+            if (done) { break; }
+            if (!value) { continue; }
+            serialBuffer += decoder.decode(value, { stream:true });
+            processBuffer();
+        }
+        serialBuffer += decoder.decode();
+        processBuffer();
+    } catch (error) {
+        if (keepReading) {
+            setError(`串口读取失败：${error.message || error}`);
+        }
+    } finally {
+        if (serialReader) {
+            serialReader.releaseLock();
+            serialReader = null;
+        }
+        keepReading = false;
+        readLoopPromise = null;
+    }
+}
+
+async function connectSerial() {
+    if (!('serial' in navigator) || isConnecting || serialPort) { return; }
+    isConnecting = true;
+    updateButtons();
+    setStatus('等待选择串口', 'pending');
+    setError('');
+    try {
+        serialPort = await navigator.serial.requestPort();
+        await serialPort.open({ baudRate:115200, dataBits:8, stopBits:1, parity:'none', flowControl:'none' });
+        keepReading = true;
+        serialBuffer = '';
+        ui.rawFrame.textContent = '等待串口数据...';
+        setStatus('已连接，等待参数', 'pending');
+        readLoopPromise = readSerialLoop();
+        await sendSerialCommand('EMGCFG,GET');
+    } catch (error) {
+        if (serialPort) {
+            await serialPort.close().catch(() => {});
+            serialPort = null;
+        }
+        setStatus('未连接', 'error');
+        setError(error && error.name === 'NotFoundError' ? '用户取消了串口选择。' : `串口连接失败：${error.message || error}`);
+    } finally {
+        isConnecting = false;
+        updateButtons();
+    }
+}
+
+async function disconnectSerial() {
+    if (isDisconnecting) { return; }
+    isDisconnecting = true;
+    updateButtons();
+    keepReading = false;
+    serialBuffer = '';
+    if (serialReader) {
+        await serialReader.cancel().catch(() => {});
+    }
+    if (readLoopPromise) {
+        await readLoopPromise.catch(() => {});
+        readLoopPromise = null;
+    }
+    if (serialPort) {
+        await serialPort.close().catch(() => {});
+        serialPort = null;
+    }
+    setStatus('已断开', 'offline');
+    isDisconnecting = false;
+    updateButtons();
+}
+
+async function applyAllParams() {
+    for (const def of paramDefs) {
+        const value = paramState.get(def.name);
+        await sendSerialCommand(`EMGCFG,SET,${def.name},${value}`);
+        await new Promise((resolve) => window.setTimeout(resolve, 25));
+    }
+}
+
+function createParamItem(def) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'param-item';
+    const title = document.createElement('div');
+    title.className = 'param-title';
+    title.innerHTML = `<span>${def.label}</span><span class="param-name">${def.name}</span>`;
+    const desc = document.createElement('div');
+    desc.className = 'param-desc';
+    desc.textContent = def.desc;
+    const controls = document.createElement('div');
+    controls.className = 'param-controls';
+    const range = document.createElement('input');
+    range.type = 'range';
+    range.min = String(def.min);
+    range.max = String(def.max);
+    range.step = String(def.step);
+    range.value = String(def.defaultValue);
+    const number = document.createElement('input');
+    number.type = 'number';
+    number.min = String(def.min);
+    number.max = String(def.max);
+    number.step = String(def.step);
+    number.value = String(def.defaultValue);
+    range.addEventListener('input', () => sendValue(def, range.value));
+    number.addEventListener('change', () => sendValue(def, number.value));
+    controls.append(range, number);
+    wrapper.append(title, desc, controls);
+    ui.paramList.appendChild(wrapper);
+    paramState.set(def.name, def.defaultValue);
+    paramControls.set(def.name, { range, number });
+}
+
+function initPage() {
+    if (!('serial' in navigator)) {
+        setStatus('当前浏览器不支持', 'error');
+        setError('请使用最新版 Chrome / Edge，并通过 localhost 或 https 打开页面。');
+    }
+
+    paramDefs.forEach(createParamItem);
+    renderMetrics();
+    updateButtons();
+    resizeChart();
+
+    ui.connectBtn.addEventListener('click', connectSerial);
+    ui.disconnectBtn.addEventListener('click', disconnectSerial);
+    ui.readBtn.addEventListener('click', () => sendSerialCommand('EMGCFG,GET'));
+    ui.resetBtn.addEventListener('click', () => sendSerialCommand('EMGCFG,RESET'));
+    ui.applyBtn.addEventListener('click', applyAllParams);
+    ui.exportBtn.addEventListener('click', async () => {
+        const text = buildExportText();
+        ui.exportBox.value = text;
+        try {
+            await navigator.clipboard.writeText(text);
+        } catch (error) {
+            /* 某些环境不允许写剪贴板时，保留文本框内容即可。 */
+        }
+    });
+
+    window.addEventListener('resize', resizeChart);
+    window.setInterval(() => {
+        if (serialPort && lastFrameTime > 0 && (Date.now() - lastFrameTime) > 1500 && !inConfigDump) {
+            setStatus('已连接，等待新调试帧', 'pending');
+        }
+    }, 500);
+}
+
+initPage();
+</script>
+</body>
+</html>
