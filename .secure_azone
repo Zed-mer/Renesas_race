@@ -43,6 +43,9 @@
         </peripheral>
         <peripheral name="SCI7" group="SCI" security=""/>
         <peripheral name="GPT1" group="GPT" security=""/>
+        <peripheral name="ADC0" group="ADC" security=""/>
+        <peripheral name="DMA_DMAC0" group="DMA_DMAC" security=""/>
+        <peripheral name="GPT6" group="GPT" security=""/>
         <peripheral name="SPI0" group="SPI" security=""/>
         <peripheral name="ICU_EXT_IRQ">
             <slot name="ICU_EXT_IRQ8" secure="false"/>
@@ -73,6 +76,7 @@
             <slot name="IRQ14" secure="false"/>
             <slot name="IRQ15" secure="false"/>
             <slot name="IRQ16" secure="false"/>
+            <slot name="IRQ17" secure="false"/>
         </peripheral>
     </partition>
 </azone>

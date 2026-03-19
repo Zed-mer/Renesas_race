@@ -114,7 +114,7 @@ extern "C" {
             (((RA_NOT_DEFINED > 0) ? 0U : 1U) << 13) /* POEG1 */ | \
             (((RA_NOT_DEFINED > 0) ? 0U : 1U) << 14) /* POEG0 */ | \
             (((RA_NOT_DEFINED > 0) ? 0U : 1U) << 15) /* ADC1 */ | \
-            (((RA_NOT_DEFINED > 0) ? 0U : 1U) << 16) /* ADC0 */ | \
+            (((1 > 0) ? 0U : 1U) << 16) /* ADC0 */ | \
             (((RA_NOT_DEFINED > 0) ? 0U : 1U) << 20) /* DAC */ | \
             (((RA_NOT_DEFINED > 0) ? 0U : 1U) << 22) /* TSN */ | \
             0xffae07f0) /* Unused */
@@ -129,7 +129,7 @@ extern "C" {
             (((RA_NOT_DEFINED > 0) ? 0U : 1U) << 22) /* GPT9 */ | \
             (((RA_NOT_DEFINED > 0) ? 0U : 1U) << 23) /* GPT8 */ | \
             (((RA_NOT_DEFINED > 0) ? 0U : 1U) << 24) /* GPT7 */ | \
-            (((RA_NOT_DEFINED > 0) ? 0U : 1U) << 25) /* GPT6 */ | \
+            (((1 > 0) ? 0U : 1U) << 25) /* GPT6 */ | \
             (((1 > 0) ? 0U : 1U) << 26) /* GPT5 */ | \
             (((1 > 0) ? 0U : 1U) << 27) /* GPT4 */ | \
             (((1 > 0) ? 0U : 1U) << 28) /* GPT3 */ | \
@@ -140,8 +140,8 @@ extern "C" {
 #endif
 #ifndef BSP_TZ_CFG_MSSAR
 #define BSP_TZ_CFG_MSSAR (\
-            (((RA_NOT_DEFINED > 0) ? 0U : 1U) << 0) /* ELC */ | \
-            (((2 > 0) ? 0U : 1U) << 1) /* DTC_DMAC */ | \
+            (((1 > 0) ? 0U : 1U) << 0) /* ELC */ | \
+            (((3 > 0) ? 0U : 1U) << 1) /* DTC_DMAC */ | \
             0xfffffffc) /* Unused */
 #endif
 
@@ -220,7 +220,7 @@ extern "C" {
 /* Security attribution for registers for DMAC channels */
 #ifndef BSP_TZ_CFG_ICUSARC
 #define BSP_TZ_CFG_ICUSARC (\
-            (((RA_NOT_DEFINED > 0) ? 0U : 1U) << 0U) /* DMAC Channel 0 */ | \
+            (((1 > 0) ? 0U : 1U) << 0U) /* DMAC Channel 0 */ | \
             (((RA_NOT_DEFINED > 0) ? 0U : 1U) << 1U) /* DMAC Channel 1 */ | \
             (((RA_NOT_DEFINED > 0) ? 0U : 1U) << 2U) /* DMAC Channel 2 */ | \
             (((RA_NOT_DEFINED > 0) ? 0U : 1U) << 3U) /* DMAC Channel 3 */ | \

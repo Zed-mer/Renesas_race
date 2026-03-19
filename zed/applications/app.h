@@ -3,6 +3,17 @@
 
 #include "hal_data.h"
 
+//当宏定义为1，那就只有肌电发挥作用
+#ifndef IMU_EMG_ONLY_TEST
+#define IMU_EMG_ONLY_TEST 0
+#endif
+
+
+//当宏定义为1，打开IMU的补丁
+#ifndef change_v9_1
+#define change_v9_1 0
+#endif
+
 /* 板级启动代码会从这里进入不同的应用测试入口。 */
 //void emgsignal_test(void);
 //void zhua_test(void);

@@ -5,6 +5,8 @@
 #include "bsp_api.h"
 #include "r_icu.h"
 #include "r_external_irq_api.h"
+#include "r_elc.h"
+#include "r_elc_api.h"
 #include "r_ioport.h"
 #include "bsp_pin_cfg.h"
 FSP_HEADER
@@ -38,6 +40,12 @@ extern const external_irq_cfg_t g_external_irq8_cfg;
 #ifndef icu8_callback
 void icu8_callback(external_irq_callback_args_t *p_args);
 #endif
+/** ELC Instance */
+extern const elc_instance_t g_elc;
+
+/** Access the ELC instance using these structures when calling API functions directly (::p_api is not used). */
+extern elc_instance_ctrl_t g_elc_ctrl;
+extern const elc_cfg_t g_elc_cfg;
 #define IOPORT_CFG_NAME g_bsp_pin_cfg
 
 /* IOPORT Instance */

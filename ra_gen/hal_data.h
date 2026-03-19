@@ -11,6 +11,10 @@
 #include "r_sci_spi.h"
 #include "r_spi_api.h"
 #include "r_spi.h"
+#include "r_dmac.h"
+#include "r_transfer_api.h"
+#include "r_adc.h"
+#include "r_adc_api.h"
 #include "r_sci_uart.h"
 #include "r_uart_api.h"
 FSP_HEADER
@@ -111,6 +115,41 @@ void spi0_callback(spi_callback_args_t *p_args);
     #define g_spi0_P_TRANSFER_RX (&RA_NOT_DEFINED)
 #endif
 #undef RA_NOT_DEFINED
+/** Timer on GPT Instance. */
+extern const timer_instance_t g_timer_emg;
+
+/** Access the GPT instance using these structures when calling API functions directly (::p_api is not used). */
+extern gpt_instance_ctrl_t g_timer_emg_ctrl;
+extern const timer_cfg_t g_timer_emg_cfg;
+
+#ifndef NULL
+void NULL(timer_callback_args_t *p_args);
+#endif
+/* Transfer on DMAC Instance. */
+extern const transfer_instance_t g_transfer_emg;
+
+/** Access the DMAC instance using these structures when calling API functions directly (::p_api is not used). */
+extern dmac_instance_ctrl_t g_transfer_emg_ctrl;
+extern const transfer_cfg_t g_transfer_emg_cfg;
+
+#ifndef emg_dma_callback
+void emg_dma_callback(dmac_callback_args_t *p_args);
+#endif
+/** ADC on ADC Instance. */
+extern const adc_instance_t g_adc_emg;
+
+/** Access the ADC instance using these structures when calling API functions directly (::p_api is not used). */
+extern adc_instance_ctrl_t g_adc_emg_ctrl;
+extern const adc_cfg_t g_adc_emg_cfg;
+extern const adc_channel_cfg_t g_adc_emg_channel_cfg;
+
+#ifndef NULL
+void NULL(adc_callback_args_t *p_args);
+#endif
+
+#ifndef G_ADC_WITH_DMAC_EMG
+#define ADC_DMAC_CHANNELS_PER_BLOCK_G_ADC_WITH_DMAC_EMG  1
+#endif
 /** Timer on GPT Instance. */
 extern const timer_instance_t g_timer0;
 

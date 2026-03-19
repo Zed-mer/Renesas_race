@@ -1,4 +1,5 @@
 #include "app.h"
+#include "emg_runtime.h"
 #include "drv_uart.h"
 #include "hal_data.h"
 #include "icm42688.h"
@@ -34,6 +35,9 @@ static void imu_print_zero_drift_metrics(char const * p_label,
                                          uint32_t ready_count,
                                          uint32_t window_us);
 static void imu_run_zero_drift_monitor(void);
+#if IMU_EMG_ONLY_TEST
+static void imu_run_emg_only_mode(void);
+#endif
 
 void icu8_callback(external_irq_callback_args_t * p_args)
 {
@@ -79,6 +83,17 @@ void imu_test(void)
     }
 
     imu_timebase_init(&s_imu_app.timebase);
+
+    err = emg_runtime_init();
+    if (FSP_SUCCESS != err)
+    {
+        imu_fail_stop(11U, err);
+    }
+
+#if IMU_EMG_ONLY_TEST
+    imu_run_emg_only_mode();
+    return;
+#endif
 
     err = bsp_Icm42688Init();
     if (FSP_SUCCESS != err)
@@ -240,6 +255,7 @@ void imu_test(void)
 
         loop_time_us = (upper_updated || lower_updated) ? frame_sample_time_us : imu_time_now_us(&s_imu_app.timebase);
 
+        emg_runtime_poll(loop_time_us);
         imu_handle_button_event(loop_time_us);
         imu_protocol_handle_uart_commands(&s_imu_app, loop_time_us);
         imu_update_status_led(loop_time_us);
@@ -739,3 +755,36 @@ static void imu_run_zero_drift_monitor(void)
         }
     }
 }
+
+#if IMU_EMG_ONLY_TEST
+static void imu_run_emg_only_mode(void)
+{
+    uint32_t last_sample_count = 0U;
+
+    s_imu_app.calibration.is_calibrated = true;
+    s_imu_app.calibration.current_step = IMU_CAL_STEP_DONE;
+
+    imu_set_status_led(true);
+
+    while (1)
+    {
+        uint32_t now_us = imu_time_now_us(&s_imu_app.timebase);
+        uint32_t sample_count;
+
+        emg_runtime_poll(now_us);
+        sample_count = emg_runtime_get_total_samples();
+
+        if (sample_count != last_sample_count)
+        {
+            last_sample_count = sample_count;
+            printf("Filtered: %.2f, %.2f\r\n",
+                   emg_runtime_get_last_filtered_value(),
+                   emg_runtime_get_last_envelope());
+        }
+        else
+        {
+            R_BSP_SoftwareDelay(IMU_IDLE_POLL_DELAY_US, BSP_DELAY_UNITS_MICROSECONDS);
+        }
+    }
+}
+#endif

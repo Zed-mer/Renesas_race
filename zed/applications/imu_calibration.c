@@ -1,4 +1,5 @@
 #include "imu_calibration.h"
+#include "emg_runtime.h"
 #include "imu_math.h"
 #include "imu_protocol.h"
 #include "imu_runtime.h"
@@ -954,5 +955,5 @@ static bool imu_apply_axis_map(imu_axis_map_t * p_map, float raw_deg, int32_t * 
 
 static uint8_t imu_get_grip_percent(void)
 {
-    return 0U;
+    return emg_runtime_get_grip_percent();
 }
