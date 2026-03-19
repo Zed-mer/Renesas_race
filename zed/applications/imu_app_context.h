@@ -7,6 +7,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifndef change_v9_1
+#define change_v9_1  1
+#endif
+
 /*
  * applications 层共享的数据字典：
  * 这里定义了算法常量、运行时状态、标定状态和输出帧结构。
@@ -54,6 +58,7 @@
 #define IMU_RUNTIME_MAX_STEP_DEG      2.4f
 #define IMU_RUNTIME_OUTPUT_DEADBAND   1
 #define IMU_UART_LINE_MAX_LEN         64U
+#define IMU_V9_1_RESIDUAL_HOLD_DEG    25.0f
 /*
  * 温度补偿参数：
  * 1. 先对温度做低通，减少瞬时测温噪声直接抖到 bias。
