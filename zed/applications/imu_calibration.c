@@ -1,9 +1,16 @@
 #include "imu_calibration.h"
 #include "imu_math.h"
 #include "imu_protocol.h"
+#include "imu_runtime.h"
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
+
+#define IMU_FINAL_DRIFT_SAMPLES          200U
+#define IMU_FINAL_DRIFT_MAX_ATTEMPTS     400U
+#define IMU_FINAL_DRIFT_ACC_MIN_G        0.94f
+#define IMU_FINAL_DRIFT_ACC_MAX_G        1.06f
+#define IMU_FINAL_DRIFT_GYRO_MAX_RAD_S   (2.5f * IMU_DEG_TO_RAD)
 
 /*
  * 标定模块总览
@@ -42,6 +49,7 @@ static bool             imu_solve_basis_coefficients(icm42688Float3_t const * p_
 static bool             imu_finalize_upper_axis_maps(imu_app_context_t * p_ctx);
 static bool             imu_finalize_lower_axis_maps(imu_app_context_t * p_ctx);
 static imu_cal_result_t imu_record_current_step(imu_app_context_t * p_ctx, uint32_t now_us);
+static void             imu_refine_zero_drift_after_final_step(imu_app_context_t * p_ctx);
 static bool             imu_apply_axis_map(imu_axis_map_t * p_map, float raw_deg, int32_t * p_output_deg);
 static uint8_t          imu_get_grip_percent(void);
 
@@ -676,12 +684,41 @@ static imu_cal_result_t imu_record_current_step(imu_app_context_t * p_ctx, uint3
             }
 
             p_ctx->calibration.relative_wx_pose = motion.relative_bone;
-            return imu_finalize_lower_axis_maps(p_ctx) ? IMU_CAL_RESULT_OK : IMU_CAL_RESULT_AMBIG;
+            if (!imu_finalize_lower_axis_maps(p_ctx))
+            {
+                return IMU_CAL_RESULT_AMBIG;
+            }
+
+            imu_refine_zero_drift_after_final_step(p_ctx);
+            return IMU_CAL_RESULT_OK;
         }
 
         default:
             return IMU_CAL_RESULT_AMBIG;
     }
+}
+
+static void imu_refine_zero_drift_after_final_step(imu_app_context_t * p_ctx)
+{
+    if (NULL == p_ctx)
+    {
+        return;
+    }
+
+    (void) imu_refine_gyro_bias(&p_ctx->upper_imu,
+                                bsp_IcmGetScaledData,
+                                IMU_FINAL_DRIFT_SAMPLES,
+                                IMU_FINAL_DRIFT_MAX_ATTEMPTS,
+                                IMU_FINAL_DRIFT_ACC_MIN_G,
+                                IMU_FINAL_DRIFT_ACC_MAX_G,
+                                IMU_FINAL_DRIFT_GYRO_MAX_RAD_S);
+    (void) imu_refine_gyro_bias(&p_ctx->lower_imu,
+                                bsp_IcmSciGetScaledData,
+                                IMU_FINAL_DRIFT_SAMPLES,
+                                IMU_FINAL_DRIFT_MAX_ATTEMPTS,
+                                IMU_FINAL_DRIFT_ACC_MIN_G,
+                                IMU_FINAL_DRIFT_ACC_MAX_G,
+                                IMU_FINAL_DRIFT_GYRO_MAX_RAD_S);
 }
 
 static bool imu_apply_axis_map(imu_axis_map_t * p_map, float raw_deg, int32_t * p_output_deg)

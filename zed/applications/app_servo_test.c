@@ -1,28 +1,52 @@
 #include "app_servo_test.h"
 #include "drv_MG996.h"
+#include <math.h>
 #include <stdio.h>
 
-/* 仅用于调试观察定时器回调是否还在正常运行。 */
-static volatile uint16_t s_agt_tick_count = 0U;
 
-void g_timer_agt1_callback(timer_callback_args_t * p_args)
+#include "app_arm_link.h"
+
+void arm_calibration_entry(void)
 {
-    if (TIMER_EVENT_CYCLE_END == p_args->event)
+    arm_link_init();
+
+    while (1)
     {
-        /* 每次定时器周期结束都推进一次舵机更新任务。 */
-        s_agt_tick_count++;
-        Servo_Update_Task();
+        /* 基准姿态 */
+        /* 只测上位机舵机1 -> 代码舵机5 */
+//        arm_pose_calib_test(90, 60, 90, 0);
+//        R_BSP_SoftwareDelay(2000, BSP_DELAY_UNITS_MILLISECONDS);
+
+        arm_pose_calib_test(90, 90, 90, 180);
+        R_BSP_SoftwareDelay(2000, BSP_DELAY_UNITS_MILLISECONDS);
+        arm_pose_calib_test(90, 90, 60, 180);
+        R_BSP_SoftwareDelay(2000, BSP_DELAY_UNITS_MILLISECONDS);
+        arm_pose_calib_test(90, 90, 30, 180);
+        R_BSP_SoftwareDelay(2000, BSP_DELAY_UNITS_MILLISECONDS);
+        arm_pose_calib_test(90, 90, 60, 180);
+        R_BSP_SoftwareDelay(2000, BSP_DELAY_UNITS_MILLISECONDS);
+//        arm_pose_calib_test(90, 90, 120, 180);
+//        R_BSP_SoftwareDelay(2000, BSP_DELAY_UNITS_MILLISECONDS);
+
     }
+}
+
+
+void g_timer4_callback(timer_callback_args_t *p_args)
+{
+
+        Servo_Update_Task();
+
 }
 
 void MG996_test(void)
 {
-    /* 初始化全部舵机，移动到一组固定角度，并持续打印心跳信息方便观察。 */
+    /* 这是舵机测试入口，与 IMU 功能相互独立。 */
     printf("OK");
     Servo_Init_All();
     printf("OK");
-    R_AGT_Open(g_timer_agt1.p_ctrl, g_timer_agt1.p_cfg);
-    R_AGT_Start(g_timer_agt1.p_ctrl);
+    R_GPT_Open(g_timer4.p_ctrl, g_timer4.p_cfg);
+    R_GPT_Start(g_timer4.p_ctrl);
 
     Servo_SetTargetAngle(5, 120.0f, 0.5f);
     Servo_SetTargetAngle(4, 80.0f, 0.5f);
@@ -32,9 +56,9 @@ void MG996_test(void)
     Servo_SetTargetAngle(0, 50.0f, 0.5f);
     printf("OK111");
 
+    /* 主循环里持续输出节拍，便于观察 AGT 和舵机任务是否正常运行。 */
     while (1)
     {
-        printf("AGT Tick: %d\r\n", s_agt_tick_count);
         R_BSP_SoftwareDelay(10U, BSP_DELAY_UNITS_MILLISECONDS);
     }
 }

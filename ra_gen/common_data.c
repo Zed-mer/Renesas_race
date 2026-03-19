@@ -72,12 +72,6 @@ const external_irq_cfg_t g_external_irq8_cfg =
 /* Instance structure to use this module. */
 const external_irq_instance_t g_external_irq8 =
 { .p_ctrl = &g_external_irq8_ctrl, .p_cfg = &g_external_irq8_cfg, .p_api = &g_external_irq_on_icu };
-elc_instance_ctrl_t g_elc_ctrl;
-
-extern const elc_cfg_t g_elc_cfg;
-
-const elc_instance_t g_elc =
-{ .p_ctrl = &g_elc_ctrl, .p_api = &g_elc_on_elc, .p_cfg = &g_elc_cfg };
 ioport_instance_ctrl_t g_ioport_ctrl;
 const ioport_instance_t g_ioport =
 { .p_api = &g_ioport_on_ioport, .p_ctrl = &g_ioport_ctrl, .p_cfg = &g_bsp_pin_cfg, };

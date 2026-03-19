@@ -13,6 +13,7 @@
 static float imu_update_filtered_temperature(imu_runtime_t * p_imu, float temperature_c);
 static bool  imu_can_learn_temperature_compensation(icm42688Float3_t const * p_acc_g,
                                                     icm42688Float3_t const * p_corrected_gyro_rad_s);
+static float imu_max_abs_axis(icm42688Float3_t const * p_value);
 
 void imu_runtime_reset(imu_runtime_t * p_imu)
 {
@@ -38,8 +39,10 @@ void imu_runtime_reset(imu_runtime_t * p_imu)
     p_imu->last_sample_time_us = 0U;
     p_imu->data_ready_time_us = 0U;
     p_imu->pending_ready_count = 0U;
+    p_imu->static_window_count = 0U;
     p_imu->has_temperature_reference = false;
     p_imu->has_filtered_temperature = false;
+    p_imu->in_static_window = false;
 }
 
 void imu_timebase_init(imu_timebase_t * p_timebase)
@@ -248,6 +251,72 @@ uint32_t imu_collect_gyro_bias(imu_runtime_t * p_imu,
     return valid_samples;
 }
 
+uint32_t imu_refine_gyro_bias(imu_runtime_t * p_imu,
+                              imu_read_sample_fn_t read_sample,
+                              uint32_t target_samples,
+                              uint32_t max_attempts,
+                              float acc_min_g,
+                              float acc_max_g,
+                              float gyro_norm_max_rad_s)
+{
+    uint32_t         attempts = 0U;
+    uint32_t         valid_samples = 0U;
+    icm42688Float3_t gyro_sum = {0.0f, 0.0f, 0.0f};
+    float            temperature_sum_c = 0.0f;
+
+    if ((NULL == p_imu) || (NULL == read_sample) || (0U == target_samples) || (0U == max_attempts))
+    {
+        return 0U;
+    }
+
+    while ((attempts < max_attempts) && (valid_samples < target_samples))
+    {
+        icm42688Float3_t acc_g = {0.0f, 0.0f, 0.0f};
+        icm42688Float3_t gyro_rad_s = {0.0f, 0.0f, 0.0f};
+        float            temperature_c = 0.0f;
+        float            acc_norm;
+        float            gyro_norm;
+
+        imu_read_sample_blocking(p_imu, read_sample, &acc_g, &gyro_rad_s, &temperature_c);
+        attempts++;
+
+        acc_norm = imu_vector_norm(&acc_g);
+        gyro_norm = imu_vector_norm(&gyro_rad_s);
+        if ((acc_norm < acc_min_g) || (acc_norm > acc_max_g) || (gyro_norm > gyro_norm_max_rad_s))
+        {
+            continue;
+        }
+
+        gyro_sum.x += gyro_rad_s.x;
+        gyro_sum.y += gyro_rad_s.y;
+        gyro_sum.z += gyro_rad_s.z;
+        temperature_sum_c += temperature_c;
+        valid_samples++;
+    }
+
+    if (0U == valid_samples)
+    {
+        return 0U;
+    }
+
+    p_imu->gyro_bias.x = gyro_sum.x / (float) valid_samples;
+    p_imu->gyro_bias.y = gyro_sum.y / (float) valid_samples;
+    p_imu->gyro_bias.z = gyro_sum.z / (float) valid_samples;
+    p_imu->bias_temperature_c = temperature_sum_c / (float) valid_samples;
+    p_imu->current_temperature_c = p_imu->bias_temperature_c;
+    p_imu->filtered_temperature_c = p_imu->bias_temperature_c;
+    p_imu->mahony_integral.x = 0.0f;
+    p_imu->mahony_integral.y = 0.0f;
+    p_imu->mahony_integral.z = 0.0f;
+    p_imu->last_sample_time_us = 0U;
+    p_imu->has_temperature_reference = true;
+    p_imu->has_filtered_temperature = true;
+    p_imu->static_window_count = 0U;
+    p_imu->in_static_window = false;
+
+    return valid_samples;
+}
+
 void imu_apply_temperature_compensation(imu_runtime_t * p_imu,
                                         icm42688Float3_t const * p_acc_g,
                                         icm42688Float3_t const * p_raw_gyro_rad_s,
@@ -331,6 +400,52 @@ void imu_apply_temperature_compensation(imu_runtime_t * p_imu,
     {
         *p_effective_bias_rad_s = effective_bias;
     }
+}
+
+bool imu_should_reject_static_spike(imu_runtime_t * p_imu,
+                                    icm42688Float3_t const * p_acc_g,
+                                    icm42688Float3_t const * p_corrected_gyro_rad_s)
+{
+    float acc_norm;
+    float gyro_peak_rad_s;
+    bool  acc_is_static;
+    bool  gyro_is_static;
+
+    if ((NULL == p_imu) || (NULL == p_acc_g) || (NULL == p_corrected_gyro_rad_s))
+    {
+        return false;
+    }
+
+    acc_norm = imu_vector_norm(p_acc_g);
+    gyro_peak_rad_s = imu_max_abs_axis(p_corrected_gyro_rad_s);
+    acc_is_static = (acc_norm >= IMU_RUNTIME_STATIC_ACC_MIN_G) && (acc_norm <= IMU_RUNTIME_STATIC_ACC_MAX_G);
+    gyro_is_static = (gyro_peak_rad_s <= IMU_RUNTIME_STATIC_GYRO_PEAK_MAX_RAD_S);
+
+    if (p_imu->in_static_window && acc_is_static && (gyro_peak_rad_s >= IMU_RUNTIME_STATIC_SPIKE_REJECT_RAD_S))
+    {
+        p_imu->static_window_count = IMU_RUNTIME_STATIC_WINDOW_SAMPLES;
+        return true;
+    }
+
+    if (acc_is_static && gyro_is_static)
+    {
+        if (p_imu->static_window_count < IMU_RUNTIME_STATIC_WINDOW_SAMPLES)
+        {
+            p_imu->static_window_count++;
+        }
+
+        if (p_imu->static_window_count >= IMU_RUNTIME_STATIC_WINDOW_SAMPLES)
+        {
+            p_imu->in_static_window = true;
+        }
+    }
+    else
+    {
+        p_imu->static_window_count = 0U;
+        p_imu->in_static_window = false;
+    }
+
+    return false;
 }
 
 void imu_read_sample_blocking(imu_runtime_t * p_imu,
@@ -431,4 +546,27 @@ static bool imu_can_learn_temperature_compensation(icm42688Float3_t const * p_ac
     return ((acc_norm >= IMU_STATIC_ACC_MIN_G) &&
             (acc_norm <= IMU_STATIC_ACC_MAX_G) &&
             (gyro_norm <= IMU_TEMP_COMP_STATIC_GYRO_RAD_S_MAX));
+}
+
+static float imu_max_abs_axis(icm42688Float3_t const * p_value)
+{
+    float max_value;
+
+    if (NULL == p_value)
+    {
+        return 0.0f;
+    }
+
+    max_value = fabsf(p_value->x);
+    if (fabsf(p_value->y) > max_value)
+    {
+        max_value = fabsf(p_value->y);
+    }
+
+    if (fabsf(p_value->z) > max_value)
+    {
+        max_value = fabsf(p_value->z);
+    }
+
+    return max_value;
 }

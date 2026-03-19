@@ -21,12 +21,22 @@ uint32_t imu_collect_gyro_bias(imu_runtime_t * p_imu,
                                imu_timebase_t * p_timebase,
                                imu_runtime_wait_hook_t wait_hook,
                                void * p_wait_context);
+uint32_t imu_refine_gyro_bias(imu_runtime_t * p_imu,
+                              imu_read_sample_fn_t read_sample,
+                              uint32_t target_samples,
+                              uint32_t max_attempts,
+                              float acc_min_g,
+                              float acc_max_g,
+                              float gyro_norm_max_rad_s);
 void     imu_apply_temperature_compensation(imu_runtime_t * p_imu,
                                             icm42688Float3_t const * p_acc_g,
                                             icm42688Float3_t const * p_raw_gyro_rad_s,
                                             float temperature_c,
                                             icm42688Float3_t * p_corrected_gyro_rad_s,
                                             icm42688Float3_t * p_effective_bias_rad_s);
+bool     imu_should_reject_static_spike(imu_runtime_t * p_imu,
+                                        icm42688Float3_t const * p_acc_g,
+                                        icm42688Float3_t const * p_corrected_gyro_rad_s);
 void     imu_read_sample_blocking(imu_runtime_t * p_imu,
                                   imu_read_sample_fn_t read_sample,
                                   icm42688Float3_t * p_acc_g,

@@ -4,22 +4,36 @@
 #include <stdint.h>
 #include "bsp_api.h"
 #include "common_data.h"
+#include "r_gpt.h"
+#include "r_timer_api.h"
 #include "r_dtc.h"
 #include "r_transfer_api.h"
 #include "r_sci_spi.h"
 #include "r_spi_api.h"
-#include "r_agt.h"
-#include "r_timer_api.h"
-#include "r_gpt.h"
-#include "r_timer_api.h"
 #include "r_spi.h"
-#include "r_dmac.h"
-#include "r_transfer_api.h"
-#include "r_adc.h"
-#include "r_adc_api.h"
 #include "r_sci_uart.h"
 #include "r_uart_api.h"
 FSP_HEADER
+/** Timer on GPT Instance. */
+extern const timer_instance_t g_timer_tick;
+
+/** Access the GPT instance using these structures when calling API functions directly (::p_api is not used). */
+extern gpt_instance_ctrl_t g_timer_tick_ctrl;
+extern const timer_cfg_t g_timer_tick_cfg;
+
+#ifndef g_tick_callback
+void g_tick_callback(timer_callback_args_t *p_args);
+#endif
+/** Timer on GPT Instance. */
+extern const timer_instance_t g_timer4;
+
+/** Access the GPT instance using these structures when calling API functions directly (::p_api is not used). */
+extern gpt_instance_ctrl_t g_timer4_ctrl;
+extern const timer_cfg_t g_timer4_cfg;
+
+#ifndef g_timer4_callback
+void g_timer4_callback(timer_callback_args_t *p_args);
+#endif
 /* Transfer on DTC Instance. */
 extern const transfer_instance_t g_transfer2;
 
@@ -42,16 +56,6 @@ extern const spi_cfg_t g_spi1_cfg;
 /** Called by the driver when a transfer has completed or an error has occurred (Must be implemented by the user). */
 #ifndef sci_spi_callback
 void sci_spi_callback(spi_callback_args_t *p_args);
-#endif
-/** AGT Timer Instance */
-extern const timer_instance_t g_timer_agt1;
-
-/** Access the AGT instance using these structures when calling API functions directly (::p_api is not used). */
-extern agt_instance_ctrl_t g_timer_agt1_ctrl;
-extern const timer_cfg_t g_timer_agt1_cfg;
-
-#ifndef g_timer_agt1_callback
-void g_timer_agt1_callback(timer_callback_args_t *p_args);
 #endif
 /** Timer on GPT Instance. */
 extern const timer_instance_t g_timer3;
@@ -107,31 +111,6 @@ void spi0_callback(spi_callback_args_t *p_args);
     #define g_spi0_P_TRANSFER_RX (&RA_NOT_DEFINED)
 #endif
 #undef RA_NOT_DEFINED
-/* Transfer on DMAC Instance. */
-extern const transfer_instance_t g_transfer0;
-
-/** Access the DMAC instance using these structures when calling API functions directly (::p_api is not used). */
-extern dmac_instance_ctrl_t g_transfer0_ctrl;
-extern const transfer_cfg_t g_transfer0_cfg;
-
-#ifndef adc0_dma_callback
-void adc0_dma_callback(dmac_callback_args_t *p_args);
-#endif
-/** ADC on ADC Instance. */
-extern const adc_instance_t g_adc0;
-
-/** Access the ADC instance using these structures when calling API functions directly (::p_api is not used). */
-extern adc_instance_ctrl_t g_adc0_ctrl;
-extern const adc_cfg_t g_adc0_cfg;
-extern const adc_channel_cfg_t g_adc0_channel_cfg;
-
-#ifndef NULL
-void NULL(adc_callback_args_t *p_args);
-#endif
-
-#ifndef G_ADC_WITH_DMAC0
-#define ADC_DMAC_CHANNELS_PER_BLOCK_G_ADC_WITH_DMAC0  1
-#endif
 /** Timer on GPT Instance. */
 extern const timer_instance_t g_timer0;
 

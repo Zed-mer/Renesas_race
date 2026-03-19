@@ -8,6 +8,7 @@
 #include "imu_runtime.h"
 #include <math.h>
 #include <stdio.h>
+#include "app_arm_link.h" //映射角度
 
 static imu_app_context_t s_imu_app = {0};
 
@@ -153,7 +154,9 @@ void imu_test(void)
     }
 
     s_imu_app.calibration.button_pending = false;
-
+    //
+    arm_link_init();
+    //
     while (1)
     {
         icm42688Float3_t upper_acc_g = {0.0f, 0.0f, 0.0f};
@@ -196,11 +199,18 @@ void imu_test(void)
                                                upper_temperature_c,
                                                &upper_gyro_rad_s,
                                                NULL);
-            imu_mahony_update(&s_imu_app.upper_imu,
-                              &upper_acc_g,
-                              &upper_gyro_rad_s,
-                              imu_calc_dt_sec(&s_imu_app.upper_imu, upper_sample_time_us));
-            frame_sample_time_us = upper_sample_time_us;
+            if (!imu_should_reject_static_spike(&s_imu_app.upper_imu, &upper_acc_g, &upper_gyro_rad_s))
+            {
+                imu_mahony_update(&s_imu_app.upper_imu,
+                                  &upper_acc_g,
+                                  &upper_gyro_rad_s,
+                                  imu_calc_dt_sec(&s_imu_app.upper_imu, upper_sample_time_us));
+                frame_sample_time_us = upper_sample_time_us;
+            }
+            else
+            {
+                upper_updated = false;
+            }
         }
 
         if (lower_updated)
@@ -211,13 +221,20 @@ void imu_test(void)
                                                lower_temperature_c,
                                                &lower_gyro_rad_s,
                                                NULL);
-            imu_mahony_update(&s_imu_app.lower_imu,
-                              &lower_acc_g,
-                              &lower_gyro_rad_s,
-                              imu_calc_dt_sec(&s_imu_app.lower_imu, lower_sample_time_us));
-            if ((!upper_updated) || (lower_sample_time_us > frame_sample_time_us))
+            if (!imu_should_reject_static_spike(&s_imu_app.lower_imu, &lower_acc_g, &lower_gyro_rad_s))
             {
-                frame_sample_time_us = lower_sample_time_us;
+                imu_mahony_update(&s_imu_app.lower_imu,
+                                  &lower_acc_g,
+                                  &lower_gyro_rad_s,
+                                  imu_calc_dt_sec(&s_imu_app.lower_imu, lower_sample_time_us));
+                if ((!upper_updated) || (lower_sample_time_us > frame_sample_time_us))
+                {
+                    frame_sample_time_us = lower_sample_time_us;
+                }
+            }
+            else
+            {
+                lower_updated = false;
             }
         }
 
@@ -237,6 +254,7 @@ void imu_test(void)
             if (imu_try_build_servo_pose(&s_imu_app, &pose))
             {
                 imu_protocol_send_pose_frame(&s_imu_app, &pose);
+                arm_apply_imu_pose_to_servos(&pose);   // 新增
                 s_imu_app.last_telemetry_time_us = loop_time_us;
             }
         }

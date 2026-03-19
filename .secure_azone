@@ -41,20 +41,20 @@
             <slot name="P700" secure="false"/>
             <slot name="P701" secure="false"/>
         </peripheral>
-        <peripheral name="GPT0" group="GPT" security=""/>
         <peripheral name="SCI7" group="SCI" security=""/>
-        <peripheral name="ADC0" group="ADC" security=""/>
-        <peripheral name="DMA_DMAC0" group="DMA_DMAC" security=""/>
+        <peripheral name="GPT1" group="GPT" security=""/>
         <peripheral name="SPI0" group="SPI" security=""/>
         <peripheral name="ICU_EXT_IRQ">
             <slot name="ICU_EXT_IRQ8" secure="false"/>
             <slot name="ICU_EXT_IRQ6" secure="false"/>
             <slot name="ICU_EXT_IRQ9" secure="false"/>
         </peripheral>
+        <peripheral name="GPT0" group="GPT" security=""/>
         <peripheral name="GPT4" group="GPT" security=""/>
         <peripheral name="GPT5" group="GPT" security=""/>
-        <peripheral name="AGT0" group="AGT" security=""/>
         <peripheral name="SCI2" group="SCI" security=""/>
+        <peripheral name="GPT2" group="GPT" security=""/>
+        <peripheral name="GPT3" group="GPT" security=""/>
         <peripheral name="ICU">
             <slot name="IRQ0" secure="false"/>
             <slot name="IRQ1" secure="false"/>

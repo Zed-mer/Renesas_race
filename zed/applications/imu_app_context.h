@@ -42,6 +42,11 @@
 #define IMU_CAL_TARGET_DELTA_DEG      90.0f
 #define IMU_VECTOR_EPSILON            0.0001f
 #define IMU_RUNTIME_RAW_FILTER_ALPHA  0.20f
+#define IMU_RUNTIME_STATIC_WINDOW_SAMPLES      30U
+#define IMU_RUNTIME_STATIC_ACC_MIN_G           0.92f
+#define IMU_RUNTIME_STATIC_ACC_MAX_G           1.08f
+#define IMU_RUNTIME_STATIC_GYRO_PEAK_MAX_RAD_S (3.0f * IMU_DEG_TO_RAD)
+#define IMU_RUNTIME_STATIC_SPIKE_REJECT_RAD_S  (40.0f * IMU_DEG_TO_RAD)
 /*
  * 原来 100Hz 下每帧最多 12deg，相当于约 1200deg/s 的输出变化上限。
  * 提到 500Hz 后改成 2.4deg/帧，保持相近的物理速度上限，避免输出突然变“更猛”。
@@ -81,8 +86,10 @@ typedef struct st_imu_runtime
     uint32_t         last_sample_time_us;
     volatile uint32_t data_ready_time_us;
     volatile uint16_t pending_ready_count;
+    uint16_t         static_window_count;
     bool             has_temperature_reference;
     bool             has_filtered_temperature;
+    bool             in_static_window;
 } imu_runtime_t;
 
 typedef struct st_imu_servo_pose
