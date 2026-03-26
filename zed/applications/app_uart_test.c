@@ -1,5 +1,4 @@
 #include "app.h"
-#include "emg_runtime.h"
 #include "drv_uart.h"
 #include "hal_data.h"
 #include "icm42688.h"
@@ -7,6 +6,7 @@
 #include "imu_calibration.h"
 #include "imu_protocol.h"
 #include "imu_runtime.h"
+#include "emg_runtime.h"
 #include <math.h>
 #include <stdio.h>
 #include "app_arm_link.h" //映射角度
@@ -16,7 +16,6 @@ static imu_app_context_t s_imu_app = {0};
 #define IMU_DEBUG_ZERO_DRIFT_ONLY               0
 #define IMU_DEBUG_ZERO_DRIFT_REPORT_INTERVAL_US 500000U
 #define IMU_DEBUG_ZERO_DRIFT_SPIKE_DPS          0.20f
-#define EMG_DEBUG_FRAME_INTERVAL_US             40000U
 
 static void imu_fail_stop(uint32_t step, fsp_err_t err);
 static void imu_set_status_led(bool led_on);
@@ -36,13 +35,7 @@ static void imu_print_zero_drift_metrics(char const * p_label,
                                          uint32_t ready_count,
                                          uint32_t window_us);
 static void imu_run_zero_drift_monitor(void);
-#if IMU_EMG_ONLY_TEST
-/*
- * IMU_EMG_ONLY_TEST 打开后，入口会直接进入肌电专用模式，
- * 因此这里单独拉一个函数，把“只测肌电”的流程和“正常 IMU 主业务”明确分开。
- */
-static void imu_run_emg_only_mode(void);
-#endif
+/* Mainline firmware keeps only the IMU acquisition and calibration path. */
 
 void icu8_callback(external_irq_callback_args_t * p_args)
 {
@@ -88,26 +81,6 @@ void imu_test(void)
     }
 
     imu_timebase_init(&s_imu_app.timebase);
-
-#if IMU_EMG_ONLY_TEST || emg_do
-    /*
-     * EMG 运行时只在两类场景下初始化：
-     * 1. 肌电单独测试模式；
-     * 2. 正式主业务里明确打开 emg_do，准备把 grip 融合进去。
-     *
-     * 这样可以保证当 emg_do 关闭时，主业务不会平白多出一条 EMG 依赖链。
-     */
-    err = emg_runtime_init();
-    if (FSP_SUCCESS != err)
-    {
-        imu_fail_stop(11U, err);
-    }
-#endif
-
-#if IMU_EMG_ONLY_TEST
-    imu_run_emg_only_mode();
-    return;
-#endif
 
     err = bsp_Icm42688Init();
     if (FSP_SUCCESS != err)
@@ -269,13 +242,6 @@ void imu_test(void)
 
         loop_time_us = (upper_updated || lower_updated) ? frame_sample_time_us : imu_time_now_us(&s_imu_app.timebase);
 
-#if emg_do
-        /*
-         * 正式融合模式下，EMG 轮询放在主循环里非阻塞推进。
-         * 它只更新 grip 相关状态，不干扰现有 IMU 姿态采集与标定链路。
-         */
-        emg_runtime_poll(loop_time_us);
-#endif
         imu_handle_button_event(loop_time_us);
         imu_protocol_handle_uart_commands(&s_imu_app, loop_time_us);
         imu_update_status_led(loop_time_us);
@@ -290,13 +256,56 @@ void imu_test(void)
             if (imu_try_build_servo_pose(&s_imu_app, &pose))
             {
                 imu_protocol_send_pose_frame(&s_imu_app, &pose);
-                arm_apply_imu_pose_to_servos(&pose);   // 新增
+                /* Drive the local arm mirror from the same pose frame we publish. */
+                arm_apply_imu_pose_to_servos(&pose);
                 s_imu_app.last_telemetry_time_us = loop_time_us;
             }
         }
         else
         {
             R_BSP_SoftwareDelay(IMU_IDLE_POLL_DELAY_US, BSP_DELAY_UNITS_MICROSECONDS);
+        }
+    }
+}
+
+void adc_emg_print_test(void)
+{
+    fsp_err_t err;
+
+    err = g_uart7.p_api->open(g_uart7.p_ctrl, g_uart7.p_cfg);
+    if ((FSP_SUCCESS != err) && (FSP_ERR_ALREADY_OPEN != err))
+    {
+        imu_fail_stop(101U, err);
+    }
+    s_imu_app.uart_ready = true;
+
+    err = drv_uart_start_rx();
+    if ((FSP_SUCCESS != err) && (FSP_ERR_ALREADY_OPEN != err))
+    {
+        imu_fail_stop(102U, err);
+    }
+
+    err = emg_runtime_init();
+    if (FSP_SUCCESS != err)
+    {
+        imu_fail_stop(103U, err);
+    }
+
+    printf("ADC_EMG_TEST,START\r\n");
+
+    while (1)
+    {
+        err = emg_runtime_process_next_sample();
+        if (FSP_SUCCESS == err)
+        {
+            printf("%.2f,%ld\r\n",
+                   (double) emg_runtime_get_last_filtered_value(),
+                   (long) emg_runtime_get_last_envelope());
+        }
+        else
+        {
+            printf("ADC_EMG_TEST,ERR,%d\r\n", (int) err);
+            R_BSP_SoftwareDelay(10U, BSP_DELAY_UNITS_MILLISECONDS);
         }
     }
 }
@@ -775,67 +784,3 @@ static void imu_run_zero_drift_monitor(void)
         }
     }
 }
-
-#if IMU_EMG_ONLY_TEST
-static void imu_run_emg_only_mode(void)
-{
-#if !emg_dbg
-    uint32_t last_sample_count = 0U;
-#endif
-#if emg_dbg
-    uint32_t last_debug_frame_time_us = 0U;
-#endif
-
-    s_imu_app.calibration.is_calibrated = true;
-    s_imu_app.calibration.current_step = IMU_CAL_STEP_DONE;
-
-    imu_set_status_led(true);
-
-    while (1)
-    {
-        uint32_t now_us = imu_time_now_us(&s_imu_app.timebase);
-#if !emg_dbg
-        uint32_t sample_count;
-#endif
-
-        emg_runtime_poll(now_us);
-#if !emg_dbg
-        sample_count = emg_runtime_get_total_samples();
-#endif
-
-#if emg_dbg
-        /*
-         * 调参模式下输出的是结构化 EMGDBG 帧，而不是人眼临时看的 printf 文本。
-         * 这样上位机才能稳定解析 raw / env / rest / peak / grip 等内部状态，
-         * 并配合 EMGCFG 命令实现真正可复现的调参闭环。
-         */
-        imu_protocol_handle_uart_commands(&s_imu_app, now_us);
-
-        if ((0U == last_debug_frame_time_us) ||
-            ((now_us - last_debug_frame_time_us) >= EMG_DEBUG_FRAME_INTERVAL_US))
-        {
-            imu_protocol_send_emg_debug_frame(&s_imu_app);
-            last_debug_frame_time_us = now_us;
-        }
-
-        R_BSP_SoftwareDelay(IMU_IDLE_POLL_DELAY_US, BSP_DELAY_UNITS_MICROSECONDS);
-#else
-        /*
-         * 非调参的 EMG-only 模式继续保持原来的简洁文本流，
-         * 方便直接用串口助手确认“滤波值是否跳动正常、包络值是否能随收缩明显抬升”。
-         */
-        if (sample_count != last_sample_count)
-        {
-            last_sample_count = sample_count;
-            printf("Filtered: %.2f, %.2f\r\n",
-                   emg_runtime_get_last_filtered_value(),
-                   emg_runtime_get_last_envelope());
-        }
-        else
-        {
-            R_BSP_SoftwareDelay(IMU_IDLE_POLL_DELAY_US, BSP_DELAY_UNITS_MICROSECONDS);
-        }
-#endif
-    }
-}
-#endif
