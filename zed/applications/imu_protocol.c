@@ -1,29 +1,19 @@
 #include "imu_protocol.h"
+#include "app_arm_link.h"
 #include "drv_uart.h"
-#include "emg_runtime.h"
 #include "imu_calibration.h"
+#include <stdlib.h>
 #include <stdarg.h>
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 
-/*
- * EMG 调参帧比原来的 POSE / CAL 更长，因此这里把临时格式化缓冲区放大，
- * 避免 EMGDBG 在数字位数稍长时被截断。
- */
+/* One shared scratch buffer is enough for the short CAL and POSE frames. */
 #define IMU_PROTOCOL_FRAME_BUFFER_SIZE  192U
 
 static void        imu_ascii_to_upper(char * p_text);
 static char const * imu_cal_step_name(imu_cal_step_t step);
 static char const * imu_cal_result_name(imu_cal_result_t result);
-#if IMU_EMG_ONLY_TEST && emg_dbg
-static bool         imu_protocol_is_emg_command(char const * p_line);
-static void         imu_protocol_handle_emg_command(imu_app_context_t * p_ctx, char * p_line);
-static void         imu_protocol_send_emg_config_dump(imu_app_context_t * p_ctx);
-static void         imu_protocol_send_emg_config_value(imu_app_context_t * p_ctx, char const * p_name, float value);
-static void         imu_protocol_send_emg_config_ok(imu_app_context_t * p_ctx, char const * p_name, float value);
-static void         imu_protocol_send_emg_config_error(imu_app_context_t * p_ctx, char const * p_name, char const * p_reason);
-#endif
+static void        imu_protocol_handle_gripcfg(imu_app_context_t * p_ctx, char * p_args);
 
 void imu_protocol_send_text(imu_app_context_t * p_ctx, char const * p_text)
 {
@@ -136,32 +126,14 @@ void imu_protocol_send_pose_frame(imu_app_context_t * p_ctx, imu_servo_pose_t co
     }
 }
 
-void imu_protocol_send_emg_debug_frame(imu_app_context_t * p_ctx)
-{
-    emg_debug_snapshot_t snapshot = {0};
-
-    /*
-     * EMGDBG 是专门给调参上位机吃的结构化报文。
-     * 固件侧把算法内部关键状态一次性打平发出，
-     * 这样前端不需要猜测阈值和内部状态，自然也更容易调参。
-     */
-    emg_runtime_get_debug_snapshot(&snapshot);
-    imu_protocol_send_textf(p_ctx,
-                            "EMGDBG,%u,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%u,%u\r\n",
-                            (unsigned int) snapshot.raw,
-                            snapshot.filtered,
-                            snapshot.envelope,
-                            snapshot.rest,
-                            snapshot.peak,
-                            snapshot.th_on,
-                            snapshot.th_off,
-                            (unsigned int) snapshot.grip,
-                            snapshot.active ? 1U : 0U);
-}
-
 void imu_protocol_handle_uart_commands(imu_app_context_t * p_ctx, uint32_t now_us)
 {
     char line[IMU_UART_LINE_MAX_LEN] = {0};
+
+    if (NULL == p_ctx)
+    {
+        return;
+    }
 
     while (drv_uart_read_line(line, sizeof(line)))
     {
@@ -171,14 +143,6 @@ void imu_protocol_handle_uart_commands(imu_app_context_t * p_ctx, uint32_t now_u
         }
 
         imu_ascii_to_upper(line);
-
-#if IMU_EMG_ONLY_TEST && emg_dbg
-        if (imu_protocol_is_emg_command(line))
-        {
-            imu_protocol_handle_emg_command(p_ctx, line);
-            continue;
-        }
-#endif
 
         if ((0 == strcmp(line, "CAL,START")) || (0 == strcmp(line, "CAL,RESET")))
         {
@@ -191,6 +155,10 @@ void imu_protocol_handle_uart_commands(imu_app_context_t * p_ctx, uint32_t now_u
         else if (0 == strcmp(line, "CAL,STATUS"))
         {
             imu_protocol_send_cal_state(p_ctx);
+        }
+        else if (0 == strncmp(line, "GRIPCFG,", 8))
+        {
+            imu_protocol_handle_gripcfg(p_ctx, &line[8]);
         }
     }
 }
@@ -251,121 +219,64 @@ static char const * imu_cal_result_name(imu_cal_result_t result)
     }
 }
 
-/* 只有在肌电调参模式下，才需要识别 EMGCFG 命令前缀。 */
-#if IMU_EMG_ONLY_TEST && emg_dbg
-static bool imu_protocol_is_emg_command(char const * p_line)
+static void imu_protocol_handle_gripcfg(imu_app_context_t * p_ctx, char * p_args)
 {
-    if (NULL == p_line)
+    arm_emg_servo0_cfg_t cfg;
+    char *               value_text;
+    char *               end_ptr;
+    float                value;
+
+    if ((NULL == p_ctx) || (NULL == p_args) || ('\0' == *p_args))
     {
-        return false;
+        return;
     }
 
-    return (0 == strncmp(p_line, "EMGCFG,", 7U));
+    if (0 == strcmp(p_args, "STATUS"))
+    {
+        arm_get_emg_servo0_config(&cfg);
+        imu_protocol_send_textf(p_ctx,
+                                "GRIPCFG,STATUS,OPEN,%.2f,CLOSE,%.2f,ENV_ALPHA,%.3f,GRIP_ALPHA,%.3f,"
+                                "DEADBAND,%.2f,HOLD,%.2f,SPEED,%.2f,ENV,%.2f,GRIP,%u\r\n",
+                                (double) cfg.envelope_open,
+                                (double) cfg.envelope_close,
+                                (double) cfg.envelope_alpha,
+                                (double) cfg.grip_alpha,
+                                (double) cfg.grip_deadband_percent,
+                                (double) cfg.grip_hold_percent,
+                                (double) cfg.servo_speed_step,
+                                (double) arm_get_emg_filtered_envelope(),
+                                (unsigned int) arm_get_emg_grip_percent());
+        return;
+    }
+
+    if (0 == strcmp(p_args, "DEFAULTS"))
+    {
+        arm_reset_emg_servo0_config();
+        imu_protocol_send_text(p_ctx, "GRIPCFG,OK,DEFAULTS\r\n");
+        return;
+    }
+
+    value_text = strchr(p_args, ',');
+    if (NULL == value_text)
+    {
+        imu_protocol_send_text(p_ctx, "GRIPCFG,ERR,FORMAT\r\n");
+        return;
+    }
+
+    *value_text++ = '\0';
+    value = strtof(value_text, &end_ptr);
+    if ((end_ptr == value_text) || ('\0' != *end_ptr))
+    {
+        imu_protocol_send_text(p_ctx, "GRIPCFG,ERR,VALUE\r\n");
+        return;
+    }
+
+    if (FSP_SUCCESS == arm_set_emg_servo0_param(p_args, value))
+    {
+        imu_protocol_send_textf(p_ctx, "GRIPCFG,OK,%s,%.3f\r\n", p_args, (double) value);
+    }
+    else
+    {
+        imu_protocol_send_textf(p_ctx, "GRIPCFG,ERR,%s,%.3f\r\n", p_args, (double) value);
+    }
 }
-#endif
-
-#if IMU_EMG_ONLY_TEST && emg_dbg
-static void imu_protocol_handle_emg_command(imu_app_context_t * p_ctx, char * p_line)
-{
-    char * p_group;
-    char * p_action;
-    char * p_name;
-    char * p_value_text;
-    char * p_parse_end = NULL;
-    float  value = 0.0f;
-
-    p_group = strtok(p_line, ",");
-    p_action = strtok(NULL, ",");
-    (void) p_group;
-
-    if (NULL == p_action)
-    {
-        imu_protocol_send_emg_config_error(p_ctx, "ACTION", "MISSING");
-        return;
-    }
-
-    if (0 == strcmp(p_action, "GET"))
-    {
-        imu_protocol_send_emg_config_dump(p_ctx);
-        return;
-    }
-
-    if (0 == strcmp(p_action, "RESET"))
-    {
-        emg_runtime_reset_params_to_defaults();
-        imu_protocol_send_text(p_ctx, "EMGCFG,OK,RESET,DEFAULTS\r\n");
-        imu_protocol_send_emg_config_dump(p_ctx);
-        return;
-    }
-
-    if (0 != strcmp(p_action, "SET"))
-    {
-        imu_protocol_send_emg_config_error(p_ctx, "ACTION", "UNKNOWN");
-        return;
-    }
-
-    p_name = strtok(NULL, ",");
-    p_value_text = strtok(NULL, ",");
-
-    if ((NULL == p_name) || (NULL == p_value_text))
-    {
-        imu_protocol_send_emg_config_error(p_ctx, "SET", "ARGS");
-        return;
-    }
-
-    value = strtof(p_value_text, &p_parse_end);
-    if ((NULL == p_parse_end) || ('\0' != *p_parse_end))
-    {
-        imu_protocol_send_emg_config_error(p_ctx, p_name, "VALUE");
-        return;
-    }
-
-    if (FSP_SUCCESS != emg_runtime_set_param(p_name, value))
-    {
-        imu_protocol_send_emg_config_error(p_ctx, p_name, "RANGE");
-        return;
-    }
-
-    imu_protocol_send_emg_config_ok(p_ctx, p_name, value);
-}
-
-static void imu_protocol_send_emg_config_dump(imu_app_context_t * p_ctx)
-{
-    emg_tune_params_t params = {0};
-
-    emg_runtime_get_params(&params);
-    imu_protocol_send_text(p_ctx, "EMGCFG,BEGIN\r\n");
-    /*
-     * 当前版本按用户要求把调参入口收敛成“包络窗口大小”一个量。
-     * 这样上位机、默认宏和老工程的使用习惯都能保持一致。
-     */
-    imu_protocol_send_emg_config_value(p_ctx,
-                                       "ENVELOPE_WINDOW_SIZE",
-                                       (float) params.envelope_window_size);
-    imu_protocol_send_text(p_ctx, "EMGCFG,END\r\n");
-}
-
-static void imu_protocol_send_emg_config_value(imu_app_context_t * p_ctx, char const * p_name, float value)
-{
-    imu_protocol_send_textf(p_ctx,
-                            "EMGCFG,VALUE,%s,%.6f\r\n",
-                            p_name,
-                            value);
-}
-
-static void imu_protocol_send_emg_config_ok(imu_app_context_t * p_ctx, char const * p_name, float value)
-{
-    imu_protocol_send_textf(p_ctx,
-                            "EMGCFG,OK,%s,%.6f\r\n",
-                            p_name,
-                            value);
-}
-
-static void imu_protocol_send_emg_config_error(imu_app_context_t * p_ctx, char const * p_name, char const * p_reason)
-{
-    imu_protocol_send_textf(p_ctx,
-                            "EMGCFG,ERR,%s,%s\r\n",
-                            (NULL != p_name) ? p_name : "UNKNOWN",
-                            (NULL != p_reason) ? p_reason : "ERR");
-}
-#endif
