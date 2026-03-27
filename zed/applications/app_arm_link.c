@@ -4,8 +4,8 @@
 #include <stdbool.h>
 #include <string.h>
 
-#define ARM_SERVO_SPEED_STEP                 0.5f
-#define ARM_EMG_SERVO0_OPEN_ANGLE_DEFAULT    10.0f
+#define ARM_SERVO_SPEED_STEP_DEFAULT         2.0f
+#define ARM_EMG_SERVO0_OPEN_ANGLE_DEFAULT    0.0f
 #define ARM_EMG_SERVO0_CLOSE_ANGLE_DEFAULT   90.0f
 #define ARM_EMG_SERVO0_ENV_OPEN_DEFAULT      10.0f
 #define ARM_EMG_SERVO0_ENV_CLOSE_DEFAULT     120.0f
@@ -40,6 +40,7 @@ typedef struct st_arm_emg_servo0_state
 } arm_emg_servo0_state_t;
 
 static arm_emg_servo0_state_t s_arm_emg_servo0;
+static float                  s_arm_joint_speed_step = ARM_SERVO_SPEED_STEP_DEFAULT;
 
 static float clampf(float x, float min_v, float max_v);
 static float apply_reverse_and_offset(float angle, bool reverse, float offset);
@@ -163,6 +164,7 @@ void arm_link_init(void)
     R_GPT_Open(g_timer4.p_ctrl, g_timer4.p_cfg);
     R_GPT_Start(g_timer4.p_ctrl);
 
+    arm_reset_joint_speed_step();
     arm_reset_emg_servo0_config();
     arm_apply_emg_envelope_to_servo0(0.0f);
 }
@@ -193,11 +195,11 @@ void arm_pose_calib_test(float base_deg, float shoulder_deg, float elbow_deg, fl
     angle_code_1 = apply_reverse_and_offset(angle_code_1, CODE_SERVO1_REVERSE, CODE_SERVO1_OFFSET);
     angle_code_1 = clampf(angle_code_1, 0.0f, 180.0f);
 
-    Servo_SetTargetAngle(5U, angle_code_5, ARM_SERVO_SPEED_STEP);
-    Servo_SetTargetAngle(4U, angle_code_4, ARM_SERVO_SPEED_STEP);
-    Servo_SetTargetAngle(3U, angle_code_3, ARM_SERVO_SPEED_STEP);
-    Servo_SetTargetAngle(2U, angle_code_2, ARM_SERVO_SPEED_STEP);
-    Servo_SetTargetAngle(1U, angle_code_1, ARM_SERVO_SPEED_STEP);
+    Servo_SetTargetAngle(5U, angle_code_5, s_arm_joint_speed_step);
+    Servo_SetTargetAngle(4U, angle_code_4, s_arm_joint_speed_step);
+    Servo_SetTargetAngle(3U, angle_code_3, s_arm_joint_speed_step);
+    Servo_SetTargetAngle(2U, angle_code_2, s_arm_joint_speed_step);
+    Servo_SetTargetAngle(1U, angle_code_1, s_arm_joint_speed_step);
 }
 
 void arm_apply_imu_pose_to_servos(const imu_servo_pose_t * p_pose)
@@ -243,6 +245,27 @@ void arm_apply_emg_envelope_to_servo0(float envelope)
                     (s_arm_emg_servo0.grip_percent_f / 100.0f));
 
     Servo_SetTargetAngle(0U, target_angle, s_arm_emg_servo0.cfg.servo_speed_step);
+}
+
+float arm_get_joint_speed_step(void)
+{
+    return s_arm_joint_speed_step;
+}
+
+void arm_reset_joint_speed_step(void)
+{
+    s_arm_joint_speed_step = ARM_SERVO_SPEED_STEP_DEFAULT;
+}
+
+fsp_err_t arm_set_joint_speed_step(float value)
+{
+    if (!isfinite(value) || (value <= 0.0f) || (value > 10.0f))
+    {
+        return FSP_ERR_INVALID_ARGUMENT;
+    }
+
+    s_arm_joint_speed_step = value;
+    return FSP_SUCCESS;
 }
 
 uint8_t arm_get_emg_grip_percent(void)

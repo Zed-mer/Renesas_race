@@ -13,6 +13,7 @@
 static void        imu_ascii_to_upper(char * p_text);
 static char const * imu_cal_step_name(imu_cal_step_t step);
 static char const * imu_cal_result_name(imu_cal_result_t result);
+static void        imu_protocol_handle_armspeed(imu_app_context_t * p_ctx, char * p_args);
 static void        imu_protocol_handle_gripcfg(imu_app_context_t * p_ctx, char * p_args);
 
 void imu_protocol_send_text(imu_app_context_t * p_ctx, char const * p_text)
@@ -156,6 +157,10 @@ void imu_protocol_handle_uart_commands(imu_app_context_t * p_ctx, uint32_t now_u
         {
             imu_protocol_send_cal_state(p_ctx);
         }
+        else if (0 == strncmp(line, "ARMSPEED,", 9))
+        {
+            imu_protocol_handle_armspeed(p_ctx, &line[9]);
+        }
         else if (0 == strncmp(line, "GRIPCFG,", 8))
         {
             imu_protocol_handle_gripcfg(p_ctx, &line[8]);
@@ -219,6 +224,46 @@ static char const * imu_cal_result_name(imu_cal_result_t result)
     }
 }
 
+static void imu_protocol_handle_armspeed(imu_app_context_t * p_ctx, char * p_args)
+{
+    char * end_ptr;
+    float  value;
+
+    if ((NULL == p_ctx) || (NULL == p_args) || ('\0' == *p_args))
+    {
+        return;
+    }
+
+    if (0 == strcmp(p_args, "STATUS"))
+    {
+        imu_protocol_send_textf(p_ctx, "ARMSPEED,STATUS,%.3f\r\n", (double) arm_get_joint_speed_step());
+        return;
+    }
+
+    if (0 == strcmp(p_args, "DEFAULTS"))
+    {
+        arm_reset_joint_speed_step();
+        imu_protocol_send_textf(p_ctx, "ARMSPEED,OK,DEFAULTS,%.3f\r\n", (double) arm_get_joint_speed_step());
+        return;
+    }
+
+    value = strtof(p_args, &end_ptr);
+    if ((end_ptr == p_args) || ('\0' != *end_ptr))
+    {
+        imu_protocol_send_text(p_ctx, "ARMSPEED,ERR,VALUE\r\n");
+        return;
+    }
+
+    if (FSP_SUCCESS == arm_set_joint_speed_step(value))
+    {
+        imu_protocol_send_textf(p_ctx, "ARMSPEED,OK,%.3f\r\n", (double) arm_get_joint_speed_step());
+    }
+    else
+    {
+        imu_protocol_send_textf(p_ctx, "ARMSPEED,ERR,%.3f\r\n", (double) value);
+    }
+}
+
 static void imu_protocol_handle_gripcfg(imu_app_context_t * p_ctx, char * p_args)
 {
     arm_emg_servo0_cfg_t cfg;
@@ -236,7 +281,8 @@ static void imu_protocol_handle_gripcfg(imu_app_context_t * p_ctx, char * p_args
         arm_get_emg_servo0_config(&cfg);
         imu_protocol_send_textf(p_ctx,
                                 "GRIPCFG,STATUS,OPEN,%.2f,CLOSE,%.2f,ENV_ALPHA,%.3f,GRIP_ALPHA,%.3f,"
-                                "DEADBAND,%.2f,HOLD,%.2f,SPEED,%.2f,ENV,%.2f,GRIP,%u\r\n",
+                                "DEADBAND,%.2f,HOLD,%.2f,SPEED,%.2f,OPEN_ANGLE,%.2f,CLOSE_ANGLE,%.2f,"
+                                "ENV,%.2f,GRIP,%u\r\n",
                                 (double) cfg.envelope_open,
                                 (double) cfg.envelope_close,
                                 (double) cfg.envelope_alpha,
@@ -244,6 +290,8 @@ static void imu_protocol_handle_gripcfg(imu_app_context_t * p_ctx, char * p_args
                                 (double) cfg.grip_deadband_percent,
                                 (double) cfg.grip_hold_percent,
                                 (double) cfg.servo_speed_step,
+                                (double) cfg.servo_open_angle,
+                                (double) cfg.servo_close_angle,
                                 (double) arm_get_emg_filtered_envelope(),
                                 (unsigned int) arm_get_emg_grip_percent());
         return;

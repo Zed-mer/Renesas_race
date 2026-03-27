@@ -21,6 +21,9 @@ typedef struct st_arm_emg_servo0_cfg
 void      arm_link_init(void);
 void      arm_apply_imu_pose_to_servos(const imu_servo_pose_t * p_pose);
 void      arm_apply_emg_envelope_to_servo0(float envelope);
+float     arm_get_joint_speed_step(void);
+void      arm_reset_joint_speed_step(void);
+fsp_err_t arm_set_joint_speed_step(float value);
 uint8_t   arm_get_emg_grip_percent(void);
 float     arm_get_emg_filtered_envelope(void);
 void      arm_get_emg_servo0_config(arm_emg_servo0_cfg_t * p_cfg);
