@@ -43,7 +43,7 @@
 #define IMU_CAL_TARGET_DELTA_DEG      90.0f
 #define IMU_VECTOR_EPSILON            0.0001f
 #define IMU_RUNTIME_RAW_FILTER_ALPHA  0.20f
-#define IMU_RUNTIME_STATIC_WINDOW_SAMPLES      30U
+#define IMU_RUNTIME_STATIC_WINDOW_SAMPLES      150U
 #define IMU_RUNTIME_STATIC_ACC_MIN_G           0.92f
 #define IMU_RUNTIME_STATIC_ACC_MAX_G           1.08f
 #define IMU_RUNTIME_STATIC_GYRO_PEAK_MAX_RAD_S (3.0f * IMU_DEG_TO_RAD)
@@ -55,7 +55,10 @@
 #define IMU_RUNTIME_MAX_STEP_DEG      2.4f
 #define IMU_RUNTIME_OUTPUT_DEADBAND   1
 #define IMU_UART_LINE_MAX_LEN         64U
-#define IMU_V9_1_RESIDUAL_HOLD_DEG    25.0f
+#define IMU_CAL_MIN_BASIS_DET         0.25f
+#define IMU_CAL_MIN_AXIS_SEPARATION_DEG 30.0f
+#define IMU_CAL_PRIMARY_RESPONSE_TOLERANCE_DEG 40.0f
+#define IMU_CAL_MAX_CROSS_LEAK_DEG    35.0f
 /*
  * 温度补偿参数：
  * 1. 先对温度做低通，减少瞬时测温噪声直接抖到 bias。
@@ -63,9 +66,9 @@
  * 3. 静止窗口内允许轻微回正常量 bias，把“启动均值没采准”与“温漂”分开处理。
  */
 #define IMU_TEMP_COMP_MIN_DELTA_C     0.8f
-#define IMU_TEMP_COMP_TEMP_ALPHA      0.10f
-#define IMU_TEMP_COMP_REBIAS_ALPHA    0.02f
-#define IMU_TEMP_COMP_SLOPE_ALPHA     0.02f
+#define IMU_TEMP_COMP_TEMP_ALPHA      0.02f
+#define IMU_TEMP_COMP_REBIAS_ALPHA    0.001f
+#define IMU_TEMP_COMP_SLOPE_ALPHA     0.001f
 #define IMU_TEMP_COMP_STATIC_GYRO_RAD_S_MAX (4.0f * IMU_DEG_TO_RAD)
 #define IMU_TEMP_COMP_MAX_SLOPE_RAD_S_PER_C (0.25f * IMU_DEG_TO_RAD)
 
@@ -164,6 +167,23 @@ typedef struct st_imu_axis_map
     bool                has_last_output;
 } imu_axis_map_t;
 
+typedef struct st_imu_fk_pair_state
+{
+    float last_primary_deg;
+    float last_secondary_deg;
+    bool  initialized;
+} imu_fk_pair_state_t;
+
+typedef struct st_imu_cal_quality_metrics
+{
+    float basis_det;
+    float axis_separation_deg;
+    float primary_response_1_deg;
+    float primary_response_2_deg;
+    float cross_leak_1_deg;
+    float cross_leak_2_deg;
+} imu_cal_quality_metrics_t;
+
 typedef struct st_imu_calibration_runtime
 {
     /* 标定过程中逐步积累出来的中间状态和最终映射参数。 */
@@ -177,6 +197,10 @@ typedef struct st_imu_calibration_runtime
     imu_axis_map_t  hZ_map;
     imu_axis_map_t  eZ_map;
     imu_axis_map_t  wX_map;
+    imu_fk_pair_state_t upper_fk_state;
+    imu_fk_pair_state_t lower_fk_state;
+    imu_cal_quality_metrics_t upper_quality;
+    imu_cal_quality_metrics_t lower_quality;
     uint32_t        last_button_time_us;
     uint32_t        button_press_start_us;
     uint32_t        led_flash_start_us;

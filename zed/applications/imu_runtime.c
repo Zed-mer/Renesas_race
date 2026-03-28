@@ -11,7 +11,8 @@
  */
 
 static float imu_update_filtered_temperature(imu_runtime_t * p_imu, float temperature_c);
-static bool  imu_can_learn_temperature_compensation(icm42688Float3_t const * p_acc_g,
+static bool  imu_can_learn_temperature_compensation(imu_runtime_t const * p_imu,
+                                                    icm42688Float3_t const * p_acc_g,
                                                     icm42688Float3_t const * p_corrected_gyro_rad_s);
 static float imu_max_abs_axis(icm42688Float3_t const * p_value);
 
@@ -355,7 +356,7 @@ void imu_apply_temperature_compensation(imu_runtime_t * p_imu,
      * 这里不直接在运动中学习，而是只有在“加速度接近 1g 且残余角速度较小”的静止窗口内，
      * 才慢慢修正模型，避免把真实动作误学成温漂。
      */
-    if (imu_can_learn_temperature_compensation(p_acc_g, p_corrected_gyro_rad_s))
+    if (imu_can_learn_temperature_compensation(p_imu, p_acc_g, p_corrected_gyro_rad_s))
     {
         if (fabsf(temperature_delta_c) >= IMU_TEMP_COMP_MIN_DELTA_C)
         {
@@ -529,13 +530,14 @@ static float imu_update_filtered_temperature(imu_runtime_t * p_imu, float temper
     return p_imu->filtered_temperature_c;
 }
 
-static bool imu_can_learn_temperature_compensation(icm42688Float3_t const * p_acc_g,
+static bool imu_can_learn_temperature_compensation(imu_runtime_t const * p_imu,
+                                                   icm42688Float3_t const * p_acc_g,
                                                    icm42688Float3_t const * p_corrected_gyro_rad_s)
 {
     float acc_norm;
     float gyro_norm;
 
-    if ((NULL == p_acc_g) || (NULL == p_corrected_gyro_rad_s))
+    if ((NULL == p_imu) || (NULL == p_acc_g) || (NULL == p_corrected_gyro_rad_s))
     {
         return false;
     }
@@ -543,7 +545,8 @@ static bool imu_can_learn_temperature_compensation(icm42688Float3_t const * p_ac
     acc_norm = imu_vector_norm(p_acc_g);
     gyro_norm = imu_vector_norm(p_corrected_gyro_rad_s);
 
-    return ((acc_norm >= IMU_STATIC_ACC_MIN_G) &&
+    return (p_imu->in_static_window &&
+            (acc_norm >= IMU_STATIC_ACC_MIN_G) &&
             (acc_norm <= IMU_STATIC_ACC_MAX_G) &&
             (gyro_norm <= IMU_TEMP_COMP_STATIC_GYRO_RAD_S_MAX));
 }

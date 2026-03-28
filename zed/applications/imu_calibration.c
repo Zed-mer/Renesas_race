@@ -13,7 +13,8 @@
 #define IMU_FINAL_DRIFT_ACC_MIN_G        0.94f
 #define IMU_FINAL_DRIFT_ACC_MAX_G        1.06f
 #define IMU_FINAL_DRIFT_GYRO_MAX_RAD_S   (2.5f * IMU_DEG_TO_RAD)
-#define IMU_FK_OPT_RESEED_THRESHOLD_DEG  2.0f
+#define IMU_FK_OPT_RESEED_THRESHOLD_DEG   2.0f
+#define IMU_RUNTIME_POSE_RESIDUAL_HOLD_DEG 25.0f
 
 /*
  * 标定模块总览
@@ -50,6 +51,21 @@ static bool             imu_measure_swing_deg(Quaternion_t const * p_pose,
 static bool             imu_measure_twist_deg(Quaternion_t const * p_pose,
                                               icm42688Float3_t const * p_axis,
                                               float * p_angle_deg);
+static bool             imu_measure_axis_map_raw_deg(imu_axis_map_t const * p_map,
+                                                     imu_motion_components_t const * p_motion,
+                                                     float * p_raw_deg);
+static bool             imu_calc_pose_basis_residual_deg(Quaternion_t const * p_pose,
+                                                         Quaternion_t const * p_basis1_pose,
+                                                         Quaternion_t const * p_basis2_pose,
+                                                         float * p_residual_deg);
+static bool             imu_get_stable_axis_output(imu_axis_map_t const * p_map,
+                                                   int32_t * p_output_deg);
+static bool             imu_try_build_servo_pose_direct(imu_app_context_t * p_ctx,
+                                                        imu_motion_components_t const * p_motion,
+                                                        int32_t * p_hY_deg,
+                                                        int32_t * p_hZ_deg,
+                                                        int32_t * p_eZ_deg,
+                                                        int32_t * p_wX_deg);
 static bool             imu_build_pose_from_axis_maps(imu_axis_map_t const * p_map1,
                                                       imu_axis_map_t const * p_map2,
                                                       float primary_deg,
@@ -84,6 +100,7 @@ static bool             imu_apply_axis_output_common(imu_axis_map_t * p_map,
                                                      float raw_deg,
                                                      bool wrap_delta,
                                                      int32_t * p_output_deg);
+static bool             imu_apply_axis_map(imu_axis_map_t * p_map, float raw_deg, int32_t * p_output_deg);
 static bool             imu_apply_servo_target_deg(imu_axis_map_t * p_map, float target_deg, int32_t * p_output_deg);
 static uint8_t          imu_get_grip_percent(void);
 
@@ -190,7 +207,8 @@ bool imu_try_build_servo_pose(imu_app_context_t * p_ctx, imu_servo_pose_t * p_po
         return false;
     }
 
-    if (!imu_try_build_servo_pose_fk_opt(p_ctx, &motion, &hY_deg, &hZ_deg, &eZ_deg, &wX_deg))
+    if (!imu_try_build_servo_pose_direct(p_ctx, &motion, &hY_deg, &hZ_deg, &eZ_deg, &wX_deg) &&
+        !imu_try_build_servo_pose_fk_opt(p_ctx, &motion, &hY_deg, &hZ_deg, &eZ_deg, &wX_deg))
     {
         return false;
     }
@@ -730,7 +748,6 @@ static bool imu_measure_twist_deg(Quaternion_t const * p_pose,
 
     return true;
 }
-#if 0
 static bool imu_solve_basis_coefficients(icm42688Float3_t const * p_basis1,
                                          icm42688Float3_t const * p_basis2,
                                          icm42688Float3_t const * p_value,
@@ -770,7 +787,174 @@ static bool imu_solve_basis_coefficients(icm42688Float3_t const * p_basis1,
 
     return true;
 }
-#endif
+
+static bool imu_measure_axis_map_raw_deg(imu_axis_map_t const * p_map,
+                                         imu_motion_components_t const * p_motion,
+                                         float * p_raw_deg)
+{
+    Quaternion_t const * p_pose = NULL;
+
+    if ((NULL == p_map) || (NULL == p_motion) || (NULL == p_raw_deg) || !p_map->valid)
+    {
+        return false;
+    }
+
+    switch (p_map->source)
+    {
+        case IMU_SIGNAL_SOURCE_UPPER:
+            p_pose = &p_motion->upper_bone;
+            break;
+
+        case IMU_SIGNAL_SOURCE_RELATIVE:
+            p_pose = &p_motion->relative_bone;
+            break;
+
+        default:
+            return false;
+    }
+
+    switch (p_map->measure)
+    {
+        case IMU_ANGLE_MEASURE_SWING:
+            if (!p_map->has_reference)
+            {
+                return false;
+            }
+
+            return imu_measure_swing_deg(p_pose, &p_map->reference, &p_map->axis, p_raw_deg);
+
+        case IMU_ANGLE_MEASURE_TWIST:
+            return imu_measure_twist_deg(p_pose, &p_map->axis, p_raw_deg);
+
+        default:
+            return false;
+    }
+}
+
+static bool imu_calc_pose_basis_residual_deg(Quaternion_t const * p_pose,
+                                             Quaternion_t const * p_basis1_pose,
+                                             Quaternion_t const * p_basis2_pose,
+                                             float * p_residual_deg)
+{
+    icm42688Float3_t current_vec = {0.0f, 0.0f, 0.0f};
+    icm42688Float3_t basis1_vec = {0.0f, 0.0f, 0.0f};
+    icm42688Float3_t basis2_vec = {0.0f, 0.0f, 0.0f};
+    icm42688Float3_t residual_vec = {0.0f, 0.0f, 0.0f};
+    float            coeff1 = 0.0f;
+    float            coeff2 = 0.0f;
+
+    if ((NULL == p_pose) || (NULL == p_basis1_pose) || (NULL == p_basis2_pose) || (NULL == p_residual_deg))
+    {
+        return false;
+    }
+
+    if (!imu_quaternion_extract_rotation_vector_deg(p_pose, &current_vec) ||
+        !imu_quaternion_extract_rotation_vector_deg(p_basis1_pose, &basis1_vec) ||
+        !imu_quaternion_extract_rotation_vector_deg(p_basis2_pose, &basis2_vec))
+    {
+        return false;
+    }
+
+    if (!imu_solve_basis_coefficients(&basis1_vec, &basis2_vec, &current_vec, &coeff1, &coeff2))
+    {
+        return false;
+    }
+
+    residual_vec.x = current_vec.x - ((basis1_vec.x * coeff1) + (basis2_vec.x * coeff2));
+    residual_vec.y = current_vec.y - ((basis1_vec.y * coeff1) + (basis2_vec.y * coeff2));
+    residual_vec.z = current_vec.z - ((basis1_vec.z * coeff1) + (basis2_vec.z * coeff2));
+    *p_residual_deg = imu_vector_norm(&residual_vec);
+
+    return true;
+}
+
+static bool imu_get_stable_axis_output(imu_axis_map_t const * p_map, int32_t * p_output_deg)
+{
+    if ((NULL == p_map) || (NULL == p_output_deg) || !p_map->valid)
+    {
+        return false;
+    }
+
+    *p_output_deg = p_map->has_last_output ? (int32_t) p_map->last_output_deg : (int32_t) p_map->center_deg;
+    return true;
+}
+
+static bool imu_try_build_servo_pose_direct(imu_app_context_t * p_ctx,
+                                            imu_motion_components_t const * p_motion,
+                                            int32_t * p_hY_deg,
+                                            int32_t * p_hZ_deg,
+                                            int32_t * p_eZ_deg,
+                                            int32_t * p_wX_deg)
+{
+    float upper_hy_raw_deg = 0.0f;
+    float upper_hz_raw_deg = 0.0f;
+    float relative_ez_raw_deg = 0.0f;
+    float relative_wx_raw_deg = 0.0f;
+    float upper_residual_deg = 0.0f;
+    float lower_residual_deg = 0.0f;
+    bool  upper_hold;
+    bool  lower_hold;
+
+    if ((NULL == p_ctx) || (NULL == p_motion) ||
+        (NULL == p_hY_deg) || (NULL == p_hZ_deg) || (NULL == p_eZ_deg) || (NULL == p_wX_deg))
+    {
+        return false;
+    }
+
+    upper_hold = !imu_measure_axis_map_raw_deg(&p_ctx->calibration.hY_map, p_motion, &upper_hy_raw_deg) ||
+                 !imu_measure_axis_map_raw_deg(&p_ctx->calibration.hZ_map, p_motion, &upper_hz_raw_deg) ||
+                 !imu_calc_pose_basis_residual_deg(&p_motion->upper_bone,
+                                                   &p_ctx->calibration.upper_hy_pose,
+                                                   &p_ctx->calibration.upper_hz_pose,
+                                                   &upper_residual_deg) ||
+                 (upper_residual_deg > IMU_RUNTIME_POSE_RESIDUAL_HOLD_DEG);
+
+    lower_hold = !imu_measure_axis_map_raw_deg(&p_ctx->calibration.eZ_map, p_motion, &relative_ez_raw_deg) ||
+                 !imu_measure_axis_map_raw_deg(&p_ctx->calibration.wX_map, p_motion, &relative_wx_raw_deg) ||
+                 !imu_calc_pose_basis_residual_deg(&p_motion->relative_bone,
+                                                   &p_ctx->calibration.relative_ez_pose,
+                                                   &p_ctx->calibration.relative_wx_pose,
+                                                   &lower_residual_deg) ||
+                 (lower_residual_deg > IMU_RUNTIME_POSE_RESIDUAL_HOLD_DEG);
+
+    if (upper_hold)
+    {
+        if (!imu_get_stable_axis_output(&p_ctx->calibration.hY_map, p_hY_deg) ||
+            !imu_get_stable_axis_output(&p_ctx->calibration.hZ_map, p_hZ_deg))
+        {
+            return false;
+        }
+    }
+    else if (!imu_apply_axis_map(&p_ctx->calibration.hY_map,
+                                 upper_hy_raw_deg * p_ctx->calibration.hY_map.gain,
+                                 p_hY_deg) ||
+             !imu_apply_axis_map(&p_ctx->calibration.hZ_map,
+                                 upper_hz_raw_deg * p_ctx->calibration.hZ_map.gain,
+                                 p_hZ_deg))
+    {
+        return false;
+    }
+
+    if (lower_hold)
+    {
+        if (!imu_get_stable_axis_output(&p_ctx->calibration.eZ_map, p_eZ_deg) ||
+            !imu_get_stable_axis_output(&p_ctx->calibration.wX_map, p_wX_deg))
+        {
+            return false;
+        }
+    }
+    else if (!imu_apply_axis_map(&p_ctx->calibration.eZ_map,
+                                 relative_ez_raw_deg * p_ctx->calibration.eZ_map.gain,
+                                 p_eZ_deg) ||
+             !imu_apply_axis_map(&p_ctx->calibration.wX_map,
+                                 relative_wx_raw_deg * p_ctx->calibration.wX_map.gain,
+                                 p_wX_deg))
+    {
+        return false;
+    }
+
+    return true;
+}
 
 static bool imu_finalize_upper_axis_maps(imu_app_context_t * p_ctx)
 {
@@ -1228,22 +1412,23 @@ static bool imu_apply_axis_output_common(imu_axis_map_t * p_map,
     return true;
 }
 
-#if 0
 static bool imu_apply_axis_map(imu_axis_map_t * p_map, float raw_deg, int32_t * p_output_deg)
 {
     /*
      * 杈撳嚭鏁村舰灞傦細
      * 闄愰€熴€佹护娉€佹鍖洪兘鍦ㄨ繖閲屾墽琛岋紝鐢ㄦ潵鍑忓皯鎶栧姩鍜岀獊鍙樸€?     */
     /* 鍦ㄨ緭鍑鸿埖鏈鸿鍓嶅仛闄愰€熴€佹护娉㈠拰姝诲尯澶勭悊锛屽噺灏戞姈鍔ㄥ拰璺冲彉銆?*/
-    bool wrap_delta = false;
+    bool wrap_delta;
 
-#if 0
-    wrap_delta = true;
-#endif
+    if (NULL == p_map)
+    {
+        return false;
+    }
+
+    wrap_delta = (IMU_ANGLE_MEASURE_TWIST == p_map->measure);
 
     return imu_apply_axis_output_common(p_map, raw_deg, wrap_delta, p_output_deg);
 }
-#endif
 
 static bool imu_apply_servo_target_deg(imu_axis_map_t * p_map, float target_deg, int32_t * p_output_deg)
 {
