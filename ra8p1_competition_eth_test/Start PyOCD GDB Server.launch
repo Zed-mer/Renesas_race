@@ -1,0 +1,15 @@
+﻿<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<launchConfiguration type="org.eclipse.ui.externaltools.ProgramLaunchConfigurationType">
+    <stringAttribute key="org.eclipse.ui.externaltools.ATTR_LOCATION" value="C:\100ASK_PYOCD\pyocd311\Scripts\pyocd.exe"/>
+    <stringAttribute key="org.eclipse.ui.externaltools.ATTR_TOOL_ARGUMENTS" value="gdbserver --config C:\100ASK_PYOCD\pyocd.yaml --script pyocd_user.py --port 3333 --telnet-port 4444 --probe-server-port 5555 --persist --core 0"/>
+    <stringAttribute key="org.eclipse.ui.externaltools.ATTR_WORKING_DIRECTORY" value="${workspace_loc:/RA8P1_Competition_Eth_Test}"/>
+    <booleanAttribute key="org.eclipse.ui.externaltools.ATTR_LAUNCH_IN_BACKGROUND" value="true"/>
+    <listAttribute key="org.eclipse.debug.core.MAPPED_RESOURCE_PATHS">
+        <listEntry value="/RA8P1_Competition_Eth_Test"/>
+    </listAttribute>
+    <listAttribute key="org.eclipse.debug.core.MAPPED_RESOURCE_TYPES">
+        <listEntry value="4"/>
+    </listAttribute>
+    <stringAttribute key="org.eclipse.debug.ui.ATTR_CONSOLE_ENCODING" value="UTF-8"/>
+</launchConfiguration>
+

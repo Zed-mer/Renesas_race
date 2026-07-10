@@ -1,16 +1,12 @@
-__pycache__/
-*.pyc
-*.pyo
-*.egg-info/
-dist/
-build/
-.eggs/
-*.egg
-.venv/
-venv/
-.env
+# Local build output and tool caches
+**/Debug/
+**/Release/
+**/.settings/.rtmenus
+
+# Logs and packaged snapshots are not source files
 *.log
-stderr.txt
-.e2mcp/
-.bridge-port
-.adm-log
+*.zip
+*.7z
+
+# RT-Thread offline documentation bundles are not required to build firmware
+**/rt-thread/documentation/
