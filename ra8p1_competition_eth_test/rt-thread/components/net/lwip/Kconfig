@@ -162,6 +162,10 @@ if RT_USING_LWIP
     config RT_LWIP_TCP_WND
         int "the size of TCP send window"
         default 8196
+
+    config RT_LWIP_TCP_RECVMBOX_SIZE
+        int "the number of messages in each TCP receive mailbox"
+        default 10
     endif
 
     config RT_LWIP_TCPTHREAD_PRIORITY

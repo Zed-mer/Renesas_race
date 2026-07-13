@@ -6,6 +6,9 @@
 #include <rtdevice.h>
 #include <board.h>
 #include "hal_data.h"
+#include "eth_perf.h"
+
+void eth_test_start(void);
 
 void hal_entry(void)
 {
@@ -25,6 +28,7 @@ void hal_entry(void)
     rt_kprintf("==================================================\n");
 
     eth_test_start();
+    eth_perf_start();
 }
 
 

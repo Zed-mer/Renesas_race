@@ -178,7 +178,7 @@ const spi_flash_instance_t g_ospi1 =
 rsip_instance_t const * const gp_rsip_instance = &RA_NOT_DEFINED;
 #endif
 rmac_instance_ctrl_t g_ether0_ctrl;
-            static rmac_buffer_node_t g_ether0_buffer_node_list[129];
+            static rmac_buffer_node_t g_ether0_buffer_node_list[193];
 
             uint8_t g_ether0_mac_address[6] = { 0x00,0x11,0x22,0x33,0x44,0x55 };
 
@@ -215,9 +215,9 @@ rmac_instance_ctrl_t g_ether0_ctrl;
 .rx_timestamp_storage = LAYER3_SWITCH_RX_TIMESTAMP_STORAGE_DISABLE,
 }},
 };
-            layer3_switch_descriptor_t           g_ether0_rx_descriptor_array0[15+1];layer3_switch_descriptor_t           g_ether0_rx_descriptor_array1[15+1];rmac_queue_info_t g_ether0_rx_queue_list[2] =
+            layer3_switch_descriptor_t           g_ether0_rx_descriptor_array0[63+1];layer3_switch_descriptor_t           g_ether0_rx_descriptor_array1[63+1];rmac_queue_info_t g_ether0_rx_queue_list[2] =
  {
-{ .queue_cfg={.array_length       = 15+1,
+{ .queue_cfg={.array_length       = 63+1,
 .p_descriptor_array = g_ether0_rx_descriptor_array0,
 .p_ts_descriptor_array = NULL,
 .ports              = (1 << 0) | (0x0),
@@ -230,7 +230,7 @@ rmac_instance_ctrl_t g_ether0_ctrl;
 .rx_timestamp_storage = LAYER3_SWITCH_RX_TIMESTAMP_STORAGE_DISABLE,
 #endif
 }},
-{ .queue_cfg={.array_length       = 15+1,
+{ .queue_cfg={.array_length       = 63+1,
 .p_descriptor_array = g_ether0_rx_descriptor_array1,
 .p_ts_descriptor_array = NULL,
 .ports              = (1 << 0) | (0x0),
@@ -261,7 +261,7 @@ rmac_instance_ctrl_t g_ether0_ctrl;
 #endif
                 .rmpi_ipl                = (BSP_IRQ_DISABLED),
                 .p_buffer_node_list      = g_ether0_buffer_node_list,
-                .buffer_node_num         = 129,
+                .buffer_node_num         = 193,
                 .transmission_descriptor_format       = RMAC_TRANSMISSION_DESCRIPTOR_FORMAT_DIRECT,
             };
             uint8_t g_ether0_ether_buffer0[1536];
@@ -526,17 +526,17 @@ uint8_t g_ether0_ether_buffer127[1536];
             const ether_cfg_t g_ether0_cfg =
             {
                 .channel            = 0,
-                .zerocopy           = ETHER_ZEROCOPY_DISABLE,
+                .zerocopy           = ETHER_ZEROCOPY_ENABLE,
                 .multicast          = ETHER_MULTICAST_ENABLE,
                 .promiscuous        = ETHER_PROMISCUOUS_DISABLE,
-                .flow_control       = ETHER_FLOW_CONTROL_DISABLE,
+                .flow_control       = ETHER_FLOW_CONTROL_ENABLE,
                 .padding            = ETHER_PADDING_DISABLE,
                 .padding_offset     = 0,
                 .broadcast_filter   = 0,
                 .p_mac_address      = g_ether0_mac_address,
 
                 .num_tx_descriptors = 64,
-                .num_rx_descriptors = 64,
+                .num_rx_descriptors = 128,
 
                 .pp_ether_buffers   = pp_g_ether0_ether_buffers,
 

@@ -415,7 +415,11 @@
 #define TCPIP_THREAD_STACKSIZE      4096
 #endif
 #define TCPIP_THREAD_NAME           "tcpip"
+#ifdef RT_LWIP_TCP_RECVMBOX_SIZE
+#define DEFAULT_TCP_RECVMBOX_SIZE   RT_LWIP_TCP_RECVMBOX_SIZE
+#else
 #define DEFAULT_TCP_RECVMBOX_SIZE   10
+#endif
 
 /* ---------- ARP options ---------- */
 #define LWIP_ARP                    1
@@ -481,7 +485,11 @@
 
 #define LWIP_UDPLITE                0
 #define UDP_TTL                     255
+#ifdef RT_LWIP_UDP_RECVMBOX_SIZE
+#define DEFAULT_UDP_RECVMBOX_SIZE   RT_LWIP_UDP_RECVMBOX_SIZE
+#else
 #define DEFAULT_UDP_RECVMBOX_SIZE   1
+#endif
 
 /* ---------- RAW options ---------- */
 #ifdef RT_LWIP_RAW

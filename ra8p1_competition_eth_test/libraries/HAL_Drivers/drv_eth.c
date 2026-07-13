@@ -17,6 +17,7 @@
 #include <hal_data.h>
 #include <netif/ethernetif.h>
 #include <lwipopts.h>
+#include "eth_iq_fast.h"
 
 /* debug option */
 // #define ETH_RX_DUMP
@@ -26,6 +27,13 @@
 #define ETHER_GMAC_INTERRUPT_FACTOR_RECEPTION (0x000000C0)
 #define ETH_RX_BUF_SIZE ETH_MAX_PACKET_SIZE
 #define ETH_TX_BUF_SIZE ETH_MAX_PACKET_SIZE
+#define ETHA_MODE_DISABLE  1U
+#define ETHA_MODE_CONFIG   2U
+#define ETHA_MODE_OPERATION 3U
+#define ETH_PAUSE_TIME_QUANTA       0x0800U
+#define ETH_PAUSE_RETRANSMIT_QUANTA 0x0080U
+#define ETH_PAUSE_PORT0_DEASSERT    8U
+#define ETH_PAUSE_PORT0_ASSERT      15U
 // #define DRV_DEBUG
 #define LOG_TAG "drv.eth"
 #ifdef DRV_DEBUG
@@ -64,6 +72,8 @@ typedef struct eth_diag_counters
     uint32_t irq_link_on;
     uint32_t irq_link_off;
     uint32_t irq_rx_complete;
+    uint32_t irq_rx_message_lost;
+    uint32_t irq_error_global;
     uint32_t tx_calls;
     uint32_t tx_ok;
     uint32_t tx_fail;
@@ -73,6 +83,7 @@ typedef struct eth_diag_counters
     uint32_t rx_ok;
     uint32_t rx_empty;
     uint32_t rx_fail;
+    uint32_t rx_pbuf_alloc_fail;
     uint32_t rx_last_len;
     uint32_t rx_last_result;
     uint32_t mdio_found_mask;
@@ -83,6 +94,118 @@ typedef struct eth_diag_counters
 } eth_diag_counters_t;
 
 volatile eth_diag_counters_t g_eth_diag = { .magic = 0x45444847U };
+
+typedef struct eth_rmac_diag
+{
+    uint32_t magic;
+    uint32_t version;
+    uint32_t snapshots;
+    uint32_t phy_anar;
+    uint32_t phy_anlpar;
+    uint32_t phy_gigabit_control;
+    uint32_t phy_gigabit_status;
+    uint32_t mac_auto_pause_tx;
+    uint32_t mac_pause_rx;
+    uint32_t rx_overflow;
+    uint32_t rx_good_e_frames;
+    uint32_t rx_good_p_frames;
+    uint32_t rx_broadcast_frames;
+    uint32_t rx_multicast_frames;
+    uint32_t rx_unicast_frames;
+    uint32_t rx_error_frames;
+    uint32_t rx_all_frames;
+    uint32_t rx_good_undersize;
+    uint32_t rx_bad_undersize;
+    uint32_t rx_good_oversize;
+    uint32_t rx_bad_oversize;
+    uint32_t rx_fcs_error_raw;
+    uint32_t rx_fragment_error_raw;
+    uint32_t rx_message_lost_irq;
+    uint32_t global_error_irq;
+} eth_rmac_diag_t;
+
+volatile eth_rmac_diag_t g_eth_rmac_diag =
+{
+    .magic = 0x524D4143U,
+    .version = 1U
+};
+
+static void eth_configure_automatic_pause(void)
+{
+    if (ETHER_FLOW_CONTROL_ENABLE != g_ether0_cfg.flow_control)
+    {
+        return;
+    }
+
+    R_ETHA0->EAMC_b.OPC = ETHA_MODE_DISABLE;
+    FSP_HARDWARE_REGISTER_WAIT(R_ETHA0->EAMS_b.OPS, ETHA_MODE_DISABLE);
+    R_ETHA0->EAMC_b.OPC = ETHA_MODE_CONFIG;
+    FSP_HARDWARE_REGISTER_WAIT(R_ETHA0->EAMS_b.OPS, ETHA_MODE_CONFIG);
+
+    R_RMAC0->MTFFC_b.FCM = 0U;
+    R_RMAC0->MTPFC =
+        (ETH_PAUSE_TIME_QUANTA << R_RMAC0_MTPFC_PT_Pos) |
+        (ETH_PAUSE_RETRANSMIT_QUANTA << R_RMAC0_MTPFC_PFRT_Pos);
+    R_RMAC0->MTPFC2 = 0U;
+    R_RMAC0->MTPFC30_b.PFCPG = 1U;
+
+    R_ETHA0->EAMC_b.OPC = ETHA_MODE_DISABLE;
+    FSP_HARDWARE_REGISTER_WAIT(R_ETHA0->EAMS_b.OPS, ETHA_MODE_DISABLE);
+    R_ETHA0->EAMC_b.OPC = ETHA_MODE_OPERATION;
+    FSP_HARDWARE_REGISTER_WAIT(R_ETHA0->EAMS_b.OPS, ETHA_MODE_OPERATION);
+
+    R_COMA->CABPPPFLC0.LEVEL0 =
+        (ETH_PAUSE_PORT0_DEASSERT << R_COMA_CABPPPFLC_LEVEL0_PPDL_Pos) |
+        (ETH_PAUSE_PORT0_ASSERT << R_COMA_CABPPPFLC_LEVEL0_PPAL_Pos);
+}
+
+static void eth_diag_snapshot_rmac(bool include_phy)
+{
+    R_RMAC0_Type *rmac = g_rmac_phy0_ctrl.p_reg_rmac;
+    uint32_t value;
+
+    g_eth_rmac_diag.snapshots++;
+
+    if (include_phy)
+    {
+        if (FSP_SUCCESS == R_RMAC_PHY_Read(&g_rmac_phy0_ctrl, 0x04U, &value))
+        {
+            g_eth_rmac_diag.phy_anar = value;
+        }
+        if (FSP_SUCCESS == R_RMAC_PHY_Read(&g_rmac_phy0_ctrl, 0x05U, &value))
+        {
+            g_eth_rmac_diag.phy_anlpar = value;
+        }
+        if (FSP_SUCCESS == R_RMAC_PHY_Read(&g_rmac_phy0_ctrl, 0x09U, &value))
+        {
+            g_eth_rmac_diag.phy_gigabit_control = value;
+        }
+        if (FSP_SUCCESS == R_RMAC_PHY_Read(&g_rmac_phy0_ctrl, 0x0AU, &value))
+        {
+            g_eth_rmac_diag.phy_gigabit_status = value;
+        }
+    }
+
+    g_eth_rmac_diag.mac_auto_pause_tx     += rmac->MAPFTCT;
+    g_eth_rmac_diag.mac_pause_rx          += rmac->MPFRCT;
+    g_eth_rmac_diag.rx_overflow           += rmac->MROVFC;
+    g_eth_rmac_diag.rx_good_e_frames      += rmac->MRGFCE;
+    g_eth_rmac_diag.rx_good_p_frames      += rmac->MRGFCP;
+    g_eth_rmac_diag.rx_broadcast_frames   += rmac->MRBFC;
+    g_eth_rmac_diag.rx_multicast_frames   += rmac->MRMFC;
+    g_eth_rmac_diag.rx_unicast_frames     += rmac->MRUFC;
+    g_eth_rmac_diag.rx_error_frames       += rmac->MRFMEFC;
+    g_eth_rmac_diag.rx_all_frames         += rmac->MRFC;
+    g_eth_rmac_diag.rx_good_undersize     += rmac->MRGUEFC;
+    g_eth_rmac_diag.rx_bad_undersize      += rmac->MRBUEFC;
+    g_eth_rmac_diag.rx_good_oversize      += rmac->MRGOEFC;
+    g_eth_rmac_diag.rx_bad_oversize       += rmac->MRBOEFC;
+    g_eth_rmac_diag.rx_fcs_error_raw      += rmac->MRFCEFC;
+    g_eth_rmac_diag.rx_fragment_error_raw += rmac->MRFFMEFC;
+    g_eth_rmac_diag.rx_message_lost_irq  = g_eth_diag.irq_rx_message_lost;
+    g_eth_rmac_diag.global_error_irq     = g_eth_diag.irq_error_global;
+}
+
 static uint32_t eth_diag_mdio_read_addr(rmac_phy_instance_ctrl_t *phy_ctrl, uint32_t phy_addr, uint32_t reg_addr)
 {
     uint32_t mpsm = 0U;
@@ -258,6 +381,8 @@ static rt_err_t rt_ra_eth_init(void)
     g_eth_diag.open_result = (uint32_t)res;
     if (res != FSP_SUCCESS)
         LOG_W("R_ETHER_Open failed!, res = %d", res);
+    else
+        eth_configure_automatic_pause();
 
     eth_diag_scan_mdio();
 
@@ -399,7 +524,7 @@ rt_err_t rt_ra_eth_tx(rt_device_t dev, struct pbuf *p)
         }
     }
 #endif
-#if defined(__DCACHE_PRESENT)
+#if defined(__DCACHE_PRESENT) && (__DCACHE_PRESENT == 1U) && (BSP_CFG_DCACHE_ENABLED == 1)
     SCB_CleanInvalidateDCache();
 #endif
     res = R_ETHER_Write(&g_ether0_ctrl, buffer, p->tot_len < MINIMUM_ETHERNET_FRAME_SIZE ?  MINIMUM_ETHERNET_FRAME_SIZE : p->tot_len);
@@ -417,100 +542,62 @@ rt_err_t rt_ra_eth_tx(rt_device_t dev, struct pbuf *p)
 /* receive data*/
 struct pbuf *rt_ra_eth_rx(rt_device_t dev)
 {
-    struct pbuf *p = NULL;
-    struct pbuf *q = NULL;
-    uint32_t len = 0;
-    uint8_t *buffer = Rx_Buff;
+    struct pbuf *p;
+    uint32_t len;
+    uint8_t *buffer;
     fsp_err_t res;
-    uint32_t bufferoffset = 0;
-    uint32_t payloadoffset = 0;
-    uint32_t byteslefttocopy = 0;
-    uint32_t remaining_data;
 
-    g_eth_diag.rx_calls++;
-    res = R_ETHER_Read(&g_ether0_ctrl, buffer, &len);
-    g_eth_diag.rx_last_result = (uint32_t)res;
-    if (res != FSP_SUCCESS)
+    RT_UNUSED(dev);
+    while (1)
     {
-        g_eth_diag.rx_fail++;
-        LOG_D("R_ETHER_Read failed!, res = %d", res);
-        return NULL;
-    }
-    g_eth_diag.rx_last_len = len;
-    if (len == 0U)
-    {
-        g_eth_diag.rx_empty++;
-    }
-    else
-    {
-        g_eth_diag.rx_ok++;
-        SMEMCPY((void *)g_eth_diag.rx_first_bytes, buffer, sizeof(g_eth_diag.rx_first_bytes));
-    }
-
-    LOG_D("receive frame len : %d", len);
-    
-#if defined(__DCACHE_PRESENT)
-    SCB_CleanInvalidateDCache();
-#endif
-
-    if (len > 0)
-    {
-        /* We allocate a pbuf chain of pbufs from the Lwip buffer pool */
-        p = pbuf_alloc(PBUF_RAW, len, PBUF_POOL);
-        if (p == NULL)
+        buffer = NULL;
+        len = ETH_MAX_PACKET_SIZE;
+        g_eth_diag.rx_calls++;
+        res = R_ETHER_Read(&g_ether0_ctrl, &buffer, &len);
+        g_eth_diag.rx_last_result = (uint32_t)res;
+        if (res != FSP_SUCCESS)
         {
-            LOG_E("Failed to allocate pbuf for %d bytes", len);
+            g_eth_diag.rx_fail++;
             return NULL;
         }
-    }
-
-#ifdef ETH_RX_DUMP
-    if (p)
-    {
-        dump_hex(buffer, p->tot_len);
-    }
-#endif
-
-    if (p != NULL)
-    {
-        bufferoffset = 0;
-        for (q = p; q != NULL; q = q->next)
+        if (len == 0U)
         {
-            byteslefttocopy = q->len;
-            payloadoffset = 0;
-
-            if (bufferoffset >= len)
-            {
-                LOG_W("Buffer offset exceeds received length");
-                break;
-            }
-
-            remaining_data = len - bufferoffset;
-            if (byteslefttocopy > remaining_data)
-            {
-                byteslefttocopy = remaining_data;
-            }
-
-            /* Copy remaining data in pbuf */
-            SMEMCPY((uint8_t *)((uint8_t *)q->payload + payloadoffset), 
-                   (uint8_t *)((uint8_t *)buffer + bufferoffset), 
-                   byteslefttocopy);
-            bufferoffset += byteslefttocopy;
+            g_eth_diag.rx_empty++;
+            return NULL;
         }
-    }
 
-#ifdef ETH_RX_DUMP
-    if (p)
-    {
-        LOG_E("******p buf frame *********");
-        for (q = p; q != NULL; q = q->next)
+        g_eth_diag.rx_ok++;
+        g_eth_diag.rx_last_len = len;
+        SMEMCPY((void *)g_eth_diag.rx_first_bytes, buffer, sizeof(g_eth_diag.rx_first_bytes));
+        if (eth_iq_fast_consume(buffer, len))
         {
-            dump_hex(q->payload, q->len);
+            if (g_ether0.p_api->bufferRelease(g_ether0.p_ctrl) != FSP_SUCCESS)
+            {
+                g_eth_diag.rx_fail++;
+                return NULL;
+            }
+            continue;
         }
-    }
-#endif
 
-    return p;
+        p = pbuf_alloc(PBUF_RAW, (u16_t)len, PBUF_POOL);
+        if ((p == NULL) || (pbuf_take(p, buffer, (u16_t)len) != ERR_OK))
+        {
+            if (p != NULL)
+            {
+                pbuf_free(p);
+            }
+            g_eth_diag.rx_pbuf_alloc_fail++;
+            (void)g_ether0.p_api->bufferRelease(g_ether0.p_ctrl);
+            return NULL;
+        }
+        if (g_ether0.p_api->bufferRelease(g_ether0.p_ctrl) != FSP_SUCCESS)
+        {
+            pbuf_free(p);
+            g_eth_diag.rx_fail++;
+            return NULL;
+        }
+        return p;
+    }
 }
 
 static void phy_linkchange()
@@ -523,6 +610,7 @@ static void phy_linkchange()
     uint8_t current_link_status = 0;
     uint8_t i;
 
+    eth_diag_snapshot_rmac(true);
     LOG_D("phy_linkchange called, g_link_status: 0x%02x, g_link_change: 0x%02x", g_link_status, g_link_change);
 
     res = R_ETHER_LinkProcess(&g_ether0_ctrl);
@@ -636,6 +724,17 @@ void user_ether0_callback(ether_callback_args_t *p_args)
             rt_kprintf("RX err =%d\n", result);
         break;
     }
+
+    case ETHER_EVENT_RX_MESSAGE_LOST:
+        g_eth_diag.irq_rx_message_lost++;
+        eth_diag_snapshot_rmac(false);
+        (void)eth_device_ready(&(ra_eth_device.parent));
+        break;
+
+    case ETHER_EVENT_ERR_GLOBAL:
+        g_eth_diag.irq_error_global++;
+        eth_diag_snapshot_rmac(false);
+        break;
 
     default:
         LOG_D("Unknown ethernet event: %d", p_args->event);
