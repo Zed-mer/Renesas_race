@@ -76,6 +76,18 @@ class DisplayStartupContractTest(unittest.TestCase):
         self.assertIn("{0x11, {0x00}, 0, 120}", PANEL_C)
         self.assertIn("{0x29, {0x00}, 0, 20}", PANEL_C)
 
+    def test_startup_skips_optional_bta_reads(self) -> None:
+        body = function_body(BRINGUP_C, "void display_bringup_run(void)")
+        self.assertNotIn("jd9165_panel_read_lane_config(", body)
+        self.assertNotIn("jd9165_panel_read_power_mode(", body)
+        self.assertIn(
+            "#define DISPLAY_PANEL_READ_SKIPPED (UINT32_MAX)", BRINGUP_C
+        )
+        self.assertIn(
+            "panel_lane_read_error = DISPLAY_PANEL_READ_SKIPPED", body
+        )
+        self.assertIn("panel_read_error = DISPLAY_PANEL_READ_SKIPPED", body)
+
     def test_backlight_gate_runs_only_after_owner_step(self) -> None:
         before_loop, loop = HAL_ENTRY.split("while (1)", 1)
         self.assertNotIn("display_backlight_startup_step", before_loop)

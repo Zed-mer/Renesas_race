@@ -3,6 +3,7 @@
 #include <string.h>
 
 #define DISPLAY_DIAG_MAGIC    (0x4A443936U)
+#define DISPLAY_PANEL_READ_SKIPPED (UINT32_MAX)
 #define DISPLAY_BACKLIGHT     (BSP_IO_PORT_00_PIN_12)
 #define DISPLAY_PANEL_RESET   (BSP_IO_PORT_04_PIN_11)
 #define DISPLAY_RESET_ACTIVE  (BSP_IO_LEVEL_LOW)
@@ -567,20 +568,10 @@ void display_bringup_run(void)
         return;
     }
 
-    uint8_t panel_lane_config = 0U;
-    uint8_t panel_lane_control = 0U;
-    err = jd9165_panel_read_lane_config(&panel_lane_config, &panel_lane_control);
-    g_display_diag.panel_lane_read_error = (uint32_t) err;
-    g_display_diag.panel_lane_config = panel_lane_config;
-    g_display_diag.panel_lane_control = panel_lane_control;
-    if (FSP_SUCCESS != err)
-    {
-        display_fail(err);
-        return;
-    }
-
-    /* A failed read is diagnostic only; keep video running for visual checks. */
-    g_display_diag.panel_read_error = (uint32_t) jd9165_panel_read_power_mode();
+    /* Register reads require a bidirectional LP/BTA turnaround.  They are not
+     * needed to start video and can trigger LP contention on the long FPC. */
+    g_display_diag.panel_lane_read_error = DISPLAY_PANEL_READ_SKIPPED;
+    g_display_diag.panel_read_error = DISPLAY_PANEL_READ_SKIPPED;
 
     /* Leave the panel in normal-video mode immediately before VRUN.  Low-power
      * DSI commands are not valid once the video stream has started. */
