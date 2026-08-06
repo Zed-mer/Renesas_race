@@ -1,0 +1,9 @@
+GLIBC_2.4 {
+    global:
+        dlopen;
+        dlsym;
+        dlclose;
+        dlerror;
+    local:
+        *;
+};

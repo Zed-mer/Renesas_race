@@ -1,0 +1,9 @@
+ExitOnError 1
+Device R7KA8P1KF_CPU0
+SelectInterface SWD
+Speed 4000
+Connect
+SaveBin D:\Renesas_race\backups\display_projects\evidence\ui_frame_fb0.bin,0x68B00000,0x12C000
+SaveBin D:\Renesas_race\backups\display_projects\evidence\ui_frame_fb1.bin,0x68C2C000,0x12C000
+Go
+Exit

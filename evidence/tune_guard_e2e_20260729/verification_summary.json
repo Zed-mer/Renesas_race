@@ -1,0 +1,45 @@
+{
+  "status": "pass",
+  "date": "2026-07-29",
+  "target": "R7KA8P1KFLCAC",
+  "fsp_version": "6.4.0",
+  "git_base": "fb4bc0b54c41a87a882cf2deb7f9236e6a57b8e1",
+  "flash_method": "Debug_Multicore",
+  "cpu0": {
+    "elf_sha256": "80A17C2A8DC0B90B9305AFFC066B83DE0CE2FBF0E5BC95501F53D46F0BFAC57E",
+    "map_sha256": "3B5B195B30EDE5B3F60D4D23062F02581122E57B4B0356077E1753306B5C107B"
+  },
+  "cpu1": {
+    "elf_sha256": "921635F71E1E799723063E542F0B483C7637EC381DF5653E3C34C3E8EDA7C4A3",
+    "map_sha256": "B09B29B2469E850CDD1CC205D14BEE992D0CB536E5245F348CED2EEAADC308A9"
+  },
+  "sdr": {
+    "agent_sha256": "D67E6D229FBE7624E24DD0E587AF7336333C0388BF4A89143C6F3BC6E9DA7524",
+    "mmap_adapter_sha256": "B68F277DF9BE295EEFE2906220787F124E2900920A05D5FFB8D54D27ADEE7C0F",
+    "deployment": "tmp_only",
+    "persistent": false
+  },
+  "capture": {
+    "real_iq": true,
+    "windows": 50,
+    "elapsed_seconds": 5.49,
+    "payload_mbps_min": 370,
+    "payload_mbps_max": 393,
+    "retry_delta": 0,
+    "timeout_delta": 0,
+    "sequence_gap_delta": 0,
+    "reorder_delta": 0,
+    "iq_invalid_delta": 0,
+    "crc_error_delta": 0,
+    "ring_drop_delta": 0
+  },
+  "cpu1_presented_fps": 28.497,
+  "cross_core_abi_verified": true,
+  "solution_memory_verified": true,
+  "mve_verified": true,
+  "dave2d_verified": true,
+  "debug_multicore_flash_verified": true,
+  "user_acceptance": "pass",
+  "raw_runtime_trace_archived": false,
+  "npu_model": "placeholder"
+}

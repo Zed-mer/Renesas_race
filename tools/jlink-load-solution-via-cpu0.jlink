@@ -1,0 +1,10 @@
+SelectEmuBySN 1088229345
+device R7KA8P1KF_CPU0
+si SWD
+speed 4000
+connect
+loadfile D:\Renesas_race\ra8p1_sdr_stft_npu_display_solution_20260719_CPU0\Debug\rtthread.elf
+loadfile D:\Renesas_race\ra8p1_sdr_stft_npu_display_solution_20260719_CPU1\Debug\ra8p1_sdr_ai_display_solution_20260718_CPU1.elf
+r
+g
+exit

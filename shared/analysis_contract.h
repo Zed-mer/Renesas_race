@@ -1,0 +1,60 @@
+#ifndef RA8P1_ANALYSIS_CONTRACT_H
+#define RA8P1_ANALYSIS_CONTRACT_H
+
+#include <stdint.h>
+
+#define RA8P1_ANALYSIS_SOURCE_SAMPLE_RATE_HZ (60000000U)
+#define RA8P1_ANALYSIS_SAMPLE_RATE_HZ        (60000000U)
+#define RA8P1_ANALYSIS_BANDWIDTH_HZ         (56000000U)
+#define RA8P1_ANALYSIS_TOTAL_SAMPLES        (6000000ULL)
+#define RA8P1_ANALYSIS_LOW_LATENCY_SAMPLES  (590336ULL)
+#define RA8P1_ANALYSIS_FFT_SIZE             (1024U)
+#define RA8P1_ANALYSIS_HOP_SIZE             (512U)
+#define RA8P1_ANALYSIS_TILE_SAMPLES         (590336U)
+#define RA8P1_ANALYSIS_TILE_STRIDE_SAMPLES  (295168U)
+#define RA8P1_ANALYSIS_STFT_FRAMES         (1152U)
+#define RA8P1_ANALYSIS_TILE_COUNT          (19U)
+#define RA8P1_ANALYSIS_UNUSED_TAIL         (96640U)
+#define RA8P1_ANALYSIS_FREQ_BINS            (1024U)
+#define RA8P1_ANALYSIS_POOLED_FREQ_BINS     (204U)
+#define RA8P1_ANALYSIS_POOLED_TIME_BINS     (115U)
+#define RA8P1_ANALYSIS_MODEL_CHANNELS       (4U)
+#define RA8P1_ANALYSIS_MODEL_INPUT_BYTES    \
+    (RA8P1_ANALYSIS_POOLED_FREQ_BINS *      \
+     RA8P1_ANALYSIS_POOLED_TIME_BINS *      \
+     RA8P1_ANALYSIS_MODEL_CHANNELS)
+#define RA8P1_ANALYSIS_FREQ_REBIN_NUMERATOR   (256U)
+#define RA8P1_ANALYSIS_FREQ_REBIN_DENOMINATOR (51U)
+#define RA8P1_ANALYSIS_TIME_POOL              (10U)
+#define RA8P1_ANALYSIS_STFT_EDGE_CROP_FRAMES  (1U)
+
+/* The retained 32x16 waterfall is a UI-only reduction.  It is deliberately
+ * independent from the trained V12 tensor contract above. */
+#define RA8P1_ANALYSIS_DISPLAY_FREQ_BINS     (128U)
+#define RA8P1_ANALYSIS_DISPLAY_TIME_BINS     (128U)
+#define RA8P1_ANALYSIS_DISPLAY_FREQ_POOL     (8U)
+#define RA8P1_ANALYSIS_DISPLAY_TIME_POOL     (9U)
+#define RA8P1_ANALYSIS_ADC_FULL_SCALE       (2048.0F)
+
+typedef char ra8p1_analysis_tile_count_must_match_contract[
+    (1U + ((RA8P1_ANALYSIS_TOTAL_SAMPLES - RA8P1_ANALYSIS_TILE_SAMPLES) /
+           RA8P1_ANALYSIS_TILE_STRIDE_SAMPLES) == RA8P1_ANALYSIS_TILE_COUNT) ? 1 : -1];
+typedef char ra8p1_analysis_frame_count_must_match_contract[
+    (1U + ((RA8P1_ANALYSIS_TILE_SAMPLES - RA8P1_ANALYSIS_FFT_SIZE) /
+           RA8P1_ANALYSIS_HOP_SIZE) == RA8P1_ANALYSIS_STFT_FRAMES) ? 1 : -1];
+typedef char ra8p1_analysis_low_latency_session_must_equal_one_tile[
+    (RA8P1_ANALYSIS_LOW_LATENCY_SAMPLES == RA8P1_ANALYSIS_TILE_SAMPLES) ? 1 : -1];
+typedef char ra8p1_analysis_feature_bytes_must_match_v12[
+    (RA8P1_ANALYSIS_MODEL_INPUT_BYTES == 93840U) ? 1 : -1];
+typedef char ra8p1_analysis_rebin_must_cover_all_fft_bins[
+    ((RA8P1_ANALYSIS_POOLED_FREQ_BINS *
+      RA8P1_ANALYSIS_FREQ_REBIN_NUMERATOR) ==
+     (RA8P1_ANALYSIS_FREQ_BINS *
+      RA8P1_ANALYSIS_FREQ_REBIN_DENOMINATOR)) ? 1 : -1];
+typedef char ra8p1_analysis_crop_and_pool_must_make_115_cells[
+    (((RA8P1_ANALYSIS_STFT_FRAMES -
+       (2U * RA8P1_ANALYSIS_STFT_EDGE_CROP_FRAMES)) /
+      RA8P1_ANALYSIS_TIME_POOL) ==
+     RA8P1_ANALYSIS_POOLED_TIME_BINS) ? 1 : -1];
+
+#endif

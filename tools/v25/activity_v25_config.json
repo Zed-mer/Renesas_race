@@ -1,0 +1,290 @@
+{
+  "class_tables": [
+    {
+      "bins": [
+        {
+          "llr": 0.5,
+          "minimum_score": 0.55
+        },
+        {
+          "llr": 1.5,
+          "minimum_score": 0.75
+        },
+        {
+          "llr": 2.731073388793756,
+          "minimum_score": 0.9
+        }
+      ],
+      "class_name": "dji_control_fhss",
+      "enum_name": "DJI_CONTROL"
+    },
+    {
+      "bins": [
+        {
+          "llr": 0.5,
+          "minimum_score": 0.55
+        },
+        {
+          "llr": 1.5,
+          "minimum_score": 0.75
+        },
+        {
+          "llr": 3.0,
+          "minimum_score": 0.9
+        }
+      ],
+      "class_name": "dji_video_link",
+      "enum_name": "DJI_VIDEO"
+    },
+    {
+      "bins": [
+        {
+          "llr": 2.0,
+          "minimum_score": 0.55
+        },
+        {
+          "llr": 2.0,
+          "minimum_score": 0.75
+        },
+        {
+          "llr": 2.6800999011231132,
+          "minimum_score": 0.9
+        }
+      ],
+      "class_name": "radiolink_at9s_fhss",
+      "enum_name": "AT9S"
+    },
+    {
+      "bins": [
+        {
+          "llr": 2.0,
+          "minimum_score": 0.55
+        },
+        {
+          "llr": 2.0,
+          "minimum_score": 0.75
+        },
+        {
+          "llr": 3.0,
+          "minimum_score": 0.9
+        }
+      ],
+      "class_name": "yunzhuo_t12_fhss",
+      "enum_name": "T12"
+    },
+    {
+      "bins": [
+        {
+          "llr": 2.0,
+          "minimum_score": 0.55
+        },
+        {
+          "llr": 2.0,
+          "minimum_score": 0.75
+        },
+        {
+          "llr": 3.0,
+          "minimum_score": 0.9
+        }
+      ],
+      "class_name": "xiaobawang_fhss",
+      "enum_name": "XIAOBAWANG"
+    }
+  ],
+  "evidence": {
+    "leak": 0.97,
+    "leak_q12": 3973,
+    "maximum_period_bonus_q12": 1229,
+    "maximum_q12": 32768,
+    "minimum_q12": -32768,
+    "miss_q12": -1024,
+    "unknown_roi_scale_q12": 0,
+    "working_enter_q12": 12288,
+    "working_exit_q12": 2048
+  },
+  "profiles": {
+    "AT9S": {
+      "dual_exit_miss_rounds": 4,
+      "dual_strong_rounds": 0,
+      "dual_support_rounds": 2,
+      "exit_miss_rounds": 4,
+      "multi_hit_bonus_cap": 0.75,
+      "multi_hit_bonus_cap_q12": 3072,
+      "multi_hit_scale": 0.25,
+      "multi_hit_scale_q12": 1024,
+      "normal_off_decay": 0.5,
+      "normal_off_decay_q12": 2048,
+      "off_dual_exit_threshold": 3.75,
+      "off_dual_exit_threshold_q12": 15360,
+      "off_evidence_cap": 8.0,
+      "off_evidence_cap_q12": 32768,
+      "off_exit_threshold": 3.75,
+      "off_exit_threshold_q12": 15360,
+      "off_miss_llr": 0.9375,
+      "off_miss_llr_q12": 3840,
+      "on_dual_enter_threshold": 2.5,
+      "on_dual_enter_threshold_q12": 10240,
+      "on_enter_threshold": 2.5,
+      "on_enter_threshold_q12": 10240,
+      "on_evidence_cap": 8.0,
+      "on_evidence_cap_q12": 32768,
+      "on_hit_leak": 1.0,
+      "on_hit_leak_q12": 4096,
+      "on_miss_decay": 0.85,
+      "on_miss_decay_q12": 3482,
+      "single_strong_rounds": 0,
+      "single_support_rounds": 2,
+      "strong_llr": 2.5,
+      "strong_llr_q12": 10240,
+      "support_llr": 1.0,
+      "support_llr_q12": 4096,
+      "support_window_rounds": 8,
+      "uncertain_exit_rounds": 4,
+      "weak_miss_scale": 0.5,
+      "weak_miss_scale_q12": 2048,
+      "weak_on_scale": 0.25,
+      "weak_on_scale_q12": 1024,
+      "working_min_hold_rounds": 2
+    },
+    "DJI": {
+      "dual_exit_miss_rounds": 8,
+      "dual_strong_rounds": 2,
+      "dual_support_rounds": 2,
+      "exit_miss_rounds": 10,
+      "multi_hit_bonus_cap": 0.75,
+      "multi_hit_bonus_cap_q12": 3072,
+      "multi_hit_scale": 0.25,
+      "multi_hit_scale_q12": 1024,
+      "normal_off_decay": 0.75,
+      "normal_off_decay_q12": 3072,
+      "off_dual_exit_threshold": 5.998536568995476,
+      "off_dual_exit_threshold_q12": 24570,
+      "off_evidence_cap": 11.997073137990952,
+      "off_evidence_cap_q12": 49140,
+      "off_exit_threshold": 7.498170711244345,
+      "off_exit_threshold_q12": 30713,
+      "off_miss_llr": 0.7498170711244345,
+      "off_miss_llr_q12": 3071,
+      "on_dual_enter_threshold": 3.5,
+      "on_dual_enter_threshold_q12": 14336,
+      "on_enter_threshold": 3.5,
+      "on_enter_threshold_q12": 14336,
+      "on_evidence_cap": 8.0,
+      "on_evidence_cap_q12": 32768,
+      "on_hit_leak": 1.0,
+      "on_hit_leak_q12": 4096,
+      "on_miss_decay": 0.85,
+      "on_miss_decay_q12": 3482,
+      "single_strong_rounds": 2,
+      "single_support_rounds": 4,
+      "strong_llr": 1.5,
+      "strong_llr_q12": 6144,
+      "support_llr": 1.0,
+      "support_llr_q12": 4096,
+      "support_window_rounds": 8,
+      "uncertain_exit_rounds": 8,
+      "weak_miss_scale": 0.5,
+      "weak_miss_scale_q12": 2048,
+      "weak_on_scale": 0.25,
+      "weak_on_scale_q12": 1024,
+      "working_min_hold_rounds": 4
+    },
+    "T12": {
+      "dual_exit_miss_rounds": 6,
+      "dual_strong_rounds": 0,
+      "dual_support_rounds": 2,
+      "exit_miss_rounds": 6,
+      "multi_hit_bonus_cap": 0.75,
+      "multi_hit_bonus_cap_q12": 3072,
+      "multi_hit_scale": 0.25,
+      "multi_hit_scale_q12": 1024,
+      "normal_off_decay": 0.5,
+      "normal_off_decay_q12": 2048,
+      "off_dual_exit_threshold": 5.449769536992122,
+      "off_dual_exit_threshold_q12": 22322,
+      "off_evidence_cap": 9.688479176874884,
+      "off_evidence_cap_q12": 39684,
+      "off_exit_threshold": 5.449769536992122,
+      "off_exit_threshold_q12": 22322,
+      "off_miss_llr": 0.9082949228320203,
+      "off_miss_llr_q12": 3720,
+      "on_dual_enter_threshold": 2.5,
+      "on_dual_enter_threshold_q12": 10240,
+      "on_enter_threshold": 2.5,
+      "on_enter_threshold_q12": 10240,
+      "on_evidence_cap": 8.0,
+      "on_evidence_cap_q12": 32768,
+      "on_hit_leak": 1.0,
+      "on_hit_leak_q12": 4096,
+      "on_miss_decay": 0.85,
+      "on_miss_decay_q12": 3482,
+      "single_strong_rounds": 0,
+      "single_support_rounds": 2,
+      "strong_llr": 2.5,
+      "strong_llr_q12": 10240,
+      "support_llr": 1.0,
+      "support_llr_q12": 4096,
+      "support_window_rounds": 8,
+      "uncertain_exit_rounds": 4,
+      "weak_miss_scale": 0.5,
+      "weak_miss_scale_q12": 2048,
+      "weak_on_scale": 0.25,
+      "weak_on_scale_q12": 1024,
+      "working_min_hold_rounds": 2
+    },
+    "XIAOBAWANG": {
+      "dual_exit_miss_rounds": 6,
+      "dual_strong_rounds": 0,
+      "dual_support_rounds": 2,
+      "exit_miss_rounds": 6,
+      "multi_hit_bonus_cap": 0.75,
+      "multi_hit_bonus_cap_q12": 3072,
+      "multi_hit_scale": 0.25,
+      "multi_hit_scale_q12": 1024,
+      "normal_off_decay": 0.5,
+      "normal_off_decay_q12": 2048,
+      "off_dual_exit_threshold": 2.5747010760303333,
+      "off_dual_exit_threshold_q12": 10546,
+      "off_evidence_cap": 8.0,
+      "off_evidence_cap_q12": 32768,
+      "off_exit_threshold": 2.5747010760303333,
+      "off_exit_threshold_q12": 10546,
+      "off_miss_llr": 0.4291168460050555,
+      "off_miss_llr_q12": 1758,
+      "on_dual_enter_threshold": 2.5,
+      "on_dual_enter_threshold_q12": 10240,
+      "on_enter_threshold": 2.5,
+      "on_enter_threshold_q12": 10240,
+      "on_evidence_cap": 8.0,
+      "on_evidence_cap_q12": 32768,
+      "on_hit_leak": 1.0,
+      "on_hit_leak_q12": 4096,
+      "on_miss_decay": 0.85,
+      "on_miss_decay_q12": 3482,
+      "single_strong_rounds": 0,
+      "single_support_rounds": 2,
+      "strong_llr": 2.5,
+      "strong_llr_q12": 10240,
+      "support_llr": 1.0,
+      "support_llr_q12": 4096,
+      "support_window_rounds": 8,
+      "uncertain_exit_rounds": 4,
+      "weak_miss_scale": 0.5,
+      "weak_miss_scale_q12": 2048,
+      "weak_on_scale": 0.25,
+      "weak_on_scale_q12": 1024,
+      "working_min_hold_rounds": 2
+    }
+  },
+  "schema_version": "25.0.0",
+  "semantics": {
+    "complete_valid_four_frequency_round_only": true,
+    "invalid_round_freezes_all_state_and_output_generation": true,
+    "no_rf_observed_is_device_off": false,
+    "off_evidence_controls_working_exit_only": true,
+    "on_evidence_controls_entry_only": true,
+    "same_round_duplicates_use_capped_fusion": true
+  },
+  "t12_hop_bonus": 0.3,
+  "t12_hop_bonus_q12": 1229
+}

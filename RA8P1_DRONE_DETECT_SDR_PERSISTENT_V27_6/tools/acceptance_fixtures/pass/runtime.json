@@ -1,0 +1,42 @@
+[
+  {
+    "Tool": "ra8p1-runtime-sampler", "ToolVersion": "1.2",
+    "Elf": {"Cpu0": {"Sha256": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}, "Cpu1": {"Sha256": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"}},
+    "Snapshots": [{"ControlValid": true, "SessionId": 1000, "Latest": {"Valid": true, "SessionId": 1000, "CenterIndex": 0, "TileCount": 19, "TileIndex": 18, "WindowSequence": 19, "WindowSampleCount": 590336, "StftFrameCount": 1152, "StftCycles": 1200000, "NpuCycles": 757459, "EndToEndCycles": 2100000, "IngressDrops": 0, "NpuReady": 1, "TimingFlags": 7, "StftMs": 1.2, "NpuMs": 0.757459, "EndToEndMs": 2.1}, "Tile": {"Valid": true, "SessionId": 1000, "WindowSequence": 19}, "Runtime": {"Valid": true, "Heartbeat": 10000, "Stage": 255, "LastError": 20, "Running": 0, "WaterfallTilesDropped": 0}}]
+  },
+  {
+    "Tool": "ra8p1-runtime-sampler", "ToolVersion": "1.2",
+    "Elf": {"Cpu0": {"Sha256": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}, "Cpu1": {"Sha256": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"}},
+    "Snapshots": [{"ControlValid": true, "SessionId": 1001, "Latest": {"Valid": true, "SessionId": 1001, "CenterIndex": 1, "TileCount": 19, "TileIndex": 18, "WindowSequence": 19, "WindowSampleCount": 590336, "StftFrameCount": 1152, "StftCycles": 1201000, "NpuCycles": 757500, "EndToEndCycles": 2101000, "IngressDrops": 0, "NpuReady": 1, "TimingFlags": 7, "StftMs": 1.201, "NpuMs": 0.7575, "EndToEndMs": 2.101}, "Tile": {"Valid": true, "SessionId": 1001, "WindowSequence": 19}, "Runtime": {"Valid": true, "Heartbeat": 10100, "Stage": 255, "LastError": 20, "Running": 0, "WaterfallTilesDropped": 0}}]
+  },
+  {
+    "Tool": "ra8p1-runtime-sampler", "ToolVersion": "1.2",
+    "Elf": {"Cpu0": {"Sha256": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}, "Cpu1": {"Sha256": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"}},
+    "Snapshots": [{"ControlValid": true, "SessionId": 1002, "Latest": {"Valid": true, "SessionId": 1002, "CenterIndex": 2, "TileCount": 19, "TileIndex": 18, "WindowSequence": 19, "WindowSampleCount": 590336, "StftFrameCount": 1152, "StftCycles": 1202000, "NpuCycles": 757520, "EndToEndCycles": 2102000, "IngressDrops": 0, "NpuReady": 1, "TimingFlags": 7, "StftMs": 1.202, "NpuMs": 0.75752, "EndToEndMs": 2.102}, "Tile": {"Valid": true, "SessionId": 1002, "WindowSequence": 19}, "Runtime": {"Valid": true, "Heartbeat": 10200, "Stage": 255, "LastError": 20, "Running": 0, "WaterfallTilesDropped": 0}}]
+  },
+  {
+    "Tool": "ra8p1-runtime-sampler", "ToolVersion": "1.2",
+    "Elf": {"Cpu0": {"Sha256": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}, "Cpu1": {"Sha256": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"}},
+    "Snapshots": [{"ControlValid": true, "SessionId": 1003, "Latest": {"Valid": true, "SessionId": 1003, "CenterIndex": 3, "TileCount": 19, "TileIndex": 18, "WindowSequence": 19, "WindowSampleCount": 590336, "StftFrameCount": 1152, "StftCycles": 1203000, "NpuCycles": 757530, "EndToEndCycles": 2103000, "IngressDrops": 0, "NpuReady": 1, "TimingFlags": 7, "StftMs": 1.203, "NpuMs": 0.75753, "EndToEndMs": 2.103}, "Tile": {"Valid": true, "SessionId": 1003, "WindowSequence": 19}, "Runtime": {"Valid": true, "Heartbeat": 10300, "Stage": 255, "LastError": 20, "Running": 0, "WaterfallTilesDropped": 0}}]
+  },
+  {
+    "Tool": "ra8p1-runtime-sampler", "ToolVersion": "1.2",
+    "Elf": {"Cpu0": {"Sha256": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}, "Cpu1": {"Sha256": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"}},
+    "Snapshots": [{"ControlValid": true, "SessionId": 1004, "Latest": {"Valid": true, "SessionId": 1004, "CenterIndex": 0, "TileCount": 19, "TileIndex": 18, "WindowSequence": 19, "WindowSampleCount": 590336, "StftFrameCount": 1152, "StftCycles": 1210000, "NpuCycles": 757540, "EndToEndCycles": 2110000, "IngressDrops": 0, "NpuReady": 1, "TimingFlags": 7, "StftMs": 1.21, "NpuMs": 0.75754, "EndToEndMs": 2.11}, "Tile": {"Valid": true, "SessionId": 1004, "WindowSequence": 19}, "Runtime": {"Valid": true, "Heartbeat": 10400, "Stage": 255, "LastError": 20, "Running": 0, "WaterfallTilesDropped": 0}}]
+  },
+  {
+    "Tool": "ra8p1-runtime-sampler", "ToolVersion": "1.2",
+    "Elf": {"Cpu0": {"Sha256": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}, "Cpu1": {"Sha256": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"}},
+    "Snapshots": [{"ControlValid": true, "SessionId": 1005, "Latest": {"Valid": true, "SessionId": 1005, "CenterIndex": 1, "TileCount": 19, "TileIndex": 18, "WindowSequence": 19, "WindowSampleCount": 590336, "StftFrameCount": 1152, "StftCycles": 1211000, "NpuCycles": 757550, "EndToEndCycles": 2111000, "IngressDrops": 0, "NpuReady": 1, "TimingFlags": 7, "StftMs": 1.211, "NpuMs": 0.75755, "EndToEndMs": 2.111}, "Tile": {"Valid": true, "SessionId": 1005, "WindowSequence": 19}, "Runtime": {"Valid": true, "Heartbeat": 10500, "Stage": 255, "LastError": 20, "Running": 0, "WaterfallTilesDropped": 0}}]
+  },
+  {
+    "Tool": "ra8p1-runtime-sampler", "ToolVersion": "1.2",
+    "Elf": {"Cpu0": {"Sha256": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}, "Cpu1": {"Sha256": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"}},
+    "Snapshots": [{"ControlValid": true, "SessionId": 1006, "Latest": {"Valid": true, "SessionId": 1006, "CenterIndex": 2, "TileCount": 19, "TileIndex": 18, "WindowSequence": 19, "WindowSampleCount": 590336, "StftFrameCount": 1152, "StftCycles": 1212000, "NpuCycles": 757560, "EndToEndCycles": 2112000, "IngressDrops": 0, "NpuReady": 1, "TimingFlags": 7, "StftMs": 1.212, "NpuMs": 0.75756, "EndToEndMs": 2.112}, "Tile": {"Valid": true, "SessionId": 1006, "WindowSequence": 19}, "Runtime": {"Valid": true, "Heartbeat": 10600, "Stage": 255, "LastError": 20, "Running": 0, "WaterfallTilesDropped": 0}}]
+  },
+  {
+    "Tool": "ra8p1-runtime-sampler", "ToolVersion": "1.2",
+    "Elf": {"Cpu0": {"Sha256": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}, "Cpu1": {"Sha256": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"}},
+    "Snapshots": [{"ControlValid": true, "SessionId": 1007, "Latest": {"Valid": true, "SessionId": 1007, "CenterIndex": 3, "TileCount": 19, "TileIndex": 18, "WindowSequence": 19, "WindowSampleCount": 590336, "StftFrameCount": 1152, "StftCycles": 1213000, "NpuCycles": 757570, "EndToEndCycles": 2113000, "IngressDrops": 0, "NpuReady": 1, "TimingFlags": 7, "StftMs": 1.213, "NpuMs": 0.75757, "EndToEndMs": 2.113}, "Tile": {"Valid": true, "SessionId": 1007, "WindowSequence": 19}, "Runtime": {"Valid": true, "Heartbeat": 10700, "Stage": 255, "LastError": 20, "Running": 0, "WaterfallTilesDropped": 0}}]
+  }
+]

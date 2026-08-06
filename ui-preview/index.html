@@ -1,0 +1,1045 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RA8P1 RF Display Layout Study</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --page: #07090a;
+      --surface: #0f1315;
+      --surface-2: #151a1d;
+      --line: #2d363a;
+      --grid: #253035;
+      --text: #edf3f2;
+      --muted: #89969a;
+      --axis: #a6b1b3;
+      --teal: #2bd3c6;
+      --cyan: #5bd6ff;
+      --lime: #9bd86c;
+      --amber: #f4b84a;
+      --red: #ef6262;
+      --preview-scale: 1;
+      font-family: "Segoe UI", Arial, sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      width: 100%;
+      min-width: 320px;
+      min-height: 100%;
+      margin: 0;
+      background: var(--page);
+      color: var(--text);
+    }
+
+    body {
+      display: grid;
+      place-items: start center;
+      padding: 18px 20px 22px;
+      overflow-x: hidden;
+    }
+
+    button {
+      font: inherit;
+    }
+
+    .preview-shell {
+      width: min(1120px, 100%);
+      display: grid;
+      gap: 14px;
+    }
+
+    .preview-toolbar {
+      min-height: 40px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+    }
+
+    .preview-title {
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+      white-space: nowrap;
+      font-size: 15px;
+      font-weight: 700;
+    }
+
+    .preview-title span {
+      color: var(--muted);
+      font: 600 11px/1 "Consolas", monospace;
+    }
+
+    .layout-tabs {
+      height: 34px;
+      display: grid;
+      grid-template-columns: repeat(3, minmax(126px, 1fr));
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      overflow: hidden;
+      background: #0b0e10;
+    }
+
+    .layout-tab {
+      min-width: 0;
+      border: 0;
+      border-right: 1px solid var(--line);
+      padding: 0 14px;
+      color: var(--muted);
+      background: transparent;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .layout-tab:last-child {
+      border-right: 0;
+    }
+
+    .layout-tab:hover {
+      color: var(--text);
+      background: #151a1c;
+    }
+
+    .layout-tab[aria-selected="true"] {
+      color: #061110;
+      background: var(--teal);
+    }
+
+    .viewport-wrap {
+      position: relative;
+      width: calc(1024px * var(--preview-scale));
+      height: calc(600px * var(--preview-scale));
+      justify-self: center;
+    }
+
+    .device {
+      position: absolute;
+      inset: 0 auto auto 0;
+      width: 1024px;
+      height: 600px;
+      transform: scale(var(--preview-scale));
+      transform-origin: top left;
+      overflow: hidden;
+      display: grid;
+      border: 1px solid #384247;
+      background: #0a0d0f;
+      box-shadow: 0 16px 42px rgba(0, 0, 0, 0.42);
+    }
+
+    .device.layout-a {
+      grid-template-columns: 1fr;
+      grid-template-rows: 42px 44px minmax(0, 1fr) 136px 36px;
+      grid-template-areas:
+        "header"
+        "alert"
+        "waterfall"
+        "spectrum"
+        "footer";
+    }
+
+    .device.layout-b {
+      grid-template-columns: 1fr;
+      grid-template-rows: 38px 36px minmax(0, 1fr) 108px 32px;
+      grid-template-areas:
+        "header"
+        "alert"
+        "waterfall"
+        "spectrum"
+        "footer";
+    }
+
+    .device.layout-c {
+      grid-template-columns: minmax(0, 1fr) 282px;
+      grid-template-rows: 40px 172px minmax(0, 1fr) 34px;
+      grid-template-areas:
+        "header header"
+        "waterfall spectrum"
+        "waterfall alert"
+        "footer footer";
+    }
+
+    .device-header {
+      grid-area: header;
+      display: grid;
+      grid-template-columns: 164px minmax(0, 1fr) 184px;
+      align-items: center;
+      gap: 12px;
+      padding: 0 12px;
+      border-bottom: 1px solid var(--line);
+      background: var(--surface-2);
+    }
+
+    .layout-b .device-header {
+      grid-template-columns: 144px minmax(0, 1fr) 168px;
+      padding: 0 10px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      min-width: 0;
+      font-size: 13px;
+      font-weight: 800;
+      letter-spacing: 0;
+    }
+
+    .brand-mark {
+      width: 6px;
+      height: 22px;
+      background: var(--teal);
+      flex: 0 0 auto;
+    }
+
+    .brand-sub {
+      color: var(--muted);
+      font: 600 9px/1.1 "Consolas", monospace;
+    }
+
+    .band-switch {
+      width: min(100%, 548px);
+      height: 28px;
+      justify-self: center;
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      border: 1px solid #3a4549;
+      border-radius: 4px;
+      overflow: hidden;
+      background: #0c1012;
+    }
+
+    .band-button {
+      min-width: 0;
+      border: 0;
+      border-right: 1px solid #303a3e;
+      padding: 0 8px;
+      color: #a8b3b5;
+      background: transparent;
+      cursor: pointer;
+      font: 700 11px/1 "Consolas", monospace;
+    }
+
+    .band-button:last-child {
+      border-right: 0;
+    }
+
+    .band-button:hover {
+      color: var(--text);
+      background: #1a2023;
+    }
+
+    .band-button[aria-pressed="true"] {
+      color: #041210;
+      background: var(--teal);
+    }
+
+    .system-status {
+      justify-self: end;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      white-space: nowrap;
+      color: #c2ccce;
+      font: 700 10px/1 "Consolas", monospace;
+    }
+
+    .status-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--lime);
+      box-shadow: 0 0 0 3px rgba(155, 216, 108, 0.12);
+    }
+
+    .instrument-panel {
+      min-width: 0;
+      min-height: 0;
+      position: relative;
+      display: grid;
+      grid-template-rows: 28px minmax(0, 1fr);
+      overflow: hidden;
+      background: var(--surface);
+    }
+
+    .waterfall-panel {
+      grid-area: waterfall;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .spectrum-panel {
+      grid-area: spectrum;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .layout-c .waterfall-panel {
+      border-right: 1px solid var(--line);
+      border-bottom: 0;
+    }
+
+    .layout-c .spectrum-panel {
+      border-bottom: 1px solid var(--line);
+    }
+
+    .layout-b .instrument-panel {
+      grid-template-rows: 24px minmax(0, 1fr);
+    }
+
+    .panel-heading {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 0 12px;
+      border-bottom: 1px solid #222b2f;
+      background: #111719;
+    }
+
+    .panel-heading h2 {
+      margin: 0;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0;
+    }
+
+    .panel-heading .panel-meta {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 0;
+      color: var(--muted);
+      font: 600 9px/1 "Consolas", monospace;
+    }
+
+    .panel-meta .accent {
+      color: var(--teal);
+    }
+
+    .plot-canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+      min-width: 0;
+      min-height: 0;
+      background: #090d0f;
+    }
+
+    .alert-bar {
+      grid-area: alert;
+      min-width: 0;
+      min-height: 0;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 220px;
+      align-items: center;
+      gap: 18px;
+      padding: 0 14px;
+      border-bottom: 1px solid var(--line);
+      background: #171a19;
+    }
+
+    .layout-b .alert-bar {
+      grid-template-columns: minmax(0, 1fr) 174px;
+      padding: 0 10px;
+    }
+
+    .alert-primary {
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .alert-state {
+      width: 8px;
+      height: 22px;
+      flex: 0 0 auto;
+      background: var(--red);
+    }
+
+    .alert-copy {
+      min-width: 0;
+      display: flex;
+      align-items: baseline;
+      gap: 12px;
+    }
+
+    .alert-copy strong {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .alert-copy span {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: var(--muted);
+      font: 600 10px/1 "Consolas", monospace;
+    }
+
+    .confidence {
+      display: grid;
+      grid-template-columns: 46px minmax(0, 1fr);
+      align-items: center;
+      gap: 10px;
+    }
+
+    .confidence strong {
+      color: var(--amber);
+      font: 800 14px/1 "Consolas", monospace;
+    }
+
+    .confidence-track {
+      height: 5px;
+      overflow: hidden;
+      background: #323a3b;
+    }
+
+    .confidence-track i {
+      display: block;
+      width: 78%;
+      height: 100%;
+      background: var(--amber);
+      transition: width 140ms linear;
+    }
+
+    .detection-list {
+      display: none;
+    }
+
+    .layout-c .alert-bar {
+      align-content: start;
+      grid-template-columns: 1fr;
+      grid-template-rows: auto auto minmax(0, 1fr);
+      gap: 14px;
+      padding: 16px 14px 12px;
+      border-bottom: 0;
+      background: #121719;
+    }
+
+    .layout-c .alert-primary {
+      align-items: flex-start;
+    }
+
+    .layout-c .alert-copy {
+      display: grid;
+      gap: 5px;
+    }
+
+    .layout-c .alert-copy strong {
+      font-size: 14px;
+    }
+
+    .layout-c .confidence {
+      grid-template-columns: 52px minmax(0, 1fr);
+    }
+
+    .layout-c .detection-list {
+      display: grid;
+      align-content: start;
+      gap: 1px;
+      border-top: 1px solid var(--line);
+    }
+
+    .detection-row {
+      min-height: 42px;
+      display: grid;
+      grid-template-columns: 10px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 9px;
+      border-bottom: 1px solid #252d30;
+      color: #bac4c6;
+      font-size: 10px;
+    }
+
+    .detection-row .mini-state {
+      width: 5px;
+      height: 16px;
+      background: var(--lime);
+    }
+
+    .detection-row:nth-child(2) .mini-state {
+      background: var(--amber);
+    }
+
+    .detection-row:nth-child(3) .mini-state {
+      background: #59666a;
+    }
+
+    .detection-row b {
+      font: 700 10px/1 "Consolas", monospace;
+    }
+
+    .metrics-footer {
+      grid-area: footer;
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      align-items: center;
+      padding: 0 12px;
+      border-top: 1px solid #2a3337;
+      background: #111618;
+      color: var(--muted);
+      font: 600 9px/1 "Consolas", monospace;
+    }
+
+    .metric {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      text-align: center;
+      border-right: 1px solid #2c3538;
+    }
+
+    .metric:first-child {
+      text-align: left;
+    }
+
+    .metric:last-child {
+      border-right: 0;
+      text-align: right;
+    }
+
+    .metric b {
+      margin-left: 5px;
+      color: var(--text);
+      font-weight: 700;
+    }
+
+    .metric.good b {
+      color: var(--lime);
+    }
+
+    .layout-caption {
+      min-height: 24px;
+      display: flex;
+      justify-content: center;
+      gap: 18px;
+      color: var(--muted);
+      font: 600 10px/1.4 "Consolas", monospace;
+    }
+
+    .layout-caption span {
+      white-space: nowrap;
+    }
+
+    @media (max-width: 760px) {
+      body {
+        padding: 12px 8px 16px;
+      }
+
+      .preview-toolbar {
+        align-items: stretch;
+        flex-direction: column;
+        gap: 10px;
+      }
+
+      .layout-tabs {
+        width: 100%;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+
+      .layout-tab {
+        padding: 0 6px;
+        font-size: 10px;
+      }
+
+      .layout-caption {
+        flex-wrap: wrap;
+        gap: 6px 14px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="preview-shell">
+    <header class="preview-toolbar">
+      <div class="preview-title">
+        RF display layout study
+        <span>1024 x 600</span>
+      </div>
+      <div class="layout-tabs" role="tablist" aria-label="Display layout">
+        <button class="layout-tab" type="button" role="tab" aria-selected="true" data-layout="a">A / Balanced</button>
+        <button class="layout-tab" type="button" role="tab" aria-selected="false" data-layout="b">B / Waterfall First</button>
+        <button class="layout-tab" type="button" role="tab" aria-selected="false" data-layout="c">C / Dense Ops</button>
+      </div>
+    </header>
+
+    <div class="viewport-wrap">
+      <section class="device layout-a" id="device" aria-label="RA8P1 1024 by 600 RF monitor preview">
+        <header class="device-header">
+          <div class="brand">
+            <span class="brand-mark" aria-hidden="true"></span>
+            <span>RF WATCH<br><span class="brand-sub">RA8P1 / LIVE IQ</span></span>
+          </div>
+          <div class="band-switch" role="group" aria-label="Center frequency">
+            <button class="band-button" type="button" aria-pressed="true" data-band="0">2.420 GHz</button>
+            <button class="band-button" type="button" aria-pressed="false" data-band="1">2.464 GHz</button>
+            <button class="band-button" type="button" aria-pressed="false" data-band="2">5.760 GHz</button>
+            <button class="band-button" type="button" aria-pressed="false" data-band="3">5.816 GHz</button>
+          </div>
+          <div class="system-status">
+            <span class="status-dot" aria-hidden="true"></span>
+            STREAM LOCKED&nbsp; / &nbsp;0 DROP
+          </div>
+        </header>
+
+        <section class="alert-bar" aria-label="Detection alert">
+          <div class="alert-primary">
+            <span class="alert-state" aria-hidden="true"></span>
+            <div class="alert-copy">
+              <strong id="alert-name">DRONE LINK ACTIVE</strong>
+              <span id="alert-detail">O3-like OFDM / 2.420 GHz</span>
+            </div>
+          </div>
+          <div class="confidence">
+            <strong id="confidence-value">82%</strong>
+            <span class="confidence-track"><i id="confidence-fill"></i></span>
+          </div>
+          <div class="detection-list" aria-label="Detection classes">
+            <div class="detection-row"><span class="mini-state"></span><span>Wideband control</span><b id="det-wide">82%</b></div>
+            <div class="detection-row"><span class="mini-state"></span><span>Video downlink</span><b id="det-video">64%</b></div>
+            <div class="detection-row"><span class="mini-state"></span><span>Remote ID</span><b id="det-id">18%</b></div>
+          </div>
+        </section>
+
+        <section class="instrument-panel waterfall-panel">
+          <div class="panel-heading">
+            <h2>WATERFALL / FREQUENCY x TIME</h2>
+            <div class="panel-meta">
+              <span id="waterfall-span">56 MHz SPAN</span>
+              <span class="accent">10 ms / COLUMN</span>
+              <span>4.48 s HISTORY</span>
+            </div>
+          </div>
+          <canvas class="plot-canvas" id="waterfall" aria-label="Frequency over time waterfall"></canvas>
+        </section>
+
+        <section class="instrument-panel spectrum-panel">
+          <div class="panel-heading">
+            <h2>LIVE SPECTRUM</h2>
+            <div class="panel-meta">
+              <span>FFT 1024</span>
+              <span>RBW 58.6 kHz</span>
+              <span class="accent" id="peak-readout">PEAK -38 dBFS</span>
+            </div>
+          </div>
+          <canvas class="plot-canvas" id="spectrum" aria-label="Live RF spectrum"></canvas>
+        </section>
+
+        <footer class="metrics-footer">
+          <span class="metric">SOURCE<b>RX1 S16 IQ</b></span>
+          <span class="metric">DATA<b>100 col/s</b></span>
+          <span class="metric">PANEL<b>46.9 Hz</b></span>
+          <span class="metric">CONTENT<b id="content-rate">46.9 FPS</b></span>
+          <span class="metric good">GLCDC UF<b>0</b></span>
+        </footer>
+      </section>
+    </div>
+
+    <footer class="layout-caption" aria-live="polite">
+      <span id="layout-code">A1 / BALANCED</span>
+      <span id="layout-waterfall">WF 1022 x 342</span>
+      <span id="layout-spectrum">SP 1022 x 136</span>
+      <span>SIMULATED 10 ms RF SLICES</span>
+    </footer>
+  </main>
+
+  <script>
+    (() => {
+      "use strict";
+
+      const HISTORY_COLUMNS = 448;
+      const FREQUENCY_BINS = 128;
+      const SLICE_MS = 10;
+      const bands = [
+        { center: 2420, label: "2.420 GHz", alert: "O3-like OFDM", confidence: 82, offset: -7.5 },
+        { center: 2464, label: "2.464 GHz", alert: "CONTROL BURST", confidence: 66, offset: 10.5 },
+        { center: 5760, label: "5.760 GHz", alert: "VIDEO DOWNLINK", confidence: 88, offset: -4.0 },
+        { center: 5816, label: "5.816 GHz", alert: "LOW ACTIVITY", confidence: 28, offset: 15.0 }
+      ];
+      const layoutText = {
+        a: ["A1 / BALANCED", "WF 1022 x 342", "SP 1022 x 136"],
+        b: ["B1 / WATERFALL FIRST", "WF 1022 x 386", "SP 1022 x 108"],
+        c: ["C1 / DENSE OPS", "WF 740 x 526", "SP 282 x 172"]
+      };
+
+      const device = document.getElementById("device");
+      const waterfallCanvas = document.getElementById("waterfall");
+      const spectrumCanvas = document.getElementById("spectrum");
+      const history = new Uint8Array(HISTORY_COLUMNS * FREQUENCY_BINS);
+      const latest = new Float32Array(FREQUENCY_BINS);
+      const waterfallBitmap = document.createElement("canvas");
+      waterfallBitmap.width = HISTORY_COLUMNS;
+      waterfallBitmap.height = FREQUENCY_BINS;
+      const waterfallBitmapContext = waterfallBitmap.getContext("2d", { alpha: false });
+      const imageData = waterfallBitmapContext.createImageData(HISTORY_COLUMNS, FREQUENCY_BINS);
+      const colorLut = buildColorLut();
+
+      let selectedBand = 0;
+      let simulationMs = 0;
+      let accumulatorMs = 0;
+      let lastFrameMs = performance.now();
+      let layout = "a";
+      let canvasSizeDirty = true;
+
+      function clamp(value, minimum, maximum) {
+        return Math.max(minimum, Math.min(maximum, value));
+      }
+
+      function mix(a, b, t) {
+        return Math.round(a + (b - a) * t);
+      }
+
+      function buildColorLut() {
+        const stops = [
+          [0.00, [4, 7, 10]],
+          [0.16, [8, 21, 40]],
+          [0.34, [10, 72, 92]],
+          [0.52, [27, 166, 161]],
+          [0.68, [104, 218, 171]],
+          [0.82, [244, 187, 73]],
+          [0.93, [239, 99, 76]],
+          [1.00, [246, 230, 184]]
+        ];
+        const lut = new Uint8Array(256 * 3);
+        for (let value = 0; value < 256; value += 1) {
+          const normalized = value / 255;
+          let right = 1;
+          while (right < stops.length - 1 && normalized > stops[right][0]) right += 1;
+          const left = right - 1;
+          const width = stops[right][0] - stops[left][0];
+          const amount = width === 0 ? 0 : (normalized - stops[left][0]) / width;
+          lut[value * 3] = mix(stops[left][1][0], stops[right][1][0], amount);
+          lut[value * 3 + 1] = mix(stops[left][1][1], stops[right][1][1], amount);
+          lut[value * 3 + 2] = mix(stops[left][1][2], stops[right][1][2], amount);
+        }
+        return lut;
+      }
+
+      function gaussian(value, center, width) {
+        const distance = (value - center) / width;
+        return Math.exp(-0.5 * distance * distance);
+      }
+
+      function signalLevel(bin, seconds) {
+        const normalized = bin / (FREQUENCY_BINS - 1);
+        const noise = 16 + Math.random() * 20 + 5 * Math.sin(bin * 0.31 + seconds * 2.2);
+        const band = bands[selectedBand];
+        const primaryCenter = 0.5 - band.offset / 56;
+        const slowPulse = 0.52 + 0.48 * Math.sin(seconds * 3.3 + selectedBand * 0.8);
+        const gated = slowPulse > 0.18 ? 1 : 0.22;
+        let level = noise;
+
+        level += 152 * gated * gaussian(normalized, primaryCenter, selectedBand === 1 ? 0.038 : 0.072);
+        level += 72 * gaussian(normalized, primaryCenter - 0.075, 0.012) * (0.5 + 0.5 * Math.sin(seconds * 18));
+        level += 56 * gaussian(normalized, primaryCenter + 0.09, 0.018) * (0.5 + 0.5 * Math.cos(seconds * 11));
+
+        if (selectedBand === 1) {
+          const hopper = 0.18 + ((Math.floor(seconds * 8) % 7) / 9);
+          level += 124 * gaussian(normalized, hopper, 0.013);
+        }
+        if (selectedBand === 2) {
+          const sideband = 0.76 + 0.025 * Math.sin(seconds * 0.9);
+          level += 105 * gaussian(normalized, sideband, 0.046);
+        }
+        if (selectedBand === 3) {
+          level *= 0.72;
+          level += 82 * gaussian(normalized, 0.27, 0.022) * (Math.sin(seconds * 5) > 0.72 ? 1 : 0.12);
+        }
+        return clamp(level, 0, 255);
+      }
+
+      function pushSlice() {
+        const seconds = simulationMs / 1000;
+        for (let row = 0; row < FREQUENCY_BINS; row += 1) {
+          const base = row * HISTORY_COLUMNS;
+          history.copyWithin(base, base + 1, base + HISTORY_COLUMNS);
+          const value = signalLevel(row, seconds);
+          history[base + HISTORY_COLUMNS - 1] = value;
+          latest[row] = latest[row] * 0.72 + value * 0.28;
+        }
+        simulationMs += SLICE_MS;
+      }
+
+      function seedHistory() {
+        history.fill(0);
+        latest.fill(0);
+        const targetMs = simulationMs;
+        simulationMs = Math.max(0, targetMs - HISTORY_COLUMNS * SLICE_MS);
+        for (let index = 0; index < HISTORY_COLUMNS; index += 1) pushSlice();
+      }
+
+      function canvasContext(canvas) {
+        const rectangle = canvas.getBoundingClientRect();
+        const width = Math.max(1, Math.round(rectangle.width));
+        const height = Math.max(1, Math.round(rectangle.height));
+        const ratio = Math.min(2, window.devicePixelRatio || 1);
+        const pixelWidth = Math.max(1, Math.round(width * ratio));
+        const pixelHeight = Math.max(1, Math.round(height * ratio));
+        if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) {
+          canvas.width = pixelWidth;
+          canvas.height = pixelHeight;
+        }
+        const context = canvas.getContext("2d", { alpha: false });
+        context.setTransform(ratio, 0, 0, ratio, 0, 0);
+        return { context, width, height };
+      }
+
+      function updateWaterfallBitmap() {
+        const pixels = imageData.data;
+        for (let index = 0; index < history.length; index += 1) {
+          const value = history[index];
+          const pixel = index * 4;
+          const lut = value * 3;
+          pixels[pixel] = colorLut[lut];
+          pixels[pixel + 1] = colorLut[lut + 1];
+          pixels[pixel + 2] = colorLut[lut + 2];
+          pixels[pixel + 3] = 255;
+        }
+        waterfallBitmapContext.putImageData(imageData, 0, 0);
+      }
+
+      function drawWaterfall() {
+        const { context, width, height } = canvasContext(waterfallCanvas);
+        const compact = layout === "c";
+        const left = compact ? 54 : 62;
+        const right = compact ? 12 : 18;
+        const top = 8;
+        const bottom = compact ? 27 : 28;
+        const plotWidth = Math.max(1, width - left - right);
+        const plotHeight = Math.max(1, height - top - bottom);
+        const band = bands[selectedBand];
+
+        context.fillStyle = "#090d0f";
+        context.fillRect(0, 0, width, height);
+        updateWaterfallBitmap();
+        context.imageSmoothingEnabled = false;
+        context.drawImage(waterfallBitmap, left, top, plotWidth, plotHeight);
+
+        context.strokeStyle = "rgba(206, 225, 226, 0.18)";
+        context.lineWidth = 1;
+        for (let index = 0; index <= 4; index += 1) {
+          const x = Math.round(left + (plotWidth * index) / 4) + 0.5;
+          context.beginPath();
+          context.moveTo(x, top);
+          context.lineTo(x, top + plotHeight);
+          context.stroke();
+        }
+        for (let index = 0; index <= 4; index += 1) {
+          const y = Math.round(top + (plotHeight * index) / 4) + 0.5;
+          context.beginPath();
+          context.moveTo(left, y);
+          context.lineTo(left + plotWidth, y);
+          context.stroke();
+        }
+
+        context.strokeStyle = "rgba(43, 211, 198, 0.78)";
+        context.beginPath();
+        context.moveTo(left + plotWidth - 0.5, top);
+        context.lineTo(left + plotWidth - 0.5, top + plotHeight);
+        context.stroke();
+
+        context.fillStyle = "#9aa7a9";
+        context.font = "9px Consolas, monospace";
+        context.textBaseline = "middle";
+        context.textAlign = "right";
+        const frequencies = [band.center + 28, band.center + 14, band.center, band.center - 14, band.center - 28];
+        frequencies.forEach((frequency, index) => {
+          const y = top + (plotHeight * index) / 4;
+          const label = frequency >= 5000 ? (frequency / 1000).toFixed(3) : frequency.toFixed(0);
+          context.fillText(label, left - 7, y);
+        });
+        context.save();
+        context.translate(10, top + plotHeight / 2);
+        context.rotate(-Math.PI / 2);
+        context.textAlign = "center";
+        context.fillStyle = "#718084";
+        context.fillText(band.center >= 5000 ? "GHz" : "MHz", 0, 0);
+        context.restore();
+
+        context.textBaseline = "alphabetic";
+        context.fillStyle = "#89979a";
+        context.textAlign = "left";
+        context.fillText("-4.48 s", left, height - 8);
+        context.textAlign = "center";
+        context.fillText("-2.24 s", left + plotWidth / 2, height - 8);
+        context.textAlign = "right";
+        context.fillStyle = "#2bd3c6";
+        context.fillText("NOW", left + plotWidth, height - 8);
+      }
+
+      function drawSpectrum() {
+        const { context, width, height } = canvasContext(spectrumCanvas);
+        const narrow = layout === "c";
+        const left = narrow ? 42 : 54;
+        const right = narrow ? 8 : 16;
+        const top = 7;
+        const bottom = narrow ? 23 : 24;
+        const plotWidth = Math.max(1, width - left - right);
+        const plotHeight = Math.max(1, height - top - bottom);
+        const band = bands[selectedBand];
+        let peakDb = -120;
+        let peakBin = 0;
+
+        context.fillStyle = "#090d0f";
+        context.fillRect(0, 0, width, height);
+        context.strokeStyle = "#253035";
+        context.lineWidth = 1;
+        for (let index = 0; index <= 4; index += 1) {
+          const y = Math.round(top + (plotHeight * index) / 4) + 0.5;
+          context.beginPath();
+          context.moveTo(left, y);
+          context.lineTo(left + plotWidth, y);
+          context.stroke();
+        }
+        for (let index = 0; index <= 4; index += 1) {
+          const x = Math.round(left + (plotWidth * index) / 4) + 0.5;
+          context.beginPath();
+          context.moveTo(x, top);
+          context.lineTo(x, top + plotHeight);
+          context.stroke();
+        }
+
+        context.beginPath();
+        for (let bin = 0; bin < FREQUENCY_BINS; bin += 1) {
+          const db = -120 + latest[bin] * 0.36;
+          if (db > peakDb) {
+            peakDb = db;
+            peakBin = bin;
+          }
+          const x = left + (plotWidth * bin) / (FREQUENCY_BINS - 1);
+          const y = top + ((-20 - db) / 100) * plotHeight;
+          if (bin === 0) context.moveTo(x, y);
+          else context.lineTo(x, y);
+        }
+        context.strokeStyle = "#5bd6ff";
+        context.lineWidth = narrow ? 1.25 : 1.5;
+        context.stroke();
+
+        context.lineTo(left + plotWidth, top + plotHeight);
+        context.lineTo(left, top + plotHeight);
+        context.closePath();
+        context.fillStyle = "rgba(91, 214, 255, 0.10)";
+        context.fill();
+
+        const peakX = left + (plotWidth * peakBin) / (FREQUENCY_BINS - 1);
+        const peakY = top + ((-20 - peakDb) / 100) * plotHeight;
+        context.fillStyle = "#f4b84a";
+        context.fillRect(Math.round(peakX) - 2, Math.round(peakY) - 2, 5, 5);
+
+        context.fillStyle = "#89979a";
+        context.font = narrow ? "8px Consolas, monospace" : "9px Consolas, monospace";
+        context.textBaseline = "middle";
+        context.textAlign = "right";
+        [-20, -45, -70, -95, -120].forEach((db, index) => {
+          context.fillText(String(db), left - 6, top + (plotHeight * index) / 4);
+        });
+
+        context.textBaseline = "alphabetic";
+        context.textAlign = "left";
+        context.fillText(narrow ? "-28" : `${(band.center - 28).toFixed(0)} MHz`, left, height - 7);
+        context.textAlign = "center";
+        context.fillText(narrow ? `${band.center}` : `${band.center.toFixed(0)} MHz`, left + plotWidth / 2, height - 7);
+        context.textAlign = "right";
+        context.fillText(narrow ? "+28 MHz" : `${(band.center + 28).toFixed(0)} MHz`, left + plotWidth, height - 7);
+
+        document.getElementById("peak-readout").textContent = `PEAK ${Math.round(peakDb)} dBFS`;
+      }
+
+      function updateAlert() {
+        const band = bands[selectedBand];
+        const wobble = Math.round(4 * Math.sin(simulationMs / 680));
+        const confidence = clamp(band.confidence + wobble, 8, 96);
+        const active = confidence >= 50;
+        document.getElementById("alert-name").textContent = active ? "DRONE LINK ACTIVE" : "LOW CONFIDENCE EVENT";
+        document.getElementById("alert-detail").textContent = `${band.alert} / ${band.label}`;
+        document.getElementById("confidence-value").textContent = `${confidence}%`;
+        document.getElementById("confidence-fill").style.width = `${confidence}%`;
+        document.getElementById("det-wide").textContent = `${confidence}%`;
+        document.getElementById("det-video").textContent = `${clamp(confidence - 18, 5, 92)}%`;
+        document.getElementById("det-id").textContent = `${clamp(confidence - 61, 3, 72)}%`;
+        document.querySelector(".alert-state").style.background = active ? "#ef6262" : "#f4b84a";
+      }
+
+      function selectBand(index) {
+        selectedBand = index;
+        document.querySelectorAll(".band-button").forEach((button, buttonIndex) => {
+          button.setAttribute("aria-pressed", buttonIndex === index ? "true" : "false");
+        });
+        seedHistory();
+        updateAlert();
+      }
+
+      function selectLayout(nextLayout) {
+        layout = nextLayout;
+        device.className = `device layout-${layout}`;
+        document.querySelectorAll(".layout-tab").forEach((button) => {
+          button.setAttribute("aria-selected", button.dataset.layout === layout ? "true" : "false");
+        });
+        const copy = layoutText[layout];
+        document.getElementById("layout-code").textContent = copy[0];
+        document.getElementById("layout-waterfall").textContent = copy[1];
+        document.getElementById("layout-spectrum").textContent = copy[2];
+        canvasSizeDirty = true;
+        requestAnimationFrame(() => {
+          drawWaterfall();
+          drawSpectrum();
+        });
+      }
+
+      function updatePreviewScale() {
+        const horizontal = Math.max(0.25, (window.innerWidth - 24) / 1024);
+        const toolbar = document.querySelector(".preview-toolbar").getBoundingClientRect().height;
+        const caption = document.querySelector(".layout-caption").getBoundingClientRect().height;
+        const vertical = Math.max(0.25, (window.innerHeight - toolbar - caption - 70) / 600);
+        const scale = Math.min(1, horizontal, vertical);
+        document.documentElement.style.setProperty("--preview-scale", scale.toFixed(4));
+        canvasSizeDirty = true;
+      }
+
+      function animate(now) {
+        const delta = clamp(now - lastFrameMs, 0, 100);
+        lastFrameMs = now;
+        accumulatorMs += delta;
+        let steps = 0;
+        while (accumulatorMs >= SLICE_MS && steps < 10) {
+          pushSlice();
+          accumulatorMs -= SLICE_MS;
+          steps += 1;
+        }
+        if (steps > 0 || canvasSizeDirty) {
+          drawWaterfall();
+          drawSpectrum();
+          canvasSizeDirty = false;
+        }
+        if ((Math.floor(simulationMs / 160) % 2) === 0) updateAlert();
+        requestAnimationFrame(animate);
+      }
+
+      document.querySelectorAll(".layout-tab").forEach((button) => {
+        button.addEventListener("click", () => selectLayout(button.dataset.layout));
+      });
+      document.querySelectorAll(".band-button").forEach((button, index) => {
+        button.addEventListener("click", () => selectBand(index));
+      });
+      window.addEventListener("resize", updatePreviewScale);
+
+      seedHistory();
+      updatePreviewScale();
+      selectLayout("a");
+      updateAlert();
+      requestAnimationFrame(animate);
+    })();
+  </script>
+</body>
+</html>

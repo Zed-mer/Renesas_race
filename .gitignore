@@ -1,0 +1,18 @@
+# Runtime and diagnostic output
+*.log
+
+# Local e2 studio build output
+**/Debug/
+**/Release/
+
+# Python bytecode and tool caches
+__pycache__/
+*.py[cod]
+
+# Local editor and OS state
+.vscode/
+*.tmp
+*.bak
+*~
+Thumbs.db
+Desktop.ini

@@ -1,0 +1,10 @@
+#include "rf_v17_subbin_calibration.h"
+
+const rf_v17_subbin_config_t
+    g_rf_v17_subbin_configs[RF_V16_CLASS_COUNT] = {
+    {RF_V17_SUBBIN_LOCALIZATION, UINT8_C(16), UINT8_C(5), UINT8_C(4)},
+    {RF_V17_SUBBIN_LOCALIZATION, UINT8_C(4), UINT8_C(3), UINT8_C(4)},
+    {RF_V17_SUBBIN_LOCALIZATION, UINT8_C(8), UINT8_C(5), UINT8_C(4)},
+    {RF_V17_SUBBIN_LOCALIZATION, UINT8_C(4), UINT8_C(5), UINT8_C(4)},
+    {RF_V17_SUBBIN_DISABLED, UINT8_C(16), UINT8_C(0), UINT8_C(1)}
+};

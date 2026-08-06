@@ -1,0 +1,69 @@
+{
+  "status": "pass",
+  "date": "2026-07-30",
+  "target": "R7KA8P1KFLCAC",
+  "probe_serial": "1088229345",
+  "sdr": {
+    "boot_evidence": "full Linux reboot observed; uptime reset and /tmp deployment bundle cleared",
+    "autorun_sha256": "a0df5a925d8e45a328ddd4cce65fc5c6a9ad36942cb7392e7a2c4abc4fe5f40b",
+    "agent_path": "/mnt/jffs2/ra8p1/sdr_capture_agent_d67e6d22",
+    "agent_sha256": "d67e6d229fbe7624e24dd0e587af7336333c0388bf4a89143c6f3bc6e9da7524",
+    "adapter_path": "/mnt/jffs2/ra8p1/sdr_adapter_iio_mmap_b68f277d.so",
+    "adapter_sha256": "b68f277df9be295eefe2906220787f124e2900920a05d5ffb8d54d27adee7c0f",
+    "previous_autorun_sha256": "5f0f898d6956629b7c3f2973d44c51fd2f5d48a9c04f6900f1f6b2cabf676365",
+    "tmp_bundle_cleared": true,
+    "automatic_start_seconds_after_boot": 7,
+    "agent_log_bytes": 321,
+    "trace_enabled": false,
+    "eth0_tx_bytes_at_uptime_104s": 1346341172,
+    "eth0_tx_errors": 0,
+    "jffs2_free_kib": 500
+  },
+  "runtime_parameters": {
+    "RA8P1_IIO_TUNE_SETTLE_US": 1000,
+    "RA8P1_IIO_TUNE_DISCARD_SAMPLES": 4096,
+    "RA8P1_SDR_UDP_GSO": 1,
+    "RA8P1_SDR_CRC_BACKEND": "nibble",
+    "command_trace_argument": "--no-trace"
+  },
+  "ra8p1_firmware": {
+    "cpu0_elf_sha256": "bb84558aae4396478f7cd111a3eb4b413265c59876a2cd3587169c50e7d54c7c",
+    "cpu1_elf_sha256": "f14bba78babb6f0c9d58e45aa75de4f2dc47967424aa37e573e7d6a429c94376",
+    "cpu0_cfsr": 0,
+    "cpu0_hfsr": 0,
+    "model_placeholder": false
+  },
+  "network_interval": {
+    "seconds": 3.374703,
+    "completed_windows_delta": 18,
+    "retry_delta": 0,
+    "timeout_delta": 0,
+    "sequence_gap_delta": 0,
+    "reordered_delta": 0,
+    "iq_invalid_delta": 0,
+    "crc_error_delta": 0,
+    "ring_full_drop_delta": 0,
+    "ring_oversize_drop_delta": 0,
+    "lwip_alloc_fail_delta": 0,
+    "lwip_mbox_fail_delta": 0,
+    "payload_mbps_snapshot_min": 331.946,
+    "payload_mbps_snapshot_max": 389.797
+  },
+  "display_interval": {
+    "requested_seconds": 8,
+    "presented_frames_before": 4086,
+    "presented_frames_after": 4100,
+    "content_frames_before": 4072,
+    "content_frames_after": 4086,
+    "waterfall_tiles_before": 10992,
+    "waterfall_tiles_after": 11025,
+    "ipc_frames_before": 687,
+    "ipc_frames_after": 689,
+    "ipc_tiles_before": 10992,
+    "ipc_tiles_after": 11025,
+    "waterfall_tiles_dropped": 0,
+    "ipc_tiles_missed": 0,
+    "npu_rate_hz_after": 5.17,
+    "presented_fps_hz_after": 30.303
+  }
+}

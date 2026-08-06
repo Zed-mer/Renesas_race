@@ -1,0 +1,13 @@
+{
+  "Tool": "ra8p1-npu-proof",
+  "ToolVersion": "1.0",
+  "Elf": {"Sha256": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"},
+  "Proof": {"Magic": "0x4E5055A5", "OpenResult": 0, "MedianCycles": 757459, "Checksum": "0xB834E80F"},
+  "Benchmark": {
+    "Magic": "0x4E5042A5", "Runs": 7, "CoreClockHz": 1000000000,
+    "MinCycles": 757111, "MedianCycles": 757459, "MaxCycles": 757639,
+    "Checksum": "0xB834E80F",
+    "Samples": [757111, 757320, 757410, 757459, 757520, 757600, 757639]
+  },
+  "Fault": {"CFSR": "0x00000001", "HFSR": "0x00000000"}
+}

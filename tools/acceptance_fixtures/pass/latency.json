@@ -1,0 +1,75 @@
+{
+  "Tool": "ra8p1-window-latency",
+  "ToolVersion": "1.0",
+  "Elf": {
+    "Cpu0": {"Sha256": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"},
+    "Cpu1": {"Sha256": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"}
+  },
+  "ClockContract": "all millisecond fields are derived from one monotonic board timebase",
+  "Sessions": [
+    {
+      "SessionId": 1000, "CenterIndex": 0,
+      "TileIndices": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18],
+      "FirstPacketToWindowCompleteMs": [26.31, 26.35, 26.36, 26.38, 26.39, 26.40, 26.41, 26.42, 26.43, 26.44, 26.45, 26.46, 26.47, 26.48, 26.49, 26.50, 26.52, 26.54, 26.57],
+      "WindowCompleteToNpuPublishMs": [0.81, 0.82, 0.82, 0.83, 0.83, 0.84, 0.84, 0.85, 0.85, 0.86, 0.86, 0.87, 0.87, 0.88, 0.88, 0.89, 0.89, 0.90, 0.91],
+      "WindowCompleteToCpu1PublishMs": [0.98, 0.99, 1.00, 1.00, 1.01, 1.01, 1.02, 1.02, 1.03, 1.03, 1.04, 1.04, 1.05, 1.05, 1.06, 1.06, 1.07, 1.08, 1.10],
+      "PacketLossEvents": 0, "ReorderEvents": 0, "BackpressureEvents": 0
+    },
+    {
+      "SessionId": 1001, "CenterIndex": 1,
+      "TileIndices": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18],
+      "FirstPacketToWindowCompleteMs": [26.32, 26.34, 26.36, 26.37, 26.39, 26.40, 26.42, 26.43, 26.44, 26.45, 26.46, 26.47, 26.48, 26.49, 26.50, 26.51, 26.53, 26.55, 26.58],
+      "WindowCompleteToNpuPublishMs": [0.81, 0.82, 0.82, 0.83, 0.83, 0.84, 0.84, 0.85, 0.85, 0.86, 0.86, 0.87, 0.87, 0.88, 0.88, 0.89, 0.90, 0.90, 0.92],
+      "WindowCompleteToCpu1PublishMs": [0.98, 0.99, 1.00, 1.00, 1.01, 1.01, 1.02, 1.02, 1.03, 1.03, 1.04, 1.04, 1.05, 1.05, 1.06, 1.06, 1.07, 1.09, 1.11],
+      "PacketLossEvents": 0, "ReorderEvents": 0, "BackpressureEvents": 0
+    },
+    {
+      "SessionId": 1002, "CenterIndex": 2,
+      "TileIndices": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18],
+      "FirstPacketToWindowCompleteMs": [26.30, 26.34, 26.35, 26.37, 26.39, 26.40, 26.41, 26.42, 26.43, 26.44, 26.45, 26.46, 26.47, 26.48, 26.49, 26.50, 26.52, 26.54, 26.56],
+      "WindowCompleteToNpuPublishMs": [0.80, 0.81, 0.82, 0.82, 0.83, 0.83, 0.84, 0.84, 0.85, 0.85, 0.86, 0.86, 0.87, 0.87, 0.88, 0.88, 0.89, 0.90, 0.91],
+      "WindowCompleteToCpu1PublishMs": [0.97, 0.98, 0.99, 1.00, 1.00, 1.01, 1.01, 1.02, 1.02, 1.03, 1.03, 1.04, 1.04, 1.05, 1.05, 1.06, 1.07, 1.08, 1.10],
+      "PacketLossEvents": 0, "ReorderEvents": 0, "BackpressureEvents": 0
+    },
+    {
+      "SessionId": 1003, "CenterIndex": 3,
+      "TileIndices": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18],
+      "FirstPacketToWindowCompleteMs": [26.33, 26.35, 26.36, 26.38, 26.39, 26.41, 26.42, 26.43, 26.44, 26.45, 26.46, 26.47, 26.49, 26.50, 26.51, 26.52, 26.54, 26.56, 26.59],
+      "WindowCompleteToNpuPublishMs": [0.81, 0.82, 0.82, 0.83, 0.83, 0.84, 0.84, 0.85, 0.85, 0.86, 0.86, 0.87, 0.87, 0.88, 0.89, 0.89, 0.90, 0.91, 0.92],
+      "WindowCompleteToCpu1PublishMs": [0.98, 0.99, 1.00, 1.00, 1.01, 1.01, 1.02, 1.02, 1.03, 1.03, 1.04, 1.05, 1.05, 1.06, 1.06, 1.07, 1.08, 1.09, 1.12],
+      "PacketLossEvents": 0, "ReorderEvents": 0, "BackpressureEvents": 0
+    },
+    {
+      "SessionId": 1004, "CenterIndex": 0,
+      "TileIndices": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18],
+      "FirstPacketToWindowCompleteMs": [23.68, 23.70, 23.71, 23.72, 23.73, 23.74, 23.75, 23.76, 23.77, 23.78, 23.79, 23.80, 23.81, 23.82, 23.83, 23.84, 23.86, 23.88, 23.91],
+      "WindowCompleteToNpuPublishMs": [0.80, 0.81, 0.81, 0.82, 0.82, 0.83, 0.83, 0.84, 0.84, 0.85, 0.85, 0.86, 0.86, 0.87, 0.87, 0.88, 0.89, 0.90, 0.91],
+      "WindowCompleteToCpu1PublishMs": [0.96, 0.97, 0.98, 0.98, 0.99, 0.99, 1.00, 1.00, 1.01, 1.01, 1.02, 1.02, 1.03, 1.03, 1.04, 1.05, 1.06, 1.07, 1.09],
+      "PacketLossEvents": 0, "ReorderEvents": 0, "BackpressureEvents": 0
+    },
+    {
+      "SessionId": 1005, "CenterIndex": 1,
+      "TileIndices": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18],
+      "FirstPacketToWindowCompleteMs": [23.69, 23.70, 23.71, 23.72, 23.73, 23.74, 23.75, 23.76, 23.77, 23.78, 23.79, 23.80, 23.81, 23.82, 23.83, 23.85, 23.87, 23.89, 23.92],
+      "WindowCompleteToNpuPublishMs": [0.80, 0.81, 0.81, 0.82, 0.82, 0.83, 0.83, 0.84, 0.84, 0.85, 0.85, 0.86, 0.86, 0.87, 0.87, 0.88, 0.89, 0.90, 0.92],
+      "WindowCompleteToCpu1PublishMs": [0.96, 0.97, 0.98, 0.98, 0.99, 0.99, 1.00, 1.00, 1.01, 1.01, 1.02, 1.02, 1.03, 1.03, 1.04, 1.05, 1.06, 1.08, 1.10],
+      "PacketLossEvents": 0, "ReorderEvents": 0, "BackpressureEvents": 0
+    },
+    {
+      "SessionId": 1006, "CenterIndex": 2,
+      "TileIndices": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18],
+      "FirstPacketToWindowCompleteMs": [23.67, 23.69, 23.70, 23.71, 23.72, 23.73, 23.74, 23.75, 23.76, 23.77, 23.78, 23.79, 23.80, 23.81, 23.82, 23.84, 23.86, 23.88, 23.90],
+      "WindowCompleteToNpuPublishMs": [0.80, 0.80, 0.81, 0.81, 0.82, 0.82, 0.83, 0.83, 0.84, 0.84, 0.85, 0.85, 0.86, 0.86, 0.87, 0.88, 0.89, 0.90, 0.91],
+      "WindowCompleteToCpu1PublishMs": [0.95, 0.96, 0.97, 0.98, 0.98, 0.99, 0.99, 1.00, 1.00, 1.01, 1.01, 1.02, 1.02, 1.03, 1.04, 1.05, 1.06, 1.07, 1.09],
+      "PacketLossEvents": 0, "ReorderEvents": 0, "BackpressureEvents": 0
+    },
+    {
+      "SessionId": 1007, "CenterIndex": 3,
+      "TileIndices": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18],
+      "FirstPacketToWindowCompleteMs": [23.69, 23.70, 23.71, 23.72, 23.73, 23.74, 23.75, 23.76, 23.77, 23.78, 23.79, 23.80, 23.81, 23.82, 23.83, 23.85, 23.87, 23.89, 23.93],
+      "WindowCompleteToNpuPublishMs": [0.80, 0.81, 0.81, 0.82, 0.82, 0.83, 0.83, 0.84, 0.84, 0.85, 0.85, 0.86, 0.86, 0.87, 0.87, 0.88, 0.89, 0.91, 0.92],
+      "WindowCompleteToCpu1PublishMs": [0.96, 0.97, 0.98, 0.98, 0.99, 0.99, 1.00, 1.00, 1.01, 1.01, 1.02, 1.02, 1.03, 1.03, 1.04, 1.05, 1.06, 1.08, 1.11],
+      "PacketLossEvents": 0, "ReorderEvents": 0, "BackpressureEvents": 0
+    }
+  ]
+}
