@@ -379,22 +379,21 @@ def check_source_shape() -> None:
         / "analysis_pipeline.c"
     ).read_text(encoding="utf-8")
     required = (
-        "vaddlvq_u32(power_lower)",
-        "vmullbq_int_s16",
-        "vmulltq_int_s16",
         "lane->frame_head",
         "analysis_cycle_now_fast",
         "analysis_lane_hot_t g_lane_hot[2] ANALYSIS_DTCM",
-        "g_pool_divisor[group] = valid_count * ANALYSIS_TIME_POOL",
         "hot->frame_iq",
-        "hot->pool_power_sum",
         "hot->display_power_sum",
         "analysis_accumulate_display_power",
         "hot->spectrum_power_sum",
         "g_spectrum_raw_bin_map[shifted_bin]",
-        "g_spectrum_power_divisor[spectrum_bin] += ANALYSIS_TIME_POOL",
+        "g_spectrum_power_divisor[spectrum_bin] +=",
         "analysis_accumulate_spectrum_power",
-        "lane->time_bin == (ANALYSIS_TIME_BINS - 1U)",
+        "const uint32_t display_bin = g_display_raw_bin_map[shifted_bin]",
+        "if (display_bin >= RA8P1_DISPLAY_TILE_WIDTH)",
+        "hot->display_power_sum[display_bin] += power",
+        "const uint32_t power = analysis_fft_power_at(fft_index)",
+        "q15_t local[ANALYSIS_INGEST_S16_SCALARS]",
         "analysis_store_display_spectrum(lane)",
         "analysis_display_level_guarded",
     )
@@ -408,6 +407,8 @@ def check_source_shape() -> None:
             raise AssertionError(f"SDRAM hot-path field returned: {stale_field}")
     if "analysis_store_spectrum_level" in source:
         raise AssertionError("the legacy 128-bin model-pool spectrum path returned")
+    if "analysis_fft_power8" in source:
+        raise AssertionError("the unproven MVE FFT power path returned")
 
 
 def main() -> None:

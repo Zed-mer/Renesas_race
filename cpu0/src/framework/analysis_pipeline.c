@@ -42,6 +42,8 @@
 #define ANALYSIS_DISPLAY_LOG2_CEILING      (-2.0F)
 #define ANALYSIS_TWO_PI                   (6.28318530717958647692F)
 #define ANALYSIS_STFT_PROOF_BLOCK_SAMPLES (256U)
+#define ANALYSIS_INGEST_S16_SCALARS       \
+    (IQ_RING_PAYLOAD_BYTES / sizeof(int16_t))
 #define ANALYSIS_DISPLAY_TIME_BINS_PER_ROW \
     (ANALYSIS_DISPLAY_TIME_BINS / RA8P1_DISPLAY_TILE_HEIGHT)
 #define ANALYSIS_DISPLAY_FRAMES_PER_ROW \
@@ -215,6 +217,11 @@ typedef char analysis_iq_slot_cannot_cross_two_display_row_boundaries[
      (ANALYSIS_DISPLAY_FRAMES_PER_ROW * ANALYSIS_HOP_SIZE)) ? 1 : -1];
 typedef char analysis_display_slots_must_retain_two_lane_publish_burst[
     (RA8P1_DISPLAY_TILE_SLOT_COUNT >= 2U) ? 1 : -1];
+typedef char analysis_ingest_s16_block_must_cover_one_ring_payload[
+    ((ANALYSIS_INGEST_S16_SCALARS * sizeof(int16_t)) ==
+     IQ_RING_PAYLOAD_BYTES) ? 1 : -1];
+typedef char analysis_ingest_s16_block_must_hold_whole_complex_samples[
+    ((ANALYSIS_INGEST_S16_SCALARS & 1U) == 0U) ? 1 : -1];
 
 static bool analysis_dwt_enabled(void)
 {
@@ -1005,13 +1012,16 @@ static ANALYSIS_HOT_CODE bool analysis_reduce_fft_power(analysis_lane_t *lane)
             (shifted_bin + (ANALYSIS_FFT_SIZE / 2U)) &
             (ANALYSIS_FFT_SIZE - 1U);
         const uint32_t power = analysis_fft_power_at(fft_index);
+        const uint32_t display_bin = g_display_raw_bin_map[shifted_bin];
 
         g_fft_power[shifted_bin] = power;
-        if (!analysis_fft_bin_valid(shifted_bin))
+        /* The map is rebuilt whenever the sample rate or bandwidth changes.
+         * Its sentinel is the cached validity decision for this hot loop. */
+        if (display_bin >= RA8P1_DISPLAY_TILE_WIDTH)
         {
             continue;
         }
-        analysis_accumulate_display_power(hot, shifted_bin, power);
+        hot->display_power_sum[display_bin] += power;
         if (capture_spectrum)
         {
             analysis_accumulate_spectrum_power(hot, shifted_bin, power);
@@ -2232,7 +2242,9 @@ void analysis_pipeline_ingest_s16(const int16_t *iq,
                                   uint64_t sample_index,
                                   uint32_t flags)
 {
-    q15_t local[512U];
+    /* One conversion block covers the largest ring payload.  A standard
+     * 1440-byte IQ datagram therefore enters the scheduler in one pass. */
+    q15_t local[ANALYSIS_INGEST_S16_SCALARS];
     uint32_t consumed = 0U;
     if (iq == NULL) return;
     if (g_analysis.valid_bits == 0U) g_analysis.valid_bits = 12U;
