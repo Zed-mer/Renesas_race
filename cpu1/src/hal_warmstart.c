@@ -8,7 +8,7 @@
 #include "display_bringup.h"
 
 #define DISPLAY_STARTUP_BACKLIGHT_PIN  (BSP_IO_PORT_00_PIN_12)
-#define DISPLAY_STARTUP_PANEL_RESET_PIN (BSP_IO_PORT_04_PIN_11)
+#define DISPLAY_STARTUP_PANEL_RESET_PIN (PANEL_RESET)
 #define DISPLAY_STARTUP_OUTPUT_LOW_CFG ((uint32_t) IOPORT_CFG_DRIVE_MID | \
                                         (uint32_t) IOPORT_CFG_PORT_DIRECTION_OUTPUT | \
                                         (uint32_t) IOPORT_CFG_PORT_OUTPUT_LOW)

@@ -894,7 +894,6 @@
     <symbolicName propertyId="p408.symbolic_name" value="USB_HS_VBUS"/>
     <symbolicName propertyId="p409.symbolic_name" value="PMOD2_GPIO1"/>
     <symbolicName propertyId="p410.symbolic_name" value="PMOD2_RST"/>
-    <symbolicName propertyId="p411.symbolic_name" value="MIPI_TE"/>
     <symbolicName propertyId="p412.symbolic_name" value="PMOD1_GPIO1"/>
     <symbolicName propertyId="p413.symbolic_name" value="PMOD1_GPIO2"/>
     <symbolicName propertyId="p500.symbolic_name" value="USB_FS_VBUSEN"/>

@@ -886,7 +886,8 @@
   </raModuleConfiguration>
   <raPinConfiguration>
     <symbolicName propertyId="p110.symbolic_name" value="USER_LED"/>
-    <pincfg active="true" name="RA8T2_CPKNET.pincfg" selected="false" symbol="g_bsp_pin_cfg">
+    <symbolicName propertyId="p411.symbolic_name" value="PANEL_RESET"/>
+    <pincfg active="false" name="RA8T2_CPKNET.pincfg" selected="false" symbol="">
       <configSetting altId="cgc.extal.p212" configurationId="cgc.extal"/>
       <configSetting altId="cgc.mode.custom.free" configurationId="cgc.mode"/>
       <configSetting altId="cgc.xcin.p215" configurationId="cgc.xcin"/>
@@ -1264,7 +1265,7 @@
       <configSetting altId="p211.jtag_fslash_swd.tck" configurationId="p211"/>
       <configSetting altId="p211.gpio_mode.gpio_mode_peripheral" configurationId="p211.gpio_mode"/>
     </pincfg>
-    <pincfg active="false" name="RA8P1_CPKHMI.pincfg" selected="true" symbol="">
+    <pincfg active="true" name="RA8P1_CPKHMI.pincfg" selected="true" symbol="g_bsp_pin_cfg">
       <configSetting altId="cgc.extal.p212" configurationId="cgc.extal"/>
       <configSetting altId="cgc.mode.custom.free" configurationId="cgc.mode"/>
       <configSetting altId="cgc.xcin.p215" configurationId="cgc.xcin"/>
@@ -1378,6 +1379,8 @@
       <configSetting altId="p410.gpio_speed.gpio_speed_m" configurationId="p410.gpio_drivecapacity"/>
       <configSetting altId="p410.gpio_mode.gpio_mode_peripheral" configurationId="p410.gpio_mode"/>
       <configSetting altId="p410.gpio_otype.gpio_otype_n_ch_od" configurationId="p410.gpio_otype"/>
+      <configSetting altId="p411.output.low" configurationId="p411"/>
+      <configSetting altId="p411.gpio_mode.gpio_mode_out.low" configurationId="p411.gpio_mode"/>
       <configSetting altId="p412.irq.irq20_dash_ds" configurationId="p412"/>
       <configSetting altId="p412.gpio_irq.gpio_irq_enabled" configurationId="p412.gpio_irq"/>
       <configSetting altId="p412.gpio_mode.gpio_mode_irq" configurationId="p412.gpio_mode"/>

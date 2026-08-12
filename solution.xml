@@ -1324,9 +1324,10 @@
             
     
     <symbolicName propertyId="p110.symbolic_name" value="USER_LED"/>
+    <symbolicName propertyId="p411.symbolic_name" value="PANEL_RESET"/>
             
     
-    <pincfg active="true" name="RA8T2_CPKNET.pincfg" selected="false" symbol="g_bsp_pin_cfg">
+    <pincfg active="false" name="RA8T2_CPKNET.pincfg" selected="false" symbol="">
                   
       
       <configSetting altId="cgc.extal.p212" configurationId="cgc.extal"/>
@@ -2460,7 +2461,7 @@
     </pincfg>
             
     
-    <pincfg active="false" name="RA8P1_CPKHMI.pincfg" selected="true" symbol="">
+    <pincfg active="true" name="RA8P1_CPKHMI.pincfg" selected="true" symbol="g_bsp_pin_cfg">
                   
       
       <configSetting altId="cgc.extal.p212" configurationId="cgc.extal"/>
@@ -2514,7 +2515,6 @@
       <configSetting altId="jtag_fslash_swd.swdio.p210" configurationId="jtag_fslash_swd.swdio"/>
                   
       
-      <configSetting altId="mipi.dsi_te.p411" configurationId="mipi.dsi_te"/>
                   
       
       <configSetting altId="mipi.mode.enabled.free" configurationId="mipi.mode"/>
@@ -2805,10 +2805,10 @@
       <configSetting altId="p410.gpio_otype.gpio_otype_n_ch_od" configurationId="p410.gpio_otype"/>
                   
       
-      <configSetting altId="p411.mipi.dsi_te" configurationId="p411"/>
+      <configSetting altId="p411.output.low" configurationId="p411"/>
                   
       
-      <configSetting altId="p411.gpio_mode.gpio_mode_peripheral" configurationId="p411.gpio_mode"/>
+      <configSetting altId="p411.gpio_mode.gpio_mode_out.low" configurationId="p411.gpio_mode"/>
                   
       
       <configSetting altId="p412.irq.irq20_dash_ds" configurationId="p412"/>
@@ -3582,7 +3582,7 @@
     </pincfg>
             
     
-    <pincfg active="false" name="R7KA8P1KFLCAC.pincfg" symbol="">
+    <pincfg active="false" name="R7KA8P1KFLCAC.pincfg" selected="false" symbol="">
                   
       
       <configSetting altId="p208.gpio_mode.gpio_mode_peripheral" configurationId="p208.gpio_mode"/>

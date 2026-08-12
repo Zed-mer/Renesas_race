@@ -67,7 +67,6 @@ FSP_HEADER
 #define USB_HS_VBUS (BSP_IO_PORT_04_PIN_08)
 #define PMOD2_GPIO1 (BSP_IO_PORT_04_PIN_09) /* Enable when connected */
 #define PMOD2_RST (BSP_IO_PORT_04_PIN_10) /* Enable when connected */
-#define MIPI_TE (BSP_IO_PORT_04_PIN_11)
 #define PMOD1_GPIO1 (BSP_IO_PORT_04_PIN_12) /* Enable when connected */
 #define PMOD1_GPIO2 (BSP_IO_PORT_04_PIN_13) /* Enable when connected */
 #define USB_FS_VBUSEN (BSP_IO_PORT_05_PIN_00)

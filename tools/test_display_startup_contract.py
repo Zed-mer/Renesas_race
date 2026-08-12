@@ -46,8 +46,15 @@ class DisplayStartupContractTest(unittest.TestCase):
         self.assertIn("R_IOPORT_PinRead", safe)
         self.assertIn("display_startup_diag_note_reset_asserted", safe)
         self.assertIn("IOPORT_CFG_PORT_OUTPUT_LOW", WARMSTART)
+        self.assertIn(
+            "#define DISPLAY_STARTUP_PANEL_RESET_PIN (PANEL_RESET)",
+            WARMSTART,
+        )
+        self.assertNotIn("BSP_IO_PORT_04_PIN_11", WARMSTART)
 
     def test_panel_reset_stays_low_then_releases_once(self) -> None:
+        self.assertIn("#define DISPLAY_PANEL_RESET   (PANEL_RESET)", BRINGUP_C)
+        self.assertNotIn("BSP_IO_PORT_04_PIN_11", BRINGUP_C)
         reset_cfg = BRINGUP_C.split("#define DISPLAY_RESET_PIN_CFG", 1)[1].split(
             "#define DISPLAY_BACKLIGHT_PIN_CFG", 1
         )[0]
