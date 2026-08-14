@@ -4,7 +4,7 @@
 #include <stdint.h>
 #include "bsp_api.h"
 #include "rm_ethosu_api.h"
-            #include "rm_ethosu.h"
+#include "rm_ethosu.h"
 #include "r_rmac_phy.h"
 #include "r_ether_phy_api.h"
 #include "r_layer3_switch.h"
@@ -12,23 +12,25 @@
 #include "bsp_pin_cfg.h"
 FSP_HEADER
 #include "ethosu_driver.h"
-            extern struct ethosu_driver g_ethosu0;
+extern struct ethosu_driver g_ethosu0;
 extern rm_ethosu_instance_ctrl_t g_rm_ethosu0_ctrl;
-        	extern const rm_ethosu_cfg_t g_rm_ethosu0_cfg;
-        	extern const rm_ethosu_instance_t g_rm_ethosu0;
-            #ifndef NULL
-            void NULL(rm_ethosu_callback_args_t * p_arg);
-            #endif
+extern const rm_ethosu_cfg_t g_rm_ethosu0_cfg;
+extern const rm_ethosu_instance_t g_rm_ethosu0;
+#ifndef NULL
+void NULL(rm_ethosu_callback_args_t *p_arg);
+#endif
 #ifndef ETHER_PHY_LSI_TYPE_KIT_COMPONENT
-  #define ETHER_PHY_LSI_TYPE_KIT_COMPONENT ETHER_PHY_LSI_TYPE_DEFAULT
+#define ETHER_PHY_LSI_TYPE_KIT_COMPONENT ETHER_PHY_LSI_TYPE_DEFAULT
 #endif
 
 #ifndef rmac_phy_target_rtl8211_initialize
-void rmac_phy_target_rtl8211_initialize(rmac_phy_instance_ctrl_t * p_instance_ctrl);
+void rmac_phy_target_rtl8211_initialize(
+		rmac_phy_instance_ctrl_t *p_instance_ctrl);
 #endif
 
 #ifndef rmac_phy_target_rtl8211_is_support_link_partner_ability
-bool rmac_phy_target_rtl8211_is_support_link_partner_ability(rmac_phy_instance_ctrl_t * p_instance_ctrl, uint32_t line_speed_duplex);
+bool rmac_phy_target_rtl8211_is_support_link_partner_ability(
+		rmac_phy_instance_ctrl_t *p_instance_ctrl, uint32_t line_speed_duplex);
 #endif
 
 /** ETHER_PHY on RMAC_PHY Instance. */
@@ -40,18 +42,20 @@ extern const ether_phy_cfg_t g_rmac_phy1_cfg;
 extern const rmac_phy_extended_cfg_t g_rmac_phy1_extended_cfg;
 
 #ifndef NULL
-void NULL(ether_phy_callback_args_t * p_args);
+void NULL(ether_phy_callback_args_t *p_args);
 #endif
 #ifndef ETHER_PHY_LSI_TYPE_KIT_COMPONENT
   #define ETHER_PHY_LSI_TYPE_KIT_COMPONENT ETHER_PHY_LSI_TYPE_DEFAULT
 #endif
 
 #ifndef rmac_phy_target_rtl8211_initialize
-void rmac_phy_target_rtl8211_initialize(rmac_phy_instance_ctrl_t * p_instance_ctrl);
+void rmac_phy_target_rtl8211_initialize(
+		rmac_phy_instance_ctrl_t *p_instance_ctrl);
 #endif
 
 #ifndef rmac_phy_target_rtl8211_is_support_link_partner_ability
-bool rmac_phy_target_rtl8211_is_support_link_partner_ability(rmac_phy_instance_ctrl_t * p_instance_ctrl, uint32_t line_speed_duplex);
+bool rmac_phy_target_rtl8211_is_support_link_partner_ability(
+		rmac_phy_instance_ctrl_t *p_instance_ctrl, uint32_t line_speed_duplex);
 #endif
 
 /** ETHER_PHY on RMAC_PHY Instance. */
@@ -63,16 +67,16 @@ extern const ether_phy_cfg_t g_rmac_phy0_cfg;
 extern const rmac_phy_extended_cfg_t g_rmac_phy0_extended_cfg;
 
 #ifndef NULL
-void NULL(ether_phy_callback_args_t * p_args);
+void NULL(ether_phy_callback_args_t *p_args);
 #endif
 #ifndef NULL
-void NULL(ether_switch_callback_args_t * p_args);
+void NULL(ether_switch_callback_args_t *p_args);
 #endif
 #ifndef NULL
-void NULL(ether_switch_callback_args_t * p_args);
+void NULL(ether_switch_callback_args_t *p_args);
 #endif
 #ifndef NULL
-void NULL(ether_switch_callback_args_t * p_args);
+void NULL(ether_switch_callback_args_t *p_args);
 #endif
 
 /** Ethernet Switch on Layer3 Switch Instance. */

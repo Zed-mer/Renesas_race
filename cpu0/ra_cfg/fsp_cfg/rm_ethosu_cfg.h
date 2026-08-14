@@ -5,14 +5,14 @@
             extern "C" {
             #endif
 
-            #define RM_ETHOSU_CFG_PARAM_CHECKING_ENABLE (BSP_CFG_PARAM_CHECKING_ENABLE)
-            #define RM_ETHOSU_LOG_SEVERITY RM_ETHOSU_LOG_DISABLED
+#define RM_ETHOSU_CFG_PARAM_CHECKING_ENABLE (BSP_CFG_PARAM_CHECKING_ENABLE)
+#define RM_ETHOSU_LOG_SEVERITY RM_ETHOSU_LOG_DISABLED
 
-            /* These macros are required by the driver. Only ethos-u55 is supported. */
-            #define ETHOSU55 1
-            #define ETHOSU_ARCH  u55
+/* These macros are required by the driver. Only ethos-u55 is supported. */
+#define ETHOSU55 1
+#define ETHOSU_ARCH  u55
 
-            #ifdef __cplusplus
+#ifdef __cplusplus
             }
             #endif
 #endif /* RM_ETHOSU_CFG_H_ */

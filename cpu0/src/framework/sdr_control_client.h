@@ -8,13 +8,13 @@
 #include "sdr_control_protocol.h"
 
 #define SDR_CONTROL_PEER_IP                    "192.168.31.10"
-#define SDR_CONTROL_DEFAULT_TARGET_MBPS_X1000  (390000UL)
+#define SDR_CONTROL_DEFAULT_TARGET_MBPS_X1000  (500000UL)
 /* Batch several MTU-sized IQ datagrams per sendmmsg call.  The previous
  * single-datagram default made the SDR userspace sender spend most of the
  * window in syscall/interrupt overhead (measured around 130 Mbps). */
 /* Keep each paced wire burst below one quarter of the 96-descriptor RMAC RX
  * queue.  Sixteen datagrams balance sender syscall overhead against CPU0 ring
- * drain latency while preserving the 390 Mbps average-rate target. */
+ * drain latency while preserving the 500 Mbps average-rate target. */
 #define SDR_CONTROL_DEFAULT_SEND_BATCH         (16U)
 #define SDR_CONTROL_DEFAULT_ACK_TIMEOUT_MS      (1000U)
 #define SDR_CONTROL_DEFAULT_REQUEST_TIMEOUT_MS  (10000U)
