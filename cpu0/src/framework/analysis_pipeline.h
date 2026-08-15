@@ -160,7 +160,8 @@ void analysis_pipeline_ingest_s8(const int8_t *iq,
 void analysis_pipeline_synthetic_step(uint32_t complex_samples);
 int analysis_pipeline_run_stft_proof(void);
 /* A one-tile real capture remains frozen until the IQSC whole-window quality
- * evidence is available. Only a committed capture may enter the V2/V3 pair. */
+ * evidence is available. Only a committed capture may train a background or
+ * enter the V2/V3 NPU pair. */
 bool analysis_pipeline_window_ready(void);
 bool analysis_pipeline_commit_stream(void);
 void analysis_pipeline_reject_stream(uint8_t tile_flags);

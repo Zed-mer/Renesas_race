@@ -86,7 +86,8 @@ typedef struct st_analysis_lane
     analysis_lane_hot_t *hot;
     int8_t model_input[ANALYSIS_MODEL_INPUT_BYTES];
     rf_v12_preprocess_tile_t preprocess;
-    /* Keep the real STFT visualization independent from the trained tensor. */
+    /* Keep the real STFT visualization independent from the trained tensor.
+     * Background calibration must not turn a valid RF display black. */
     uint8_t display_tile[RA8P1_DISPLAY_TILE_MATRIX_BYTES];
     uint8_t last_spectrum[RA8P1_DISPLAY_SPECTRUM_BINS];
 } analysis_lane_t;
@@ -181,18 +182,6 @@ static uint64_t g_last_capture_end_time_us;
 static analysis_stage_probe_t g_stft_probe;
 static int16_t g_stft_proof_input[ANALYSIS_STFT_PROOF_BLOCK_SAMPLES * 2U]
     __attribute__((aligned(32)));
-
-static bool analysis_backgrounds_ready(void)
-{
-    for (uint32_t center = 0U; center < RF_V12_CENTER_COUNT; ++center)
-    {
-        if (g_rf_v12_backgrounds[center].ready == 0U)
-        {
-            return false;
-        }
-    }
-    return true;
-}
 
 volatile analysis_stft_proof_t g_analysis_stft_proof
     __attribute__((used, aligned(32)));
@@ -1746,6 +1735,7 @@ static void analysis_publish_lane(analysis_lane_t *lane,
     {
         background = &g_rf_v12_backgrounds[g_analysis.center_index];
     }
+
     complete_cycles = (lane->complete_cycles != 0U) ?
                       lane->complete_cycles : analysis_cycle_now();
     latency_timing_valid = (lane->timing_valid != 0U) &&
@@ -1817,7 +1807,8 @@ static void analysis_publish_lane(analysis_lane_t *lane,
     detector_input.sdr_gain_db_q8 = 0;
     detector_input.tile_validity = tile_validity;
     detector_input.tile_flags = tile_flags;
-    detector_input.c0_db = rf_v12_preprocess_c0(&lane->preprocess);
+    detector_input.background_relative_c0 =
+        rf_v12_preprocess_background_relative_c0(&lane->preprocess);
     detector_input.model_input = lane->model_input;
     postprocess_start_cycles = analysis_cycle_now();
     postprocess_dwt_epoch = g_analysis.dwt_epoch;
@@ -1968,7 +1959,8 @@ static void analysis_publish_lane(analysis_lane_t *lane,
         RA8P1_MODEL_FLAG_VIDEO_VISIBLE_MASK |
         RA8P1_MODEL_FLAG_PER_CENTER_BASELINE |
         RA8P1_MODEL_FLAG_NO_ACCURACY_CLAIM;
-    if ((g_analysis.synthetic != 0U) || analysis_backgrounds_ready())
+    if ((g_analysis.synthetic != 0U) ||
+        ((background != NULL) && (background->ready != 0U)))
     {
         frame.analysis.model_flags |= RA8P1_MODEL_FLAG_BASELINE_READY;
     }
@@ -1996,7 +1988,8 @@ static void analysis_publish_lane(analysis_lane_t *lane,
     ipc_bridge_cpu0_display_publish(&frame, NULL);
 
     g_analysis.preprocessing_valid =
-        (g_analysis.synthetic != 0U) || analysis_backgrounds_ready();
+        (g_analysis.synthetic != 0U) ||
+        ((background != NULL) && (background->ready != 0U));
     g_analysis.npu_cycles_last = frame.analysis.npu_cycles;
     g_analysis.stft_cycles_last = frame.analysis.stft_cycles;
     g_analysis.end_to_end_cycles_last = frame.analysis.end_to_end_cycles;
@@ -2219,7 +2212,9 @@ void analysis_pipeline_configure(uint32_t source_sample_rate_hz,
     g_analysis.stream_flags = flags;
     g_analysis.synthetic = (flags & RA8P1_IQ_FLAG_SYNTHETIC) ? 1U : 0U;
     g_analysis.preprocessing_valid =
-        (g_analysis.synthetic != 0U) || analysis_backgrounds_ready();
+        (g_analysis.synthetic != 0U) ||
+        ((g_analysis.center_index < RF_V12_CENTER_COUNT) &&
+         (g_rf_v12_backgrounds[g_analysis.center_index].ready != 0U));
     g_analysis.started = 0U;
     g_analysis.sample_index_valid = 0U;
     g_analysis.expected_tile_count = analysis_compute_tile_count(g_analysis.total_samples);
@@ -2267,7 +2262,8 @@ void analysis_pipeline_set_stream_info(uint64_t total_samples, uint32_t center_i
     g_analysis.capture_start_time_us = capture_start;
     g_analysis.capture_end_time_us =
         capture_start + analysis_tile_duration_us();
-    g_analysis.preprocessing_valid = analysis_backgrounds_ready();
+    g_analysis.preprocessing_valid =
+        g_rf_v12_backgrounds[center_index].ready != 0U;
 }
 
 void analysis_pipeline_set_queue(uint32_t queue_depth, uint32_t ingress_drops)
@@ -2592,6 +2588,7 @@ static void analysis_submit_invalid_capture(uint8_t tile_flags)
     rf_v12_detector_input_t input;
     rf_v12_detector_result_t result;
     rf_v12_preprocess_background_t *background;
+
     if ((g_analysis.synthetic != 0U) ||
         (g_analysis.capture_result_submitted != 0U) ||
         (g_analysis.center_index >= RF_V12_CENTER_COUNT) ||
@@ -2615,7 +2612,7 @@ static void analysis_submit_invalid_capture(uint8_t tile_flags)
     input.sdr_gain_db_q8 = 0;
     input.tile_validity = RF_V12_TILE_INVALID;
     input.tile_flags = tile_flags;
-    input.c0_db = NULL;
+    input.background_relative_c0 = NULL;
     input.model_input = NULL;
     rf_v12_detector_decode(&input, &result);
     (void)rf_v13_round_builder_submit(&result.tile);

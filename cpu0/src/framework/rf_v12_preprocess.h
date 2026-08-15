@@ -8,12 +8,7 @@
 
 #define RF_V12_PREPROCESS_FEATURE_CELLS \
     (RF_V12_FEATURE_FREQUENCY_BINS * RF_V12_FEATURE_TIME_BINS)
-#define RF_V12_PREPROCESS_BACKGROUND_WINDOWS       (16U)
-#define RF_V12_PREPROCESS_VALIDATION_WINDOWS       (2U)
-#define RF_V12_PREPROCESS_MAX_CALIBRATION_WINDOWS  (24U)
-#define RF_V12_PREPROCESS_BACKGROUND_Q_SHIFT       (8U)
-#define RF_V12_PREPROCESS_UNSTABLE_MASK_BYTES \
-    ((RF_V12_PREPROCESS_FEATURE_CELLS + 7U) / 8U)
+#define RF_V12_PREPROCESS_BACKGROUND_WINDOWS (5U)
 
 /* The V12 contract represents one output frequency cell as 256/51 of a raw
  * FFT bin.  Keep the constants public so the production STFT reducer can use
@@ -60,25 +55,17 @@ typedef struct st_rf_v12_preprocess_tile
     uint8_t frame_open;
 } rf_v12_preprocess_tile_t;
 
-/* One instance belongs to one capture center. The 16 target-free startup
- * windows are retained in Q8.8. A cell with IQR <= 2 dB freezes at Q50;
- * intermittent cells freeze at Q25 so occasional RF energy is not absorbed
- * into the background. Once ready, this state is never updated again. */
+/* One instance belongs to one capture center. calibration[0] is overwritten
+ * with the frozen cell-wise Q50 after the fifth complete valid tile. */
 typedef struct st_rf_v12_preprocess_background
 {
-    int16_t calibration_q8_8[RF_V12_PREPROCESS_BACKGROUND_WINDOWS]
-                              [RF_V12_PREPROCESS_FEATURE_CELLS];
-    int16_t baseline_q8_8[RF_V12_PREPROCESS_FEATURE_CELLS];
-    uint8_t unstable_mask[RF_V12_PREPROCESS_UNSTABLE_MASK_BYTES];
+    float calibration[RF_V12_PREPROCESS_BACKGROUND_WINDOWS]
+                     [RF_V12_PREPROCESS_FEATURE_CELLS];
     int16_t gain_db_q8;
     uint16_t generation;
     uint8_t gain_valid;
     uint8_t calibration_count;
-    uint8_t calibration_write_index;
-    uint8_t validation_pass_count;
-    uint8_t valid_window_count;
     uint8_t ready;
-    uint8_t forced_ready;
     uint8_t reset_pending;
 } rf_v12_preprocess_background_t;
 
@@ -154,10 +141,9 @@ bool rf_v12_preprocess_background_set_gain(
     rf_v12_preprocess_background_t *background,
     int16_t gain_db_q8);
 
-/* Invalid captures never train. Sixteen valid windows build the candidate,
- * two independent validation windows must pass, and failures may extend the
- * target-free stage to 24 valid windows. The window that makes the background
- * ready remains suppressed; inference begins on the next valid window. */
+/* capture_valid=false never trains the background and never emits model
+ * input. A fifth calibration tile freezes Q50 but remains BACKGROUND_NOT_READY;
+ * inference begins with the following complete valid tile. */
 rf_v12_preprocess_finalize_info_t rf_v12_preprocess_finalize(
     rf_v12_preprocess_tile_t *tile,
     rf_v12_preprocess_background_t *background,
@@ -169,7 +155,7 @@ bool rf_v12_preprocess_finalize_synthetic(
     rf_v12_preprocess_tile_t *tile);
 
 bool rf_v12_preprocess_tile_complete(const rf_v12_preprocess_tile_t *tile);
-const float *rf_v12_preprocess_c0(
+const float *rf_v12_preprocess_background_relative_c0(
     const rf_v12_preprocess_tile_t *tile);
 
 /* Exposed for byte-parity tests and for guarded scalar fallbacks. */

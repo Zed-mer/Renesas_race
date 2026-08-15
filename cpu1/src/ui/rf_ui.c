@@ -247,7 +247,6 @@ typedef struct {
     bool running;
     bool external_spectrum_mode;
     bool model_placeholder;
-    bool detection_ready;
     bool selector_pulse[RF_DEMO_CHANNEL_COUNT];
     bool spectrum_dirty[RF_DEMO_CHANNEL_COUNT];
     bool waterfall_dirty[RF_DEMO_CHANNEL_COUNT];
@@ -274,7 +273,6 @@ typedef struct {
     lv_obj_t * header_status_label;
     lv_obj_t * compare_button;
     lv_obj_t * compare_label;
-    lv_obj_t * detection_status_label;
     lv_obj_t * performance_labels[RF_METRIC_COUNT];
 
     lv_obj_t * target_buttons[RF_DEMO_CLASS_COUNT];
@@ -3604,9 +3602,8 @@ static void create_metrics_footer(void)
         LV_TEXT_ALIGN_LEFT);
     create_label(footer, 674, 4, 156, 16, "SP 256 | WF 192x160",
                  &rf_font_12, RF_COLOR_MUTED, LV_TEXT_ALIGN_LEFT);
-    g_ui.detection_status_label = create_label(
-        footer, 838, 4, 176, 16, "背景标定中",
-        &rf_font_zh_14, RF_COLOR_AMBER, LV_TEXT_ALIGN_RIGHT);
+    create_label(footer, 838, 4, 176, 16, "数据链路正常",
+                 &rf_font_zh_14, RF_COLOR_GREEN, LV_TEXT_ALIGN_RIGHT);
 }
 
 static void create_target_strip(void)
@@ -5833,21 +5830,6 @@ void rf_ui_set_model_placeholder(bool placeholder)
     if(channel_switch_defer_metadata_refresh()) return;
     refresh_alert(true);
     refresh_rf_box_overlays();
-}
-
-void rf_ui_set_detection_ready(bool ready)
-{
-    if ((g_ui.detection_ready == ready) ||
-        (g_ui.detection_status_label == NULL))
-    {
-        return;
-    }
-    g_ui.detection_ready = ready;
-    lv_label_set_text(g_ui.detection_status_label,
-                      ready ? "检测功能正常" : "背景标定中");
-    lv_obj_set_style_text_color(
-        g_ui.detection_status_label,
-        color(ready ? RF_COLOR_GREEN : RF_COLOR_AMBER), 0);
 }
 
 bool rf_ui_set_selected_channel(uint32_t channel_index)

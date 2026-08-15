@@ -15,6 +15,41 @@ static int test_fail(const char *message)
     return 1;
 }
 
+static int feed_tile(rf_v12_preprocess_tile_t *tile,
+                     uint32_t retained_power,
+                     uint32_t edge_power,
+                     int burst_last_frame)
+{
+    for (uint32_t frame = 0U; frame < RF_V12_RAW_STFT_FRAMES; ++frame)
+    {
+        uint32_t power = retained_power;
+        if ((frame == 0U) || (frame == (RF_V12_RAW_STFT_FRAMES - 1U)))
+        {
+            power = edge_power;
+        }
+        else if (burst_last_frame && (((frame - 1U) % 10U) == 9U))
+        {
+            power = retained_power * 10U;
+        }
+        if (!rf_v12_preprocess_frame_begin(tile, frame))
+        {
+            return test_fail("frame_begin rejected a valid ordered frame");
+        }
+        for (uint32_t frequency = 0U;
+             frequency < RF_V12_FFT_POINTS;
+             ++frequency)
+        {
+            rf_v12_preprocess_power_bin(tile, frequency, power);
+        }
+        if (!rf_v12_preprocess_frame_end(tile, TEST_POWER_SCALE))
+        {
+            return test_fail("frame_end rejected a valid frame");
+        }
+    }
+    return rf_v12_preprocess_tile_complete(tile) ? 0 :
+           test_fail("complete 1152-frame tile was not accepted");
+}
+
 static int test_rne(void)
 {
     static const struct
@@ -93,107 +128,65 @@ done:
     return result;
 }
 
-static void prepare_complete_tile(rf_v12_preprocess_tile_t *tile,
-                                  int8_t *features,
-                                  float c0_db)
-{
-    rf_v12_preprocess_tile_reset(tile, features);
-    tile->raw_frame_index = RF_V12_RAW_STFT_FRAMES;
-    tile->time_bin = RF_V12_FEATURE_TIME_BINS;
-    for (uint32_t cell = 0U;
-         cell < RF_V12_PREPROCESS_FEATURE_CELLS;
-         ++cell)
-    {
-        tile->c0_db[cell] = c0_db;
-        features[(cell * RF_V12_FEATURE_CHANNELS) + 1U] =
-            rf_v12_preprocess_quantize(0.0F, 1U);
-    }
-}
-
-static int test_robust_background_and_channels(void)
+static int test_background_and_channels(void)
 {
     rf_v12_preprocess_tile_t *tile = calloc(1U, sizeof(*tile));
-    int8_t *features = calloc(RF_V12_FEATURE_BYTES, 1U);
     rf_v12_preprocess_background_t *background =
         calloc(1U, sizeof(*background));
+    int8_t *features = calloc(RF_V12_FEATURE_BYTES, 1U);
+    static const uint32_t calibration_power[5] = {100U, 500U, 300U, 200U, 400U};
     rf_v12_preprocess_finalize_info_t info;
     int result = 0;
 
-    if ((tile == NULL) || (features == NULL) || (background == NULL))
+    if ((tile == NULL) || (background == NULL) || (features == NULL))
     {
         result = test_fail("allocation failed");
         goto done;
     }
-
     rf_v12_preprocess_background_init(background);
-    if (!rf_v12_preprocess_background_set_gain(background, 0))
+    if (!rf_v12_preprocess_background_set_gain(background, 12 * 256))
     {
         result = test_fail("initial gain was not accepted");
         goto done;
     }
-    prepare_complete_tile(tile, features, 30.0F);
-    info = rf_v12_preprocess_finalize(tile, background, false);
-    if ((info.result != RF_V12_PREPROCESS_INVALID) ||
-        (background->valid_window_count != 0U))
+    for (uint32_t window = 0U; window < 5U; ++window)
     {
-        result = test_fail("an invalid capture trained the background");
-        goto done;
-    }
-
-    for (uint32_t window = 0U;
-         window < RF_V12_PREPROCESS_BACKGROUND_WINDOWS;
-         ++window)
-    {
-        prepare_complete_tile(tile, features, 30.0F);
-        tile->c0_db[0] = (float)window;
-        info = rf_v12_preprocess_finalize(tile, background, true);
-        if ((info.result != RF_V12_PREPROCESS_BACKGROUND_NOT_READY) ||
-            (background->ready != 0U))
+        rf_v12_preprocess_tile_reset(tile, features);
+        if (feed_tile(tile, calibration_power[window], UINT32_MAX, 0) != 0)
         {
-            result = test_fail("training window escaped startup suppression");
+            result = 1;
             goto done;
         }
-    }
-    if ((background->unstable_mask[0] & 1U) == 0U)
-    {
-        result = test_fail("intermittent cell was not marked unstable");
-        goto done;
-    }
-    if ((background->baseline_q8_8[0] != (int16_t)(3.5F * 256.0F)) ||
-        (background->baseline_q8_8[1] != (int16_t)(30.0F * 256.0F)))
-    {
-        result = test_fail("Q25/Q50 candidate selection mismatch");
-        goto done;
-    }
-
-    for (uint32_t validation = 0U;
-         validation < RF_V12_PREPROCESS_VALIDATION_WINDOWS;
-         ++validation)
-    {
-        prepare_complete_tile(tile, features, 30.0F);
-        tile->c0_db[0] = 3.5F;
         info = rf_v12_preprocess_finalize(tile, background, true);
         if (info.result != RF_V12_PREPROCESS_BACKGROUND_NOT_READY)
         {
-            result = test_fail("validation window emitted model input");
+            result = test_fail("a calibration tile was used for inference");
             goto done;
         }
     }
-    if ((background->ready == 0U) || (background->forced_ready != 0U) ||
-        (background->generation != 1U) ||
-        (info.background_became_ready == 0U))
+    if ((background->ready == 0U) || (background->generation != 1U))
     {
-        result = test_fail("two-window validation did not freeze background");
+        result = test_fail("fifth tile did not freeze generation one");
+        goto done;
+    }
+    if (fabsf(background->calibration[0][0] -
+              (10.0F * log10f(300.0F))) > TEST_TOLERANCE_DB)
+    {
+        result = test_fail("cell-wise five-window Q50 mismatch");
         goto done;
     }
 
     memset(features, 0, RF_V12_FEATURE_BYTES);
-    prepare_complete_tile(tile, features, 31.0F);
-    tile->c0_db[0] = 4.5F;
+    rf_v12_preprocess_tile_reset(tile, features);
+    if (feed_tile(tile, 600U, UINT32_MAX, 1) != 0)
+    {
+        result = 1;
+        goto done;
+    }
     info = rf_v12_preprocess_finalize(tile, background, true);
     if (info.result != RF_V12_PREPROCESS_READY)
     {
-        result = test_fail("post-calibration tile was not inference-ready");
+        result = test_fail("sixth valid tile was not inference-ready");
         goto done;
     }
     for (uint32_t cell = 0U;
@@ -201,8 +194,8 @@ static int test_robust_background_and_channels(void)
          ++cell)
     {
         const uint32_t offset = cell * RF_V12_FEATURE_CHANNELS;
-        const float expected_c0 = 1.0F;
-        const float expected_c1 = 0.0F;
+        const float expected_c0 = 10.0F * log10f(1140.0F / 300.0F);
+        const float expected_c1 = 10.0F * log10f(6000.0F / 1140.0F);
         if (fabsf(tile->c0_db[cell] - expected_c0) > TEST_TOLERANCE_DB)
         {
             result = test_fail("background-relative C0 mismatch");
@@ -222,33 +215,16 @@ static int test_robust_background_and_channels(void)
         }
     }
 
-    rf_v12_preprocess_background_init(background);
-    (void)rf_v12_preprocess_background_set_gain(background, 0);
-    for (uint32_t window = 0U;
-         window < RF_V12_PREPROCESS_BACKGROUND_WINDOWS;
-         ++window)
+    if (!rf_v12_preprocess_background_set_gain(background, 13 * 256) ||
+        (background->ready != 0U) || (background->reset_pending == 0U) ||
+        (background->generation != 1U))
     {
-        prepare_complete_tile(tile, features, 0.0F);
-        (void)rf_v12_preprocess_finalize(tile, background, true);
-    }
-    for (uint32_t extension = RF_V12_PREPROCESS_BACKGROUND_WINDOWS;
-         extension < RF_V12_PREPROCESS_MAX_CALIBRATION_WINDOWS;
-         ++extension)
-    {
-        prepare_complete_tile(tile, features, 10.0F);
-        info = rf_v12_preprocess_finalize(tile, background, true);
-    }
-    if ((background->ready == 0U) || (background->forced_ready == 0U) ||
-        (background->valid_window_count !=
-         RF_V12_PREPROCESS_MAX_CALIBRATION_WINDOWS) ||
-        (info.background_became_ready == 0U))
-    {
-        result = test_fail("24-window validation bound was not enforced");
+        result = test_fail("gain change did not invalidate only this background");
     }
 
 done:
-    free(background);
     free(features);
+    free(background);
     free(tile);
     return result;
 }
@@ -257,7 +233,7 @@ int main(void)
 {
     if ((test_rne() != 0) ||
         (test_exact_area() != 0) ||
-        (test_robust_background_and_channels() != 0))
+        (test_background_and_channels() != 0))
     {
         return 1;
     }

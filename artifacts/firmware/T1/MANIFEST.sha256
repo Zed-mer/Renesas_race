@@ -1,0 +1,9 @@
+# Release: T1
+# Source commit: 0bf43b4b9156647e8b9f2ca2889e6be75fa212b9
+# Target: R7KA8P1KFLCAC CPU0/CPU1 Solution
+# FSP: 6.4.0
+# Toolchain: GCC Arm Embedded 13.2.Rel1
+# Built: 2026-08-15 19:21:13 +08:00 (CPU0), 2026-08-15 19:22:00 +08:00 (CPU1)
+# Verification: verify-solution.ps1 -SkipBuild passed; 71 UI layout tests passed
+6FAB086A31520E45B2612B55BDBDF0D5892AC9882925FCEED8E73FDB39DE9EED  cpu0/rtthread.elf
+948E2519E74075AB04A0358A17618DD9AD097D66908A95EEBD4530BE6DA8D51D  cpu1/ra8p1_sdr_ai_display_solution_20260718_CPU1.elf

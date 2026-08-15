@@ -3731,9 +3731,6 @@ void lvgl_app_signal_update(const ra8p1_display_frame_t * frame)
         }
 
         rf_ui_set_model_placeholder(placeholder);
-        rf_ui_set_detection_ready(
-            (frame->analysis.model_flags &
-             RA8P1_MODEL_FLAG_BASELINE_READY) != 0U);
         ui_flow_update_detections();
         ui_flow_prepare_rf_boxes(frame);
         rf_ui_set_scan_rate_x10(ui_flow_scan_rate_x10());
@@ -3814,7 +3811,6 @@ void lvgl_app_signal_reset(void)
             (void) rf_ui_update_detection(class_index, &detection);
         }
         rf_ui_set_model_placeholder(true);
-        rf_ui_set_detection_ready(false);
         rf_ui_set_scan_rate_x10(0U);
     }
     else
@@ -3999,9 +3995,6 @@ void lvgl_app_telemetry_update(const ra8p1_system_telemetry_t * telemetry)
                  ((g_live_signal_frame.flags &
                    RA8P1_DISPLAY_FLAG_MODEL_PLACEHOLDER) != 0U));
             rf_ui_set_model_placeholder(placeholder);
-            rf_ui_set_detection_ready(
-                (telemetry->model_flags &
-                 RA8P1_MODEL_FLAG_BASELINE_READY) != 0U);
         }
         /* Once display frames are live, their 10 ms-window results own the
          * labels. Periodic telemetry must not force redundant 10 Hz redraws. */
