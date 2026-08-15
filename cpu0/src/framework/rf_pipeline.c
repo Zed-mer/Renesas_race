@@ -982,11 +982,18 @@ static void rf_pipeline_publish(void)
     telemetry.model_revision = 13U;
     telemetry.model_flags = RA8P1_MODEL_FLAG_TRAINED_INT8 |
                             RA8P1_MODEL_FLAG_CENTER_HEATMAP |
+                            RA8P1_MODEL_FLAG_ADAPTIVE_BASELINE |
                             RA8P1_MODEL_FLAG_FIVE_CLASS_FUSED_UI |
                             RA8P1_MODEL_FLAG_CONSERVATIVE_ALERT_GUARD |
                             RA8P1_MODEL_FLAG_DUAL_NPU_MODELS |
                             RA8P1_MODEL_FLAG_VIDEO_VISIBLE_MASK |
+                            RA8P1_MODEL_FLAG_PER_CENTER_BASELINE |
                             RA8P1_MODEL_FLAG_NO_ACCURACY_CLAIM;
+    if ((analysis.synthetic != 0U) ||
+        (analysis.preprocessing_valid != 0U))
+    {
+        telemetry.model_flags |= RA8P1_MODEL_FLAG_BASELINE_READY;
+    }
     ipc_bridge_cpu0_publish(&telemetry);
     g_last_publish_tick = now;
     if (analysis.windows_completed != g_stack_last_window_count)

@@ -9,6 +9,11 @@
 #define RF_V12_POWER_EPSILON         (1.0e-12F)
 #define RF_V12_LOG2_INV_LN2          (1.44269504088896340736F)
 #define RF_V12_LOG_FALLBACK_MARGIN_DB (2.0e-4F)
+#define RF_V12_BACKGROUND_IQR_LIMIT_Q8_8       (2 * 256)
+#define RF_V12_VALIDATION_MEDIAN_LIMIT_Q8_8    (256 / 2)
+#define RF_V12_VALIDATION_RESIDUAL_LIMIT_Q8_8  (3 * 256)
+#define RF_V12_VALIDATION_REQUIRED_NUMERATOR   (9U)
+#define RF_V12_VALIDATION_REQUIRED_DENOMINATOR (10U)
 
 #if defined(__ARM_FEATURE_MVE) && (__ARM_FEATURE_MVE > 0)
 #include "arm_math.h"
@@ -38,6 +43,8 @@ _Static_assert((RF_V12_RAW_STFT_FRAMES -
                "V12 crop/time-pool contract changed");
 _Static_assert(RF_V12_FEATURE_FREQUENCY_BINS < UINT8_MAX,
                "rebin output index no longer fits the cached map");
+_Static_assert(RF_V12_PREPROCESS_BACKGROUND_WINDOWS == 16U,
+               "quartile indices require 16 startup windows");
 _Static_assert((RF_V12_FEATURE_FREQUENCY_BINS % 4U) == 0U,
                "MVE frequency reducer requires complete four-lane groups");
 _Static_assert(RF_V12_REBIN_OUTPUT_UNITS ==
@@ -617,6 +624,199 @@ RF_V12_HOT_CODE bool rf_v12_preprocess_frame_gathered(
     return true;
 }
 
+void rf_v12_preprocess_background_init(
+    rf_v12_preprocess_background_t *background)
+{
+    if (background == NULL)
+    {
+        return;
+    }
+    background->gain_db_q8 = 0;
+    background->generation = 0U;
+    background->gain_valid = 0U;
+    background->calibration_count = 0U;
+    background->calibration_write_index = 0U;
+    background->validation_pass_count = 0U;
+    background->valid_window_count = 0U;
+    background->ready = 0U;
+    background->forced_ready = 0U;
+    background->reset_pending = 0U;
+}
+
+bool rf_v12_preprocess_background_set_gain(
+    rf_v12_preprocess_background_t *background,
+    int16_t gain_db_q8)
+{
+    if (background == NULL)
+    {
+        return false;
+    }
+    if (background->gain_valid == 0U)
+    {
+        background->gain_db_q8 = gain_db_q8;
+        background->gain_valid = 1U;
+        return true;
+    }
+    if ((background->gain_db_q8 == gain_db_q8) ||
+        (background->ready != 0U))
+    {
+        return false;
+    }
+    background->gain_db_q8 = gain_db_q8;
+    background->calibration_count = 0U;
+    background->calibration_write_index = 0U;
+    background->validation_pass_count = 0U;
+    background->valid_window_count = 0U;
+    background->forced_ready = 0U;
+    background->reset_pending = 1U;
+    return true;
+}
+
+static int16_t rf_v12_background_q8_8(float value)
+{
+    int32_t quantized = rf_v12_preprocess_round_to_nearest_even(
+        value * (float)(1U << RF_V12_PREPROCESS_BACKGROUND_Q_SHIFT));
+    if (quantized > INT16_MAX)
+    {
+        quantized = INT16_MAX;
+    }
+    else if (quantized < INT16_MIN)
+    {
+        quantized = INT16_MIN;
+    }
+    return (int16_t)quantized;
+}
+
+static int16_t rf_v12_q8_8_midpoint(int16_t low, int16_t high)
+{
+    return (int16_t)(((int32_t)low + (int32_t)high) / 2);
+}
+
+static void rf_v12_background_store(
+    rf_v12_preprocess_background_t *background,
+    const rf_v12_preprocess_tile_t *tile)
+{
+    int16_t *destination =
+        background->calibration_q8_8[background->calibration_write_index];
+    for (uint32_t cell = 0U;
+         cell < RF_V12_PREPROCESS_FEATURE_CELLS;
+         ++cell)
+    {
+        destination[cell] = rf_v12_background_q8_8(tile->c0_db[cell]);
+    }
+    background->calibration_write_index++;
+    if (background->calibration_write_index ==
+        RF_V12_PREPROCESS_BACKGROUND_WINDOWS)
+    {
+        background->calibration_write_index = 0U;
+    }
+    if (background->calibration_count <
+        RF_V12_PREPROCESS_BACKGROUND_WINDOWS)
+    {
+        background->calibration_count++;
+    }
+}
+
+static void rf_v12_background_build_candidate(
+    rf_v12_preprocess_background_t *background)
+{
+    memset(background->unstable_mask, 0,
+           sizeof(background->unstable_mask));
+    for (uint32_t cell = 0U;
+         cell < RF_V12_PREPROCESS_FEATURE_CELLS;
+         ++cell)
+    {
+        int16_t values[RF_V12_PREPROCESS_BACKGROUND_WINDOWS];
+        int16_t q25;
+        int16_t q50;
+        int16_t q75;
+        bool unstable;
+
+        for (uint32_t window = 0U;
+             window < RF_V12_PREPROCESS_BACKGROUND_WINDOWS;
+             ++window)
+        {
+            values[window] = background->calibration_q8_8[window][cell];
+        }
+        for (uint32_t index = 1U;
+             index < RF_V12_PREPROCESS_BACKGROUND_WINDOWS;
+             ++index)
+        {
+            const int16_t value = values[index];
+            uint32_t position = index;
+            while ((position != 0U) &&
+                   (values[position - 1U] > value))
+            {
+                values[position] = values[position - 1U];
+                --position;
+            }
+            values[position] = value;
+        }
+        q25 = rf_v12_q8_8_midpoint(values[3], values[4]);
+        q50 = rf_v12_q8_8_midpoint(values[7], values[8]);
+        q75 = rf_v12_q8_8_midpoint(values[11], values[12]);
+        unstable = ((int32_t)q75 - (int32_t)q25) >
+                   RF_V12_BACKGROUND_IQR_LIMIT_Q8_8;
+        background->baseline_q8_8[cell] = unstable ? q25 : q50;
+        if (unstable)
+        {
+            background->unstable_mask[cell >> 3U] |=
+                (uint8_t)(1U << (cell & 7U));
+        }
+    }
+}
+
+static bool rf_v12_background_validation_passes(
+    const rf_v12_preprocess_background_t *background,
+    const rf_v12_preprocess_tile_t *tile)
+{
+    uint32_t residual_below_median_band = 0U;
+    uint32_t residual_above_median_band = 0U;
+    uint32_t residual_below_limit = 0U;
+    const uint32_t median_count_limit =
+        RF_V12_PREPROCESS_FEATURE_CELLS / 2U;
+
+    for (uint32_t cell = 0U;
+         cell < RF_V12_PREPROCESS_FEATURE_CELLS;
+         ++cell)
+    {
+        const int32_t residual =
+            (int32_t)rf_v12_background_q8_8(tile->c0_db[cell]) -
+            (int32_t)background->baseline_q8_8[cell];
+        if (residual < -RF_V12_VALIDATION_MEDIAN_LIMIT_Q8_8)
+        {
+            residual_below_median_band++;
+        }
+        if (residual > RF_V12_VALIDATION_MEDIAN_LIMIT_Q8_8)
+        {
+            residual_above_median_band++;
+        }
+        if (residual <= RF_V12_VALIDATION_RESIDUAL_LIMIT_Q8_8)
+        {
+            residual_below_limit++;
+        }
+    }
+    return (residual_below_median_band <= median_count_limit) &&
+           (residual_above_median_band <= median_count_limit) &&
+           ((residual_below_limit *
+             RF_V12_VALIDATION_REQUIRED_DENOMINATOR) >=
+            (RF_V12_PREPROCESS_FEATURE_CELLS *
+             RF_V12_VALIDATION_REQUIRED_NUMERATOR));
+}
+
+static void rf_v12_background_mark_ready(
+    rf_v12_preprocess_background_t *background,
+    bool forced)
+{
+    background->ready = 1U;
+    background->forced_ready = forced ? 1U : 0U;
+    background->generation++;
+    if (background->generation == 0U)
+    {
+        background->generation = 1U;
+    }
+}
+
 bool rf_v12_preprocess_tile_complete(const rf_v12_preprocess_tile_t *tile)
 {
     return (tile != NULL) &&
@@ -704,18 +904,95 @@ static void rf_v12_encode_features(
     }
 }
 
-rf_v12_preprocess_result_t rf_v12_preprocess_finalize(
+rf_v12_preprocess_finalize_info_t rf_v12_preprocess_finalize(
     rf_v12_preprocess_tile_t *tile,
+    rf_v12_preprocess_background_t *background,
     bool capture_valid)
 {
-    if ((tile == NULL) || (tile->feature_staging == NULL) || !capture_valid ||
+    rf_v12_preprocess_finalize_info_t info =
+    {
+        RF_V12_PREPROCESS_INVALID, 0U, 0U, 0U
+    };
+
+    if (background != NULL)
+    {
+        info.background_generation = background->generation;
+        info.background_reset = background->reset_pending;
+    }
+    if ((tile == NULL) || (background == NULL) ||
+        (tile->feature_staging == NULL) || !capture_valid ||
+        (background->gain_valid == 0U) ||
         !rf_v12_preprocess_tile_complete(tile))
     {
-        return RF_V12_PREPROCESS_INVALID;
+        return info;
+    }
+
+    if (background->ready == 0U)
+    {
+        if (background->calibration_count <
+            RF_V12_PREPROCESS_BACKGROUND_WINDOWS)
+        {
+            rf_v12_background_store(background, tile);
+            background->valid_window_count++;
+            if (background->calibration_count ==
+                RF_V12_PREPROCESS_BACKGROUND_WINDOWS)
+            {
+                rf_v12_background_build_candidate(background);
+            }
+        }
+        else
+        {
+            const bool validation_passed =
+                rf_v12_background_validation_passes(background, tile);
+            bool forced = false;
+
+            background->valid_window_count++;
+            if (validation_passed)
+            {
+                background->validation_pass_count++;
+            }
+            else
+            {
+                background->validation_pass_count = 0U;
+                rf_v12_background_store(background, tile);
+                rf_v12_background_build_candidate(background);
+            }
+            if (background->validation_pass_count >=
+                RF_V12_PREPROCESS_VALIDATION_WINDOWS)
+            {
+                rf_v12_background_mark_ready(background, false);
+            }
+            else if (background->valid_window_count >=
+                     RF_V12_PREPROCESS_MAX_CALIBRATION_WINDOWS)
+            {
+                forced = true;
+                rf_v12_background_mark_ready(background, forced);
+            }
+            if (background->ready != 0U)
+            {
+                info.background_became_ready = 1U;
+                info.background_generation = background->generation;
+            }
+        }
+        info.result = RF_V12_PREPROCESS_BACKGROUND_NOT_READY;
+        return info;
+    }
+
+    for (uint32_t cell = 0U;
+         cell < RF_V12_PREPROCESS_FEATURE_CELLS;
+         ++cell)
+    {
+        tile->c0_db[cell] -=
+            (float)background->baseline_q8_8[cell] /
+            (float)(1U << RF_V12_PREPROCESS_BACKGROUND_Q_SHIFT);
     }
 
     rf_v12_encode_features(tile, NULL, false);
-    return RF_V12_PREPROCESS_READY;
+    info.result = RF_V12_PREPROCESS_READY;
+    info.background_generation = background->generation;
+    info.background_reset = 0U;
+    background->reset_pending = 0U;
+    return info;
 }
 
 bool rf_v12_preprocess_finalize_synthetic(

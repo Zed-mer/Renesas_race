@@ -473,6 +473,8 @@ void rf_ui_mark_channel_result(uint32_t channel_index,
                                uint8_t confidence_percent);
 void rf_ui_force_channel_result_redraw(uint32_t channel_index);
 void rf_ui_set_model_placeholder(bool placeholder);
+/** Show startup calibration state until all four CPU0 baselines are frozen. */
+void rf_ui_set_detection_ready(bool ready);
 
 /** Set the acquisition/scan-rate text in tenths of hertz (82 -> "8.2 Hz"). */
 void rf_ui_set_scan_rate_x10(uint16_t rate_x10);
