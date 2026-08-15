@@ -617,91 +617,6 @@ RF_V12_HOT_CODE bool rf_v12_preprocess_frame_gathered(
     return true;
 }
 
-void rf_v12_preprocess_background_init(
-    rf_v12_preprocess_background_t *background)
-{
-    if (background == NULL)
-    {
-        return;
-    }
-    background->gain_db_q8 = 0;
-    background->generation = 0U;
-    background->gain_valid = 0U;
-    background->calibration_count = 0U;
-    background->ready = 0U;
-    background->reset_pending = 0U;
-}
-
-bool rf_v12_preprocess_background_set_gain(
-    rf_v12_preprocess_background_t *background,
-    int16_t gain_db_q8)
-{
-    if (background == NULL)
-    {
-        return false;
-    }
-    if (background->gain_valid == 0U)
-    {
-        background->gain_db_q8 = gain_db_q8;
-        background->gain_valid = 1U;
-        background->calibration_count = 0U;
-        background->ready = 0U;
-        background->reset_pending = 0U;
-        return true;
-    }
-    if (background->gain_db_q8 == gain_db_q8)
-    {
-        return false;
-    }
-    background->gain_db_q8 = gain_db_q8;
-    background->calibration_count = 0U;
-    background->ready = 0U;
-    background->reset_pending = 1U;
-    return true;
-}
-
-static float rf_v12_median_five(float values[RF_V12_PREPROCESS_BACKGROUND_WINDOWS])
-{
-    for (uint32_t i = 1U;
-         i < RF_V12_PREPROCESS_BACKGROUND_WINDOWS;
-         ++i)
-    {
-        const float value = values[i];
-        uint32_t position = i;
-        while ((position != 0U) && (values[position - 1U] > value))
-        {
-            values[position] = values[position - 1U];
-            --position;
-        }
-        values[position] = value;
-    }
-    return values[RF_V12_PREPROCESS_BACKGROUND_WINDOWS / 2U];
-}
-
-static void rf_v12_freeze_background(
-    rf_v12_preprocess_background_t *background)
-{
-    for (uint32_t cell = 0U;
-         cell < RF_V12_PREPROCESS_FEATURE_CELLS;
-         ++cell)
-    {
-        float values[RF_V12_PREPROCESS_BACKGROUND_WINDOWS];
-        for (uint32_t window = 0U;
-             window < RF_V12_PREPROCESS_BACKGROUND_WINDOWS;
-             ++window)
-        {
-            values[window] = background->calibration[window][cell];
-        }
-        background->calibration[0][cell] = rf_v12_median_five(values);
-    }
-    background->ready = 1U;
-    background->generation++;
-    if (background->generation == 0U)
-    {
-        background->generation = 1U;
-    }
-}
-
 bool rf_v12_preprocess_tile_complete(const rf_v12_preprocess_tile_t *tile)
 {
     return (tile != NULL) &&
@@ -711,23 +626,26 @@ bool rf_v12_preprocess_tile_complete(const rf_v12_preprocess_tile_t *tile)
            (tile->pool_frame_count == 0U);
 }
 
-static void rf_v12_encode_background_relative(
+static void rf_v12_encode_features(
     rf_v12_preprocess_tile_t *tile,
     const float *background,
     bool background_is_cellwise)
 {
-    for (uint32_t frequency = 0U;
-         frequency < RF_V12_FEATURE_FREQUENCY_BINS;
-         ++frequency)
+    if (background != NULL)
     {
-        for (uint32_t time = 0U;
-             time < RF_V12_FEATURE_TIME_BINS;
-             ++time)
+        for (uint32_t frequency = 0U;
+             frequency < RF_V12_FEATURE_FREQUENCY_BINS;
+             ++frequency)
         {
-            const uint32_t cell =
-                (frequency * RF_V12_FEATURE_TIME_BINS) + time;
-            tile->c0_db[cell] -= background_is_cellwise ?
-                                 background[cell] : background[frequency];
+            for (uint32_t time = 0U;
+                 time < RF_V12_FEATURE_TIME_BINS;
+                 ++time)
+            {
+                const uint32_t cell =
+                    (frequency * RF_V12_FEATURE_TIME_BINS) + time;
+                tile->c0_db[cell] -= background_is_cellwise ?
+                                     background[cell] : background[frequency];
+            }
         }
     }
 
@@ -786,59 +704,18 @@ static void rf_v12_encode_background_relative(
     }
 }
 
-rf_v12_preprocess_finalize_info_t rf_v12_preprocess_finalize(
+rf_v12_preprocess_result_t rf_v12_preprocess_finalize(
     rf_v12_preprocess_tile_t *tile,
-    rf_v12_preprocess_background_t *background,
     bool capture_valid)
 {
-    rf_v12_preprocess_finalize_info_t info =
-    {
-        RF_V12_PREPROCESS_INVALID, 0U, 0U, 0U
-    };
-
-    if (background != NULL)
-    {
-        info.background_generation = background->generation;
-        info.background_reset = background->reset_pending;
-    }
-    if ((tile == NULL) || (background == NULL) ||
-        (tile->feature_staging == NULL) || !capture_valid ||
-        (background->gain_valid == 0U) ||
+    if ((tile == NULL) || (tile->feature_staging == NULL) || !capture_valid ||
         !rf_v12_preprocess_tile_complete(tile))
     {
-        return info;
+        return RF_V12_PREPROCESS_INVALID;
     }
 
-    if (background->ready == 0U)
-    {
-        if (background->calibration_count <
-            RF_V12_PREPROCESS_BACKGROUND_WINDOWS)
-        {
-            memcpy(background->calibration[background->calibration_count],
-                   tile->c0_db,
-                   sizeof(tile->c0_db));
-            background->calibration_count++;
-        }
-        if (background->calibration_count ==
-            RF_V12_PREPROCESS_BACKGROUND_WINDOWS)
-        {
-            rf_v12_freeze_background(background);
-            info.background_became_ready = 1U;
-            info.background_generation = background->generation;
-        }
-        info.result = RF_V12_PREPROCESS_BACKGROUND_NOT_READY;
-        return info;
-    }
-
-    rf_v12_encode_background_relative(tile,
-                                      background->calibration[0],
-                                      true);
-
-    info.result = RF_V12_PREPROCESS_READY;
-    info.background_generation = background->generation;
-    info.background_reset = 0U;
-    background->reset_pending = 0U;
-    return info;
+    rf_v12_encode_features(tile, NULL, false);
+    return RF_V12_PREPROCESS_READY;
 }
 
 bool rf_v12_preprocess_finalize_synthetic(
@@ -880,11 +757,11 @@ bool rf_v12_preprocess_finalize_synthetic(
         background[frequency] =
             values[RF_V12_FEATURE_TIME_BINS / 2U];
     }
-    rf_v12_encode_background_relative(tile, background, false);
+    rf_v12_encode_features(tile, background, false);
     return true;
 }
 
-const float *rf_v12_preprocess_background_relative_c0(
+const float *rf_v12_preprocess_c0(
     const rf_v12_preprocess_tile_t *tile)
 {
     return (tile != NULL) ? tile->c0_db : NULL;

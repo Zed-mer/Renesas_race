@@ -946,7 +946,7 @@ void rf_v12_detector_decode(const rf_v12_detector_input_t *input,
         uint32_t count;
         if (class_id == RF_V12_CLASS_DJI_VIDEO)
         {
-            count = rf_v12_decode_video(input->background_relative_c0,
+            count = rf_v12_decode_video(input->c0_db,
                                         per_class);
         }
         else

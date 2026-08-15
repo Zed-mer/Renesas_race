@@ -8,7 +8,6 @@
 
 #define RF_V12_PREPROCESS_FEATURE_CELLS \
     (RF_V12_FEATURE_FREQUENCY_BINS * RF_V12_FEATURE_TIME_BINS)
-#define RF_V12_PREPROCESS_BACKGROUND_WINDOWS (5U)
 
 /* The V12 contract represents one output frequency cell as 256/51 of a raw
  * FFT bin.  Keep the constants public so the production STFT reducer can use
@@ -35,8 +34,7 @@ typedef struct st_rf_v12_rebin_output_map
 typedef enum e_rf_v12_preprocess_result
 {
     RF_V12_PREPROCESS_INVALID = 0,
-    RF_V12_PREPROCESS_BACKGROUND_NOT_READY = 1,
-    RF_V12_PREPROCESS_READY = 2
+    RF_V12_PREPROCESS_READY = 1
 } rf_v12_preprocess_result_t;
 
 /* One instance belongs to one concurrently active STFT tile. The feature
@@ -54,28 +52,6 @@ typedef struct st_rf_v12_preprocess_tile
     uint8_t pool_frame_count;
     uint8_t frame_open;
 } rf_v12_preprocess_tile_t;
-
-/* One instance belongs to one capture center. calibration[0] is overwritten
- * with the frozen cell-wise Q50 after the fifth complete valid tile. */
-typedef struct st_rf_v12_preprocess_background
-{
-    float calibration[RF_V12_PREPROCESS_BACKGROUND_WINDOWS]
-                     [RF_V12_PREPROCESS_FEATURE_CELLS];
-    int16_t gain_db_q8;
-    uint16_t generation;
-    uint8_t gain_valid;
-    uint8_t calibration_count;
-    uint8_t ready;
-    uint8_t reset_pending;
-} rf_v12_preprocess_background_t;
-
-typedef struct st_rf_v12_preprocess_finalize_info
-{
-    rf_v12_preprocess_result_t result;
-    uint16_t background_generation;
-    uint8_t background_became_ready;
-    uint8_t background_reset;
-} rf_v12_preprocess_finalize_info_t;
 
 void rf_v12_preprocess_tile_reset(rf_v12_preprocess_tile_t *tile,
                                   int8_t *feature_staging);
@@ -135,18 +111,10 @@ bool rf_v12_preprocess_frame_gathered(
     uint32_t raw_frame_index,
     float linear_power_scale);
 
-void rf_v12_preprocess_background_init(
-    rf_v12_preprocess_background_t *background);
-bool rf_v12_preprocess_background_set_gain(
-    rf_v12_preprocess_background_t *background,
-    int16_t gain_db_q8);
-
-/* capture_valid=false never trains the background and never emits model
- * input. A fifth calibration tile freezes Q50 but remains BACKGROUND_NOT_READY;
- * inference begins with the following complete valid tile. */
-rf_v12_preprocess_finalize_info_t rf_v12_preprocess_finalize(
+/* A complete valid production tile is quantized immediately. There is no
+ * startup background-training stage or gain-triggered recalibration delay. */
+rf_v12_preprocess_result_t rf_v12_preprocess_finalize(
     rf_v12_preprocess_tile_t *tile,
-    rf_v12_preprocess_background_t *background,
     bool capture_valid);
 
 /* Synthetic compute proof only: estimate one per-frequency Q50 from this
@@ -155,7 +123,7 @@ bool rf_v12_preprocess_finalize_synthetic(
     rf_v12_preprocess_tile_t *tile);
 
 bool rf_v12_preprocess_tile_complete(const rf_v12_preprocess_tile_t *tile);
-const float *rf_v12_preprocess_background_relative_c0(
+const float *rf_v12_preprocess_c0(
     const rf_v12_preprocess_tile_t *tile);
 
 /* Exposed for byte-parity tests and for guarded scalar fallbacks. */

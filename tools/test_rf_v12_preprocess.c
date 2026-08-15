@@ -128,65 +128,43 @@ done:
     return result;
 }
 
-static int test_background_and_channels(void)
+static int test_direct_finalize_and_channels(void)
 {
     rf_v12_preprocess_tile_t *tile = calloc(1U, sizeof(*tile));
-    rf_v12_preprocess_background_t *background =
-        calloc(1U, sizeof(*background));
     int8_t *features = calloc(RF_V12_FEATURE_BYTES, 1U);
-    static const uint32_t calibration_power[5] = {100U, 500U, 300U, 200U, 400U};
-    rf_v12_preprocess_finalize_info_t info;
+    rf_v12_preprocess_result_t result_info;
     int result = 0;
 
-    if ((tile == NULL) || (background == NULL) || (features == NULL))
+    if ((tile == NULL) || (features == NULL))
     {
         result = test_fail("allocation failed");
         goto done;
     }
-    rf_v12_preprocess_background_init(background);
-    if (!rf_v12_preprocess_background_set_gain(background, 12 * 256))
+
+    rf_v12_preprocess_tile_reset(tile, features);
+    if (feed_tile(tile, 600U, UINT32_MAX, 0) != 0)
     {
-        result = test_fail("initial gain was not accepted");
+        result = 1;
         goto done;
     }
-    for (uint32_t window = 0U; window < 5U; ++window)
+    result_info = rf_v12_preprocess_finalize(tile, false);
+    if (result_info != RF_V12_PREPROCESS_INVALID)
     {
-        rf_v12_preprocess_tile_reset(tile, features);
-        if (feed_tile(tile, calibration_power[window], UINT32_MAX, 0) != 0)
-        {
-            result = 1;
-            goto done;
-        }
-        info = rf_v12_preprocess_finalize(tile, background, true);
-        if (info.result != RF_V12_PREPROCESS_BACKGROUND_NOT_READY)
-        {
-            result = test_fail("a calibration tile was used for inference");
-            goto done;
-        }
-    }
-    if ((background->ready == 0U) || (background->generation != 1U))
-    {
-        result = test_fail("fifth tile did not freeze generation one");
-        goto done;
-    }
-    if (fabsf(background->calibration[0][0] -
-              (10.0F * log10f(300.0F))) > TEST_TOLERANCE_DB)
-    {
-        result = test_fail("cell-wise five-window Q50 mismatch");
+        result = test_fail("an invalid capture emitted model input");
         goto done;
     }
 
     memset(features, 0, RF_V12_FEATURE_BYTES);
     rf_v12_preprocess_tile_reset(tile, features);
-    if (feed_tile(tile, 600U, UINT32_MAX, 1) != 0)
+    if (feed_tile(tile, 600U, UINT32_MAX, 0) != 0)
     {
         result = 1;
         goto done;
     }
-    info = rf_v12_preprocess_finalize(tile, background, true);
-    if (info.result != RF_V12_PREPROCESS_READY)
+    result_info = rf_v12_preprocess_finalize(tile, true);
+    if (result_info != RF_V12_PREPROCESS_READY)
     {
-        result = test_fail("sixth valid tile was not inference-ready");
+        result = test_fail("first valid tile was not inference-ready");
         goto done;
     }
     for (uint32_t cell = 0U;
@@ -194,11 +172,11 @@ static int test_background_and_channels(void)
          ++cell)
     {
         const uint32_t offset = cell * RF_V12_FEATURE_CHANNELS;
-        const float expected_c0 = 10.0F * log10f(1140.0F / 300.0F);
-        const float expected_c1 = 10.0F * log10f(6000.0F / 1140.0F);
+        const float expected_c0 = 10.0F * log10f(600.0F);
+        const float expected_c1 = 0.0F;
         if (fabsf(tile->c0_db[cell] - expected_c0) > TEST_TOLERANCE_DB)
         {
-            result = test_fail("background-relative C0 mismatch");
+            result = test_fail("uncalibrated C0 mismatch");
             goto done;
         }
         if ((features[offset] !=
@@ -215,16 +193,8 @@ static int test_background_and_channels(void)
         }
     }
 
-    if (!rf_v12_preprocess_background_set_gain(background, 13 * 256) ||
-        (background->ready != 0U) || (background->reset_pending == 0U) ||
-        (background->generation != 1U))
-    {
-        result = test_fail("gain change did not invalidate only this background");
-    }
-
 done:
     free(features);
-    free(background);
     free(tile);
     return result;
 }
@@ -233,7 +203,7 @@ int main(void)
 {
     if ((test_rne() != 0) ||
         (test_exact_area() != 0) ||
-        (test_background_and_channels() != 0))
+        (test_direct_finalize_and_channels() != 0))
     {
         return 1;
     }

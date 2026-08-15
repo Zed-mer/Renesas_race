@@ -20,7 +20,7 @@ typedef struct st_rf_v12_detector_input
     int16_t sdr_gain_db_q8;
     uint8_t tile_validity;
     uint8_t tile_flags;
-    const float *background_relative_c0;
+    const float *c0_db;
     const int8_t *model_input;
 } rf_v12_detector_input_t;
 
