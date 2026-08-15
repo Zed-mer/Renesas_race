@@ -25,6 +25,8 @@ void ipc_bridge_cpu1_command_service(void);
 bool ipc_bridge_cpu1_cpu0_ready(void);
 bool ipc_bridge_cpu1_command_pending(void);
 uint32_t ipc_bridge_cpu1_command_retry_count(void);
+bool ipc_bridge_cpu1_panel_shutdown_requested(void);
+void ipc_bridge_cpu1_panel_shutdown_ack(void);
 void ipc_bridge_cpu1_runtime_update(uint32_t heartbeat,
                                     uint32_t display_stage,
                                     uint32_t glcdc_line_events,

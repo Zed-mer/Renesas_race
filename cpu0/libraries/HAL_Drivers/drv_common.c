@@ -12,6 +12,17 @@
 #include <bsp_api.h>
 #include "board.h"
 
+#if defined(SOC_SERIES_R7KA8P1)
+    #if !BSP_CFG_EARLY_INIT
+        #error "CPU0 display clamp requires BSP_CFG_EARLY_INIT enabled"
+    #endif
+    #define DISPLAY_STARTUP_BACKLIGHT_PIN   (BSP_IO_PORT_00_PIN_12)
+    #define DISPLAY_STARTUP_PANEL_RESET_PIN (BSP_IO_PORT_04_PIN_11)
+    #define DISPLAY_STARTUP_OUTPUT_LOW_CFG  ((uint32_t) IOPORT_CFG_DRIVE_MID | \
+                                             (uint32_t) IOPORT_CFG_PORT_DIRECTION_OUTPUT | \
+                                             (uint32_t) IOPORT_CFG_PORT_OUTPUT_LOW)
+#endif
+
 #ifdef RT_USING_PIN
     #include <drv_gpio.h>
 #endif
@@ -229,6 +240,15 @@ void R_BSP_WarmStart (bsp_warm_start_event_t event)
         /* Would normally have to wait tDSTOP(6us) for data flash recovery. Placing the enable here, before clock and
          * C runtime initialization, should negate the need for a delay since the initialization will typically take more than 6us. */
 #endif
+
+#if defined(SOC_SERIES_R7KA8P1)
+        /* CPU0 starts first. Clamp the panel before CPU1 is released so the
+         * external pull-ups cannot expose an uninitialized DSI stream. */
+        R_BSP_PinAccessEnable();
+        R_BSP_PinWrite(DISPLAY_STARTUP_BACKLIGHT_PIN, BSP_IO_LEVEL_LOW);
+        R_BSP_PinWrite(DISPLAY_STARTUP_PANEL_RESET_PIN, BSP_IO_LEVEL_LOW);
+        R_BSP_PinAccessDisable();
+#endif
     }
 
     if (BSP_WARM_START_POST_C == event)
@@ -239,6 +259,21 @@ void R_BSP_WarmStart (bsp_warm_start_event_t event)
         R_IOPORT_Open (&IOPORT_CFG_CTRL, &IOPORT_CFG_NAME);
 
 #if defined(SOC_SERIES_R7KA8P1)
+        /* R_IOPORT_Open reapplies CPU0's pin table. Restore the display clamp
+         * and hold it until CPU1 takes ownership during display bring-up. */
+        R_IOPORT_PinCfg(&IOPORT_CFG_CTRL,
+                        DISPLAY_STARTUP_BACKLIGHT_PIN,
+                        DISPLAY_STARTUP_OUTPUT_LOW_CFG);
+        R_IOPORT_PinWrite(&IOPORT_CFG_CTRL,
+                          DISPLAY_STARTUP_BACKLIGHT_PIN,
+                          BSP_IO_LEVEL_LOW);
+        R_IOPORT_PinCfg(&IOPORT_CFG_CTRL,
+                        DISPLAY_STARTUP_PANEL_RESET_PIN,
+                        DISPLAY_STARTUP_OUTPUT_LOW_CFG);
+        R_IOPORT_PinWrite(&IOPORT_CFG_CTRL,
+                          DISPLAY_STARTUP_PANEL_RESET_PIN,
+                          BSP_IO_LEVEL_LOW);
+
         /* Competition-board RTL8211 reset is active low on P714.  A warm
          * debugger reset does not guarantee a power-on reset at the PHY, so
          * provide a deterministic pulse before RMAC/MDIO initialization. */

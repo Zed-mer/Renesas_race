@@ -153,8 +153,9 @@ static void test_single_window_gate(void)
                   RA8P1_SDR_CONTROL_STATUS_OK, 15U);
     evidence.cpu1_visible = false;
     sdr_control_client_observe_window(&client, &evidence, 16U);
-    assert(mock.sends == 1U); /* CPU1 has not acknowledged visibility. */
-
+    assert(mock.sends == 2U);
+    /* CPU0's published result releases SDR flow control. CPU1 visibility is
+     * still recorded asynchronously and cannot add a per-window stall. */
     evidence.cpu1_visible = true;
     sdr_control_client_observe_window(&client, &evidence, 17U);
     assert(mock.sends == 2U);
@@ -168,6 +169,16 @@ static void test_single_window_gate(void)
                   RA8P1_SDR_CONTROL_STATUS_OK, 18U);
     assert(client.stats.state == SDR_CONTROL_CLIENT_COMPLETE);
     assert(client.stats.completed_windows == 1U);
+}
+
+static void test_default_recovery_deadlines_are_bounded(void)
+{
+    sdr_control_capture_options_t options;
+
+    sdr_control_capture_options_default(&options);
+    assert(options.ack_timeout_ms == 200U);
+    assert(options.request_timeout_ms == 2000U);
+    assert(options.request_timeout_ms > options.ack_timeout_ms);
 }
 
 static void test_request_retry_is_idempotent(void)
@@ -434,7 +445,7 @@ static void test_scan_prefetch_waits_for_credit(void)
     evidence.crc_present = true;
     evidence.crc_valid = true;
     evidence.analysis_complete = true;
-    evidence.cpu1_visible = true;
+    evidence.cpu1_visible = false;
     sdr_control_client_observe_window(&client, &evidence, 18U);
     assert(client.stats.state == SDR_CONTROL_CLIENT_WAIT_CREDIT_ACCEPTED);
     assert(sdr_control_client_expected_session(&client) == second.session_id);
@@ -1867,6 +1878,7 @@ static void test_error_requires_cancel_before_restart(void)
 
 int main(void)
 {
+    test_default_recovery_deadlines_are_bounded();
     test_single_window_gate();
     test_request_retry_is_idempotent();
     test_missing_complete_uses_bounded_completion_probes();

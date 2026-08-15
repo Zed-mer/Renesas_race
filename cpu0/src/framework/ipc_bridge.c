@@ -377,24 +377,37 @@ void ipc_bridge_cpu0_latency_session_begin(uint32_t session_id,
 {
     volatile ra8p1_latency_control_t *control = RA8P1_LATENCY_CONTROL;
     (void) ipc_cpu0_dwt_enable();
-    memset(&g_cpu0_latency, 0, sizeof(g_cpu0_latency));
+
+    if (session_id == 0U)
+    {
+        memset(&g_cpu0_latency, 0, sizeof(g_cpu0_latency));
+        g_cpu0_latency.control.magic = RA8P1_LATENCY_MAGIC;
+        g_cpu0_latency.control.version = RA8P1_LATENCY_VERSION;
+        g_cpu0_latency.control.size = RA8P1_LATENCY_CONTROL_BYTES;
+        g_cpu0_latency.control.cpu0_cycle_hz = RA8P1_LATENCY_CPU0_CYCLE_HZ;
+        ipc_barrier();
+        memset((void *) control, 0, RA8P1_IPC_LATENCY_BYTES);
+        ipc_barrier();
+        ipc_cpu0_latency_control_write();
+#if (__DCACHE_PRESENT == 1U)
+        SCB_CleanDCache_by_Addr((volatile void *) control,
+                                (int32_t) RA8P1_IPC_LATENCY_BYTES);
+#endif
+        return;
+    }
+
+    /* Preserve the cross-session record sequence, pending CPU1 ACKs, and
+     * cumulative diagnostics. Only the ingress state belongs to this window. */
+    ipc_bridge_cpu0_latency_poll();
     g_cpu0_latency.session_id = session_id;
     g_cpu0_latency.stride_samples = stride_samples;
     g_cpu0_latency.window_count = ipc_cpu0_latency_window_count(total_samples,
                                                                  window_samples,
                                                                  stride_samples);
-    g_cpu0_latency.active = (session_id != 0U) && (g_cpu0_latency.window_count != 0U);
-    g_cpu0_latency.control.magic = RA8P1_LATENCY_MAGIC;
-    g_cpu0_latency.control.version = RA8P1_LATENCY_VERSION;
-    g_cpu0_latency.control.size = RA8P1_LATENCY_CONTROL_BYTES;
-    g_cpu0_latency.control.cpu0_cycle_hz = RA8P1_LATENCY_CPU0_CYCLE_HZ;
-    ipc_barrier();
-    memset((void *) control, 0, RA8P1_IPC_LATENCY_BYTES);
-    ipc_barrier();
-    ipc_cpu0_latency_control_write();
-#if (__DCACHE_PRESENT == 1U)
-    SCB_CleanDCache_by_Addr((volatile void *) control, (int32_t) RA8P1_IPC_LATENCY_BYTES);
-#endif
+    g_cpu0_latency.next_ingress_window = 0U;
+    g_cpu0_latency.next_ingress_start_sample = 0U;
+    g_cpu0_latency.active = (g_cpu0_latency.window_count != 0U);
+    memset(g_cpu0_latency.windows, 0, sizeof(g_cpu0_latency.windows));
 }
 
 uint32_t ipc_bridge_cpu0_latency_ingress_prepare(uint32_t session_id,
@@ -564,8 +577,7 @@ void ipc_bridge_cpu0_latency_poll(void)
     uint32_t visible_cycles;
     uint32_t slot_index;
     uint32_t publish_sequence;
-    if ((g_cpu0_latency.active == 0U) ||
-        (g_cpu0_latency.pending_cpu1_acks == 0U))
+    if (g_cpu0_latency.pending_cpu1_acks == 0U)
     {
         return;
     }
@@ -613,9 +625,7 @@ bool ipc_bridge_cpu0_latency_result_visible(uint32_t session_id,
     ra8p1_latency_record_t record;
     uint32_t slot_index;
     if ((session_id == 0U) ||
-        (window_index >= CPU0_LATENCY_MAX_WINDOWS) ||
-        (g_cpu0_latency.active == 0U) ||
-        (g_cpu0_latency.session_id != session_id))
+        (window_index >= CPU0_LATENCY_MAX_WINDOWS))
     {
         return false;
     }
@@ -771,29 +781,23 @@ void ipc_bridge_cpu0_display_session_set(uint32_t session_id)
     uint32_t next_session = (session_id == 0U) ? 1U : session_id;
     bool session_changed = (next_session != g_display_session_id);
 
-    /* A RETRY_WINDOW keeps the SDR request/session identity.  Resetting the
-     * display slots is required, but changing that identity would cause CPU1
-     * to acknowledge a different latency record and strand CPU0 in
-     * WAIT_LOCAL_RESULT.  Keep transport sequences monotonic too: CPU1 resets
-     * its consumer sequences only when this session ID actually changes. */
+    /* Frame sequence and slots span SDR sessions so CPU1 can consume the
+     * previous result after the next capture has already received credit.
+     * Tile rows remain session-scoped and are restarted at each handover. */
     g_display_session_id = next_session;
     if (session_changed)
     {
-        g_display_sequence = 0U;
         g_tile_sequence = 0U;
     }
     display_control->session_id = 0U;
     ipc_barrier();
-    memset((void *) RA8P1_DISPLAY_STREAM_SLOTS,
-           0,
-           RA8P1_DISPLAY_STREAM_SLOT_COUNT * sizeof(ra8p1_display_stream_slot_t));
     memset((void *) RA8P1_DISPLAY_TILE_SLOTS, 0, RA8P1_DISPLAY_TILE_BYTES);
     ipc_barrier();
     display_control->session_id = g_display_session_id;
     ipc_barrier();
 #if (__DCACHE_PRESENT == 1U)
     SCB_CleanDCache_by_Addr((volatile void *) display_control,
-                           (int32_t) RA8P1_DISPLAY_STREAM_BYTES);
+                           (int32_t) sizeof(*display_control));
     SCB_CleanDCache_by_Addr((volatile void *) RA8P1_DISPLAY_TILE_SLOTS,
                            (int32_t) RA8P1_DISPLAY_TILE_BYTES);
 #endif
@@ -933,6 +937,7 @@ void ipc_bridge_cpu0_display_publish(const ra8p1_display_frame_t *frame,
             next_session = 1U;
         }
         ipc_bridge_cpu0_display_session_set(next_session);
+        g_display_sequence = 0U;
     }
 
     sequence = (g_display_sequence + 2U) & ~1U;

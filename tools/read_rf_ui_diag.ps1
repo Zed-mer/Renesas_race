@@ -67,7 +67,10 @@ $fieldNames = @(
     'history_boxes_dropped_identity_mismatch',
     'history_boxes_dropped_out_of_history',
     'pending_box_batch_high_water',
-    'last_committed_round_index'
+    'last_committed_round_index',
+    'switch_cache_hits', 'switch_cache_misses',
+    'switch_cache_stale_misses', 'switch_cache_catchup_columns',
+    'switch_cache_max_catchup_columns'
 )
 
 $nmLine = @(& $NmExe -S -C (Resolve-Path -LiteralPath $Elf).Path) |
@@ -123,7 +126,7 @@ function Read-RfUiSnapshot {
     if($snapshot.magic -ne 0x53574348) {
         throw ('Unexpected rf_ui diagnostic magic: 0x{0:X8}' -f $snapshot.magic)
     }
-    if($snapshot.version -ne 15U) {
+    if($snapshot.version -ne [uint32]16) {
         throw "Unexpected rf_ui diagnostic version: $($snapshot.version)"
     }
     return $snapshot
@@ -166,6 +169,9 @@ if($null -ne $second) {
                        'switch_catchup_completions',
                        'switch_catchup_overwrite_restarts',
                        'switch_catchup_head_mismatches','live_catchup_passes',
+                       'switch_cache_hits','switch_cache_misses',
+                       'switch_cache_stale_misses',
+                       'switch_cache_catchup_columns',
                        'live_catchup_completions',
                        'live_catchup_overwrite_cancellations',
                        'live_catchup_head_mismatches',

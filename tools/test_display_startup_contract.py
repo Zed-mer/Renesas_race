@@ -16,7 +16,28 @@ HAL_ENTRY = (ROOT / "cpu1/src/hal_entry.c").read_text(
 WARMSTART = (ROOT / "cpu1/src/hal_warmstart.c").read_text(
     encoding="utf-8"
 )
+CPU0_WARMSTART = (ROOT / "cpu0/libraries/HAL_Drivers/drv_common.c").read_text(
+    encoding="utf-8"
+)
 PANEL_C = (ROOT / "cpu1/src/jd9165_panel.c").read_text(
+    encoding="utf-8"
+)
+CPU0_CONFIGURATION = (ROOT / "cpu0/configuration.xml").read_text(
+    encoding="utf-8"
+)
+CPU1_CONFIGURATION = (ROOT / "cpu1/configuration.xml").read_text(
+    encoding="utf-8"
+)
+SOLUTION_CONFIGURATION = (ROOT / "solution.xml").read_text(
+    encoding="utf-8"
+)
+CPU1_BSP_CFG = (ROOT / "cpu1/ra_cfg/fsp_cfg/bsp/bsp_cfg.h").read_text(
+    encoding="utf-8"
+)
+CPU0_BSP_CFG = (ROOT / "cpu0/ra_cfg/fsp_cfg/bsp/bsp_cfg.h").read_text(
+    encoding="utf-8"
+)
+STARTUP_SOAK = (ROOT / "tools/run_display_startup_reset_soak.ps1").read_text(
     encoding="utf-8"
 )
 
@@ -36,6 +57,40 @@ def function_body(source: str, signature: str) -> str:
 
 
 class DisplayStartupContractTest(unittest.TestCase):
+    def test_early_init_is_enabled_in_every_configuration_source(self) -> None:
+        enabled = (
+            'id="config.bsp.common.early_init" '
+            'value="config.bsp.common.early_init.enabled"'
+        )
+        self.assertIn(enabled, CPU0_CONFIGURATION)
+        self.assertIn(enabled, CPU1_CONFIGURATION)
+        self.assertIn(enabled, SOLUTION_CONFIGURATION)
+        self.assertIn("#define BSP_CFG_EARLY_INIT     ((1))", CPU0_BSP_CFG)
+        self.assertIn("#define BSP_CFG_EARLY_INIT     ((1))", CPU1_BSP_CFG)
+
+    def test_cpu0_clamps_backlight_and_panel_reset_before_cpu1_start(self) -> None:
+        body = function_body(
+            CPU0_WARMSTART, "void R_BSP_WarmStart (bsp_warm_start_event_t event)"
+        )
+        reset_phase, post_c = body.split(
+            "if (BSP_WARM_START_POST_C == event)", 1
+        )
+        self.assertIn("DISPLAY_STARTUP_BACKLIGHT_PIN", reset_phase)
+        self.assertIn("DISPLAY_STARTUP_PANEL_RESET_PIN", reset_phase)
+        self.assertGreaterEqual(reset_phase.count("R_BSP_PinWrite"), 2)
+        self.assertIn("BSP_IO_LEVEL_LOW", reset_phase)
+        self.assertGreaterEqual(post_c.count("R_IOPORT_PinCfg"), 2)
+        self.assertGreaterEqual(post_c.count("R_IOPORT_PinWrite"), 4)
+        self.assertIn(
+            "#define DISPLAY_STARTUP_PANEL_RESET_PIN (BSP_IO_PORT_04_PIN_11)",
+            CPU0_WARMSTART,
+        )
+
+    def test_lvgl_first_frame_uses_the_pre_video_ready_contract(self) -> None:
+        before_loop = HAL_ENTRY.split("while (1)", 1)[0]
+        self.assertIn("display_bringup_ready_for_first_frame()", before_loop)
+        self.assertNotIn("if (0U != g_display_diag.running)", before_loop)
+
     def test_warmstart_configures_backlight_and_resx_low(self) -> None:
         post_c = WARMSTART.index("R_IOPORT_Open")
         safe = WARMSTART[post_c:]
@@ -109,11 +164,11 @@ class DisplayStartupContractTest(unittest.TestCase):
         self.assertNotIn("lv_", callback)
         self.assertNotIn("display_backlight_startup_step", callback)
 
-    def test_gate_requires_both_layers_and_eight_clean_vsyncs(self) -> None:
+    def test_gate_requires_both_layers_and_sixteen_clean_vsyncs(self) -> None:
         step = function_body(
             BRINGUP_C, "fsp_err_t display_backlight_startup_step(void)"
         )
-        self.assertIn("DISPLAY_STARTUP_CLEAN_VSYNCS        (8U)", BRINGUP_C)
+        self.assertIn("DISPLAY_STARTUP_CLEAN_VSYNCS        (16U)", BRINGUP_C)
         for prerequisite in (
             "startup_black_framebuffer_ready",
             "startup_panel_configured",
@@ -138,6 +193,11 @@ class DisplayStartupContractTest(unittest.TestCase):
         self.assertIn("startup_clean_vsync_restarts++", step)
         self.assertNotIn("SoftwareDelay", step)
 
+    def test_startup_soak_matches_reset_and_clean_vsync_contract(self) -> None:
+        self.assertIn("startup_reset_low_hold_ms -eq 50U", STARTUP_SOAK)
+        self.assertIn("startup_clean_vsync_required -eq 16U", STARTUP_SOAK)
+        self.assertIn("startup_clean_vsync_count -ge 16U", STARTUP_SOAK)
+
     def test_backlight_is_enabled_once_after_the_clean_gate(self) -> None:
         step = function_body(
             BRINGUP_C, "fsp_err_t display_backlight_startup_step(void)"
@@ -152,8 +212,7 @@ class DisplayStartupContractTest(unittest.TestCase):
     def test_startup_diagnostics_record_strict_visibility_order(self) -> None:
         send = function_body(
             PANEL_C,
-            "static fsp_err_t jd9165_send(uint8_t command, "
-            "const uint8_t * p_parameters, uint8_t parameter_count)",
+            "static fsp_err_t jd9165_send_with_flags(uint8_t command,",
         )
         self.assertLess(
             send.index("display_startup_diag_note_first_dsi_command"),

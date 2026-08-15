@@ -16,12 +16,16 @@
  * queue.  Sixteen datagrams balance sender syscall overhead against CPU0 ring
  * drain latency while preserving the 500 Mbps average-rate target. */
 #define SDR_CONTROL_DEFAULT_SEND_BATCH         (16U)
-#define SDR_CONTROL_DEFAULT_ACK_TIMEOUT_MS      (1000U)
-#define SDR_CONTROL_DEFAULT_REQUEST_TIMEOUT_MS  (10000U)
+/* SDRC runs over the dedicated on-board Ethernet link. A normal response is
+ * sub-millisecond; waiting one second for each lost control datagram made a
+ * recoverable loss look like a frozen waterfall. Keep enough margin for a
+ * loaded SDR userspace worker while bounding a complete request lifetime. */
+#define SDR_CONTROL_DEFAULT_ACK_TIMEOUT_MS      (200U)
+#define SDR_CONTROL_DEFAULT_REQUEST_TIMEOUT_MS  (2000U)
 #define SDR_CONTROL_DEFAULT_RETRY_LIMIT         (3U)
 /* IQSC END is sent before the SDR control worker publishes CAPTURE_COMPLETE.
  * CPU0 must not ACK until that terminal control response has arrived, but a
- * lost response must also not insert the normal 1 s ACK-retry delay into the
+ * lost response must also not insert the normal ACK-retry delay into the
  * four-frequency critical path.  Repeating the same CAPTURE_REQ is
  * idempotent at the agent, so use a small bounded probe backoff while waiting
  * for CAPTURE_COMPLETE. */
@@ -33,7 +37,7 @@
 #define SDR_CONTROL_TERMINAL_CANCEL_TARGETS         (3U)
 /* CAPTURE_COMPLETE proves that the agent has retained the exact IQ window and
  * is in WAIT_ACK.  If its IQSC START never became locally visible, request the
- * cached window promptly instead of waiting the 10 s result deadline. */
+ * cached window promptly instead of waiting the result deadline. */
 #define SDR_CONTROL_IQSC_START_RETRY_MS             (4U)
 
 typedef bool (*sdr_control_send_fn)(void *context,

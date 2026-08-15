@@ -963,7 +963,8 @@ class WaterfallLayoutRegressionTest(unittest.TestCase):
             tile_update.index("ui_flow_append_waterfall_tile(tile)"),
             tile_update.index("ui_flow_commit_rf_boxes_for_tile(tile)"),
         )
-        self.assertIn("g_waterfall_total_columns[channel_index]", box_api)
+        self.assertIn("rf_box_window_anchor_find", box_api)
+        self.assertIn("incoming.anchor_end_column = waterfall_end_column", box_api)
         self.assertIn("anchor_end_column", overlay)
         self.assertIn("RF_WATERFALL_RF_ROWS_PER_WINDOW", overlay)
         self.assertIn("waterfall_rf_boxes", overlay)
@@ -1157,6 +1158,29 @@ class WaterfallLayoutRegressionTest(unittest.TestCase):
         self.assertIn("g_ui.running", push)
         self.assertNotIn("if(!g_ui.running) return", push)
 
+    def test_replay_boxes_use_their_completed_window_history_anchor(self) -> None:
+        note = RF_UI_C.split("bool rf_ui_note_complete_window", 1)[1].split(
+            "bool rf_ui_present_spectrum", 1
+        )[0]
+        box_api = RF_UI_C.split("bool rf_ui_update_rf_boxes", 1)[1].split(
+            "bool rf_ui_box_fusion_step", 1
+        )[0]
+        tile_update = LVGL_APP_C.split("void lvgl_app_tile_update", 1)[1].split(
+            "void lvgl_app_telemetry_update", 1
+        )[0]
+
+        self.assertIn("rf_box_window_anchor_record", note)
+        self.assertIn("g_waterfall_total_columns[channel_index]", note)
+        self.assertIn("rf_box_window_anchor_find", box_api)
+        self.assertIn("incoming.anchor_end_column = waterfall_end_column", box_api)
+        self.assertNotIn(
+            "incoming.anchor_end_column = g_waterfall_total_columns", box_api
+        )
+        self.assertLess(
+            tile_update.index("rf_ui_note_complete_window"),
+            tile_update.index("ui_flow_commit_rf_boxes_for_tile"),
+        )
+
     def test_paused_touch_drag_is_bounded_to_the_retained_history(self) -> None:
         pan = RF_UI_C.split("static void waterfall_pan_event", 1)[1].split(
             "static void refresh_source_badge", 1
@@ -1229,10 +1253,13 @@ class WaterfallLayoutRegressionTest(unittest.TestCase):
             commit.index("refresh_selected_view();"),
         )
 
-    def test_switch_gate_requires_post_request_matching_complete_window(self) -> None:
+    def test_switch_gate_accepts_a_cached_matching_complete_window(self) -> None:
         ready = RF_UI_C.split("static bool channel_switch_window_ready", 1)[1].split(
             "static bool channel_switch_build_start", 1
         )[0]
+        capture = RF_UI_C.split(
+            "static void complete_spectrum_snapshot_try_capture", 1
+        )[1].split("static bool waterfall_history_snapshot", 1)[0]
         setter = RF_UI_C.split("bool rf_ui_set_selected_channel", 1)[1].split(
             "uint32_t rf_ui_get_selected_channel", 1
         )[0]
@@ -1245,8 +1272,12 @@ class WaterfallLayoutRegressionTest(unittest.TestCase):
 
         self.assertIn("required_spectrum_revision", setter)
         self.assertIn("required_window_revision", setter)
-        self.assertIn("spectrum->session_id == window->session_id", ready)
-        self.assertIn("spectrum->window_sequence == window->window_sequence", ready)
+        self.assertIn("complete_spectrum_snapshot_ready(channel)", ready)
+        self.assertIn("spectrum->session_id != window->session_id", capture)
+        self.assertIn("spectrum->window_sequence != window->window_sequence", capture)
+        self.assertIn("g_complete_spectrum_data[channel]", capture)
+        self.assertIn("complete_spectrum_snapshot_ready(channel_index)", setter)
+        self.assertIn("g_complete_windows[channel_index].spectrum_revision", setter)
         self.assertIn("RA8P1_DISPLAY_TILE_HEIGHT - 1U", tile_update)
         self.assertIn("rf_ui_note_complete_window", tile_update)
         self.assertIn("rf_ui_update_spectrum_window", signal_update)
@@ -1300,6 +1331,60 @@ class WaterfallLayoutRegressionTest(unittest.TestCase):
         self.assertIn("request_generation", setter)
         self.assertIn("cancellations++", setter)
         self.assertIn("g_ui.pending_channel = (uint8_t)channel_index", setter)
+        owner = LVGL_APP_C.split("void lvgl_app_step", 1)[1]
+        self.assertEqual(
+            integer_define(LVGL_APP_C, "UI_SDRAM_WORK_BUDGET_US"), 8000
+        )
+        self.assertEqual(
+            integer_define(LVGL_APP_C, "UI_SDRAM_WORK_GUARD_US"), 1500
+        )
+        self.assertEqual(
+            integer_define(
+                LVGL_APP_C, "UI_CHANNEL_SWITCH_MAX_STEPS_PER_VSYNC"
+            ),
+            12,
+        )
+        self.assertIn("while (switch_steps <", owner)
+        self.assertIn("cycle_budget_available", owner)
+
+    def test_channel_switch_reuses_a_coherent_hidden_waterfall_source(self) -> None:
+        start = RF_UI_C.split(
+            "static bool channel_switch_build_start(bool restart)", 1
+        )[1].split("static void channel_switch_restart", 1)[0]
+        prepare = RF_UI_C.rsplit(
+            "static bool channel_switch_prepare_catchup(void)\n{", 1
+        )[1].split("bool rf_ui_channel_switch_step(void)", 1)[0]
+        peak = RF_UI_C.split(
+            "if(g_channel_build.state == RF_UI_CHANNEL_SWITCH_SPECTRUM_PEAK)",
+            1,
+        )[1].split("target = &g_waterfall_render_rings", 1)[0]
+
+        self.assertIn("const rf_ui_waterfall_source_state_t cached_state", start)
+        self.assertIn("cached_state.valid && cached_state.channel == channel", start)
+        self.assertIn("RF_UI_WATERFALL_HISTORY_COLS", start)
+        self.assertIn("waterfall_history_head_matches", start)
+        self.assertLess(
+            start.index("cached_state ="),
+            start.index("waterfall_source_state_invalidate"),
+        )
+        self.assertIn("g_channel_build.waterfall_cache_reused", start)
+        self.assertIn("switch_cache_hits++", start)
+        self.assertIn("switch_cache_misses++", start)
+        self.assertIn("switch_cache_stale_misses++", start)
+        self.assertIn("delta > RF_UI_WATERFALL_HISTORY_COLS", prepare)
+        self.assertIn("switch_cache_catchup_columns", prepare)
+        self.assertIn("g_channel_build.waterfall_cache_reused", peak)
+        self.assertIn("return channel_switch_prepare_catchup();", peak)
+
+    def test_active_channel_switch_preempts_box_fusion_work(self) -> None:
+        owner = LVGL_APP_C.split("void lvgl_app_step", 1)[1].split(
+            "void lvgl_app_runtime_metrics_get", 1
+        )[0]
+        fusion_prefix = owner.split("rf_ui_box_fusion_step();", 1)[0]
+        switch_suffix = owner.split("bool channel_switch_committed", 1)[1]
+
+        self.assertIn("!rf_ui_channel_switch_busy()", fusion_prefix)
+        self.assertIn("if (have_work_slot && !work_slot_used)", switch_suffix)
 
     def test_channel_switch_catchup_commits_one_frozen_pass(self) -> None:
         prepare = RF_UI_C.rsplit(
@@ -1321,7 +1406,9 @@ class WaterfallLayoutRegressionTest(unittest.TestCase):
             prepare,
         )
         self.assertIn("g_channel_build.catchup_target_head = current_head", prepare)
-        self.assertEqual(step.count("channel_switch_prepare_catchup()"), 1)
+        # The cached path enters catch-up after the small spectrum build;
+        # the cold path enters it after the full waterfall base build.
+        self.assertEqual(step.count("channel_switch_prepare_catchup()"), 2)
         self.assertNotIn(
             "g_channel_build.catchup_target_total_columns =", catchup
         )

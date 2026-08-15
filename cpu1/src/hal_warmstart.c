@@ -7,6 +7,10 @@
 #include "hal_data.h"
 #include "display_bringup.h"
 
+#if !BSP_CFG_EARLY_INIT
+#error "CPU1 display reset requires BSP_CFG_EARLY_INIT enabled"
+#endif
+
 #define DISPLAY_STARTUP_BACKLIGHT_PIN  (BSP_IO_PORT_00_PIN_12)
 #define DISPLAY_STARTUP_PANEL_RESET_PIN (PANEL_RESET)
 #define DISPLAY_STARTUP_OUTPUT_LOW_CFG ((uint32_t) IOPORT_CFG_DRIVE_MID | \
@@ -36,6 +40,13 @@ void R_BSP_WarmStart (bsp_warm_start_event_t event)
         /* Would normally have to wait tDSTOP(6us) for data flash recovery. Placing the enable here, before clock and
          * C runtime initialization, should negate the need for a delay since the initialization will typically take more than 6us. */
 #endif
+
+        /* This event runs before the C runtime. Use only the early BSP pin API
+         * so a warm reset cannot briefly expose the panel or release RESX. */
+        R_BSP_PinAccessEnable();
+        R_BSP_PinWrite(DISPLAY_STARTUP_BACKLIGHT_PIN, BSP_IO_LEVEL_LOW);
+        R_BSP_PinWrite(DISPLAY_STARTUP_PANEL_RESET_PIN, BSP_IO_LEVEL_LOW);
+        R_BSP_PinAccessDisable();
     }
 
 #if BSP_CFG_OSPI_B_STARTUP_ENABLED && defined(BSP_CFG_OSPI_B_STARTUP_FN)

@@ -2,6 +2,7 @@
 
 #include <rtthread.h>
 #include <hal_data.h>
+#include <limits.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
@@ -30,7 +31,12 @@
 #define IQ_CRC32C_DTCM           __attribute__((section(".dtcm"), aligned(64)))
 #define IQ_CRC32C_BACKEND_SOFTWARE  (1U)
 #define IQ_CRC32C_BACKEND_RA8P1     (2U)
+/* Keep the verified peripheral path as the product default.  A CPU0 object
+ * A/B can be built with -DIQ_CRC32C_USE_RA8P1_DATA_PATH=0 to select the DTCM
+ * slicing-by-8 path; the wire contract and self-test remain unchanged. */
+#ifndef IQ_CRC32C_USE_RA8P1_DATA_PATH
 #define IQ_CRC32C_USE_RA8P1_DATA_PATH (1)
+#endif
 /* FSP crc_polynomial_t assigns selector 5 to CRC-32C. */
 #define IQ_CRC32C_RA8P1_GPS         (5U)
 #define IQ_CRC32C_SELF_TEST_EXPECTED (0x9F787F65U)
@@ -49,6 +55,11 @@
 #endif
 #if IQ_CRC32C_USE_RA8P1_DATA_PATH && !IQ_CRC32C_HAS_RA8P1_PERIPHERAL
 #error "RA8P1 CRC32C data path requested without CRC-32C peripheral support"
+#endif
+#if !IQ_CRC32C_HAS_HW && !IQ_CRC32C_USE_RA8P1_DATA_PATH
+#define IQ_CRC32C_HAS_SLICING (1)
+#else
+#define IQ_CRC32C_HAS_SLICING (0)
 #endif
 #define IQ_ALL_FLAGS             (RA8P1_IQ_FLAG_SYNTHETIC | \
                                   RA8P1_IQ_FLAG_DISCONTINUITY | \
@@ -76,7 +87,9 @@ static volatile uint32_t g_iq_crc32c_session_id;
 static volatile uint32_t g_iq_crc32c_consumed_packets;
 static volatile uint32_t g_iq_crc32c_end_packets;
 static volatile uint32_t g_iq_crc32c_expected;
+#if IQ_CRC32C_HAS_SLICING
 static bool g_iq_crc32c_slicing_ready;
+#endif
 #if IQ_CRC32C_HAS_RA8P1_PERIPHERAL
 static bool g_iq_crc32c_ra8p1_started;
 static bool g_iq_crc32c_ra8p1_tested;
@@ -85,8 +98,10 @@ static bool g_iq_crc32c_ra8p1_lsb_first;
 #endif
 static uint32_t g_iq_ring_full_baseline;
 static uint32_t g_iq_ring_oversize_baseline;
+#if IQ_CRC32C_HAS_SLICING
 static uint32_t g_iq_crc32c_slicing_table[IQ_CRC32C_SLICE_COUNT][256]
     IQ_CRC32C_DTCM;
+#endif
 
 /* Reflected Castagnoli polynomial.  RA8P1 has a native CRC-32C peripheral;
  * this table remains as the boot self-test oracle and software fallback. */
@@ -269,6 +284,7 @@ bool eth_iq_fast_control_pop(eth_iq_fast_control_datagram_t *datagram)
     return true;
 }
 
+#if IQ_CRC32C_HAS_SLICING
 static void iq_crc32c_prepare_slicing_table(void)
 {
     uint32_t slice;
@@ -294,6 +310,7 @@ static void iq_crc32c_prepare_slicing_table(void)
     }
     g_iq_crc32c_slicing_ready = true;
 }
+#endif
 
 static uint32_t iq_crc32c_reference_update(uint32_t crc,
                                            const uint8_t *data,
@@ -316,20 +333,42 @@ static uint32_t iq_crc32c_software_update(uint32_t crc,
         return crc;
     }
 #if IQ_CRC32C_HAS_HW
-    while (length >= 4U)
+    /* RMAC frames are word-aligned, but the normal Ethernet/IPv4/UDP/IQ
+     * headers put IQ data at offset 74.  Consume the two-byte prefix first so
+     * the common path uses aligned word loads instead of byte CRCs. */
+    while (((((uintptr_t)data) & 3U) != 0U) && (length != 0U))
     {
-        uint32_t word;
-        memcpy(&word, data, sizeof(word));
-        crc = __crc32cw(crc, word);
-        data += 4U;
-        length -= 4U;
+        crc = __crc32cb(crc, *data++);
+        length--;
+    }
+    {
+        const uint32_t *words = (const uint32_t *)data;
+        while (length >= 32U)
+        {
+            crc = __crc32cw(crc, words[0]);
+            crc = __crc32cw(crc, words[1]);
+            crc = __crc32cw(crc, words[2]);
+            crc = __crc32cw(crc, words[3]);
+            crc = __crc32cw(crc, words[4]);
+            crc = __crc32cw(crc, words[5]);
+            crc = __crc32cw(crc, words[6]);
+            crc = __crc32cw(crc, words[7]);
+            words += 8U;
+            length -= 32U;
+        }
+        while (length >= 4U)
+        {
+            crc = __crc32cw(crc, *words++);
+            length -= 4U;
+        }
+        data = (const uint8_t *)words;
     }
     while (length != 0U)
     {
         crc = __crc32cb(crc, *data++);
         length--;
     }
-#else
+#elif IQ_CRC32C_HAS_SLICING
     /* Reflected slicing-by-8 removes the byte-to-byte dependency chain.  The
      * tables are built once in DTCM so the RMAC receive thread can return each
      * descriptor before the next paced packet arrives. */
@@ -356,6 +395,11 @@ static uint32_t iq_crc32c_software_update(uint32_t crc,
         crc = (crc >> 8U) ^ g_iq_crc32c_byte_table[(crc ^ *data++) & 0xFFU];
         length--;
     }
+#else
+    /* Product fallback if the RA8P1 peripheral self-test fails.  Keep the
+     * failure path correct without reserving an otherwise unused 8 KiB DTCM
+     * slicing table in the normal peripheral build. */
+    crc = iq_crc32c_reference_update(crc, data, length);
 #endif
     return crc;
 }
@@ -379,13 +423,50 @@ static void iq_crc32c_ra8p1_reset(uint32_t seed, bool lsb_first)
 static uint32_t iq_crc32c_ra8p1_update(const uint8_t *data,
                                        uint32_t length)
 {
-    while (length >= sizeof(uint32_t))
+    if ((((uintptr_t)data) & 3U) == 0U)
     {
-        uint32_t word;
-        memcpy(&word, data, sizeof(word));
-        R_CRC->CRCDIR = word;
-        data += sizeof(word);
-        length -= sizeof(word);
+        const uint32_t *words = (const uint32_t *)data;
+        while (length >= 32U)
+        {
+            R_CRC->CRCDIR = words[0];
+            R_CRC->CRCDIR = words[1];
+            R_CRC->CRCDIR = words[2];
+            R_CRC->CRCDIR = words[3];
+            R_CRC->CRCDIR = words[4];
+            R_CRC->CRCDIR = words[5];
+            R_CRC->CRCDIR = words[6];
+            R_CRC->CRCDIR = words[7];
+            words += 8U;
+            length -= 32U;
+        }
+        while (length >= sizeof(uint32_t))
+        {
+            R_CRC->CRCDIR = *words++;
+            length -= sizeof(uint32_t);
+        }
+        data = (const uint8_t *)words;
+    }
+    else
+    {
+        while (length >= 32U)
+        {
+            R_CRC->CRCDIR = iq_read_le32(&data[0]);
+            R_CRC->CRCDIR = iq_read_le32(&data[4]);
+            R_CRC->CRCDIR = iq_read_le32(&data[8]);
+            R_CRC->CRCDIR = iq_read_le32(&data[12]);
+            R_CRC->CRCDIR = iq_read_le32(&data[16]);
+            R_CRC->CRCDIR = iq_read_le32(&data[20]);
+            R_CRC->CRCDIR = iq_read_le32(&data[24]);
+            R_CRC->CRCDIR = iq_read_le32(&data[28]);
+            data += 32U;
+            length -= 32U;
+        }
+        while (length >= sizeof(uint32_t))
+        {
+            R_CRC->CRCDIR = iq_read_le32(data);
+            data += sizeof(uint32_t);
+            length -= sizeof(uint32_t);
+        }
     }
     return R_CRC->CRCDOR;
 }
@@ -545,6 +626,152 @@ static void iq_crc32c_try_complete(void)
      * terminal field first, then clear active as the final ownership handoff. */
     iq_crc32c_barrier();
     g_eth_iq_fast_stats.active = 0U;
+}
+
+static inline int16_t iq_s12_to_q15(uint16_t sample_bits)
+{
+    int32_t value = (int32_t)(int16_t)sample_bits * 16;
+    if (value > INT16_MAX)
+    {
+        value = INT16_MAX;
+    }
+    else if (value < INT16_MIN)
+    {
+        value = INT16_MIN;
+    }
+    return (int16_t)value;
+}
+
+static inline uint32_t iq_crc32c_update_word(uint32_t crc, uint32_t word)
+{
+#if IQ_CRC32C_HAS_RA8P1_PERIPHERAL
+    if (g_iq_crc32c_ra8p1_active)
+    {
+        R_CRC->CRCDIR = word;
+        return crc;
+    }
+#endif
+#if IQ_CRC32C_HAS_HW
+    return __crc32cw(crc, word);
+#else
+    for (uint32_t byte = 0U; byte < sizeof(word); ++byte)
+    {
+        crc = (crc >> 8U) ^
+              g_iq_crc32c_byte_table[(crc ^ word) & 0xFFU];
+        word >>= 8U;
+    }
+    return crc;
+#endif
+}
+
+static inline uint32_t iq_crc32c_convert_word(uint32_t crc,
+                                               uint32_t word,
+                                               int16_t *output,
+                                               bool update_crc)
+{
+    if (update_crc)
+    {
+        crc = iq_crc32c_update_word(crc, word);
+    }
+    output[0] = iq_s12_to_q15((uint16_t)word);
+    output[1] = iq_s12_to_q15((uint16_t)(word >> 16U));
+    return crc;
+}
+
+bool eth_iq_fast_crc_consume_s12_q15(uint32_t session_id,
+                                     const uint8_t *data,
+                                     uint32_t length,
+                                     int16_t *q15_output,
+                                     uint32_t q15_capacity_scalars)
+{
+    const uint32_t scalar_count = length / sizeof(int16_t);
+    bool update_crc = false;
+    bool dwt_enabled = false;
+    uint32_t crc = g_iq_crc32c_accumulator;
+    uint32_t start_cycles = 0U;
+    const bool structurally_valid =
+        (data != NULL) && (q15_output != NULL) && (length != 0U) &&
+        ((length & 3U) == 0U) &&
+        (q15_capacity_scalars >= scalar_count);
+
+    if (!structurally_valid)
+    {
+        return false;
+    }
+
+    if (g_iq_crc32c_enabled)
+    {
+        const iq_crc32c_phase_t phase = g_iq_crc32c_phase;
+        update_crc =
+            (session_id == g_iq_crc32c_session_id) &&
+            ((phase == IQ_CRC32C_PHASE_RECEIVING) ||
+             (phase == IQ_CRC32C_PHASE_END_PENDING)) &&
+            ((phase != IQ_CRC32C_PHASE_END_PENDING) ||
+             (g_iq_crc32c_consumed_packets < g_iq_crc32c_end_packets));
+        if (!update_crc)
+        {
+            g_eth_iq_fast_stats.invalid++;
+            iq_crc32c_abort();
+        }
+        else
+        {
+            dwt_enabled = iq_cpu0_cycle_now(&start_cycles);
+        }
+    }
+
+    const uint32_t word_count = length / sizeof(uint32_t);
+    if ((((uintptr_t)data) & 3U) == 0U)
+    {
+        const uint32_t *words = (const uint32_t *)data;
+        for (uint32_t word_index = 0U;
+             word_index < word_count;
+             ++word_index)
+        {
+            crc = iq_crc32c_convert_word(crc,
+                                         words[word_index],
+                                         &q15_output[word_index * 2U],
+                                         update_crc);
+        }
+    }
+    else
+    {
+        for (uint32_t word_index = 0U;
+             word_index < word_count;
+             ++word_index)
+        {
+            crc = iq_crc32c_convert_word(
+                crc,
+                iq_read_le32(&data[word_index * sizeof(uint32_t)]),
+                &q15_output[word_index * 2U],
+                update_crc);
+        }
+    }
+
+    if (update_crc)
+    {
+#if IQ_CRC32C_HAS_RA8P1_PERIPHERAL
+        if (g_iq_crc32c_ra8p1_active)
+        {
+            crc = R_CRC->CRCDOR;
+        }
+#endif
+        if (dwt_enabled)
+        {
+            const uint32_t elapsed_cycles = DWT->CYCCNT - start_cycles;
+            g_eth_iq_fast_stats.crc_cycles_total += elapsed_cycles;
+            if (elapsed_cycles > g_eth_iq_fast_stats.crc_cycles_max)
+            {
+                g_eth_iq_fast_stats.crc_cycles_max = elapsed_cycles;
+            }
+        }
+        g_eth_iq_fast_stats.crc_updates++;
+        g_iq_crc32c_accumulator = crc;
+        g_eth_iq_fast_stats.crc32c = iq_crc32c_final();
+        g_iq_crc32c_consumed_packets++;
+        iq_crc32c_barrier();
+        iq_crc32c_try_complete();
+    }
+    return true;
 }
 
 void eth_iq_fast_crc_consume(uint32_t session_id,
@@ -810,7 +1037,9 @@ int eth_iq_fast_consume(const uint8_t *frame, uint32_t frame_length)
             }
             else
             {
+#if IQ_CRC32C_HAS_SLICING
                 iq_crc32c_prepare_slicing_table();
+#endif
                 g_eth_iq_fast_stats.crc_backend = IQ_CRC32C_BACKEND_SOFTWARE;
             }
             g_eth_iq_fast_stats.crc_flags = RA8P1_IQ_ACK_FLAG_CRC_PRESENT;

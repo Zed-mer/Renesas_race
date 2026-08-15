@@ -104,7 +104,7 @@ for ($index = 1; $index -le $Resets; ++$index)
         ([uint32]$a.startup_warmstart_reset_write_error -eq 0U) -and
         ([uint32]$a.startup_warmstart_reset_read_error -eq 0U) -and
         ([uint32]$a.startup_warmstart_reset_level -eq 0U) -and
-        ([uint32]$a.startup_reset_low_hold_ms -eq 10U) -and
+        ([uint32]$a.startup_reset_low_hold_ms -eq 50U) -and
         ([uint32]$a.startup_reset_release_wait_ms -eq 120U) -and
         ([uint32]$a.startup_reset_assert_sequence -gt 0U) -and
         ([uint32]$a.startup_reset_assert_sequence -lt
@@ -119,8 +119,8 @@ for ($index = 1; $index -le $Resets; ++$index)
         ([uint32]$a.startup_video_started -eq 1U) -and
         ([uint32]$a.overlay_enabled -eq 1U) -and
         ([uint32]$a.overlay_state -eq 5U) -and
-        ([uint32]$a.startup_clean_vsync_required -eq 8U) -and
-        ([uint32]$a.startup_clean_vsync_count -ge 8U) -and
+        ([uint32]$a.startup_clean_vsync_required -eq 16U) -and
+        ([uint32]$a.startup_clean_vsync_count -ge 16U) -and
         ([uint32]$a.startup_backlight_enable_attempts -eq 1U) -and
         ([uint32]$a.startup_backlight_enabled -eq 1U) -and
         ([uint32]$a.startup_backlight_readback -eq 1U) -and

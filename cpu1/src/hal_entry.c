@@ -24,7 +24,11 @@ void hal_entry(void)
     bool touch_available = false;
     fsp_err_t lvgl_error = FSP_ERR_NOT_OPEN;
 
-    if (0U != g_display_diag.running)
+    /* display_bringup_run() deliberately leaves GLCDC stopped until LVGL
+     * has composed a complete first frame.  Gate initialization on the
+     * bring-up readiness contract, not on running, otherwise the first frame
+     * can never be composed and video can never be started. */
+    if (display_bringup_ready_for_first_frame())
     {
         touch_available = (FSP_SUCCESS == gt911_touch_init());
         lvgl_error = lvgl_app_init(touch_available);

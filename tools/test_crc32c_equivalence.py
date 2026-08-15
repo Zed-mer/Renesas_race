@@ -17,6 +17,12 @@ CPU0_SOURCE = (
     / "src"
     / "eth_iq_fast.c"
 )
+RF_PIPELINE_SOURCE = (
+    resolve_cpu0(ROOT)
+    / "src"
+    / "framework"
+    / "rf_pipeline.c"
+).read_text(encoding="utf-8")
 SENDER_SOURCE = ROOT / "tools" / "sdr_iq_udp_stream.c"
 CRC32C_POLYNOMIAL_REFLECTED = 0x82F63B78
 CRC32C_INIT = 0xFFFFFFFF
@@ -102,8 +108,49 @@ def slicing_update(
     return byte_update(crc, payload[offset:], tables[0])
 
 
+def aligned_instruction_update(
+    crc: int,
+    payload: bytes,
+    start_alignment: int,
+    table: tuple[int, ...],
+) -> int:
+    """Model the CPU CRC byte-prefix, 32-byte, word and byte-tail split."""
+    offset = 0
+    while ((start_alignment + offset) & 3) != 0 and offset < len(payload):
+        crc = byte_update(crc, payload[offset:offset + 1], table)
+        offset += 1
+    while offset + 32 <= len(payload):
+        for word in range(8):
+            start = offset + (word * 4)
+            crc = byte_update(crc, payload[start:start + 4], table)
+        offset += 32
+    while offset + 4 <= len(payload):
+        crc = byte_update(crc, payload[offset:offset + 4], table)
+        offset += 4
+    return byte_update(crc, payload[offset:], table)
+
+
 def finish(crc: int) -> int:
     return crc ^ CRC32C_XOROUT
+
+
+def s12_container_to_q15(value: int) -> int:
+    signed = value if value < 0x8000 else value - 0x10000
+    return max(-32768, min(32767, signed * 16))
+
+
+def fused_word_update(
+    crc: int, payload: bytes, table: tuple[int, ...]
+) -> tuple[int, tuple[int, ...]]:
+    if len(payload) % 4:
+        raise ValueError("fused payload must contain complete IQ words")
+    output: list[int] = []
+    for offset in range(0, len(payload), 4):
+        word = int.from_bytes(payload[offset:offset + 4], "little")
+        crc = byte_update(crc, payload[offset:offset + 4], table)
+        output.append(s12_container_to_q15(word & 0xFFFF))
+        output.append(s12_container_to_q15(word >> 16))
+    return crc, tuple(output)
 
 
 class Crc32cEquivalenceTest(unittest.TestCase):
@@ -167,7 +214,27 @@ class Crc32cEquivalenceTest(unittest.TestCase):
             63, 64, 255, 256, 1439, 1440, 1441, 1472,
         ):
             with self.subTest(length=length):
-                self.assert_payload_equivalent(rng.randbytes(length))
+                payload = rng.randbytes(length)
+                self.assert_payload_equivalent(payload)
+                expected = byte_update(CRC32C_INIT, payload, self.byte_table)
+                for alignment in range(4):
+                    self.assertEqual(
+                        aligned_instruction_update(
+                            CRC32C_INIT, payload, alignment, self.byte_table
+                        ),
+                        expected,
+                    )
+
+    def test_normal_iq_payload_exercises_two_byte_alignment_prefix(self) -> None:
+        ethernet_header = 14
+        ipv4_header = 20
+        udp_header = 8
+        iq_header = 32
+        payload_offset = (
+            ethernet_header + ipv4_header + udp_header + iq_header
+        )
+        self.assertEqual(payload_offset, 74)
+        self.assertEqual(payload_offset & 3, 2)
 
     def test_random_payloads_and_incremental_packet_updates(self) -> None:
         rng = random.Random(0x82F63B78)
@@ -182,6 +249,34 @@ class Crc32cEquivalenceTest(unittest.TestCase):
                 offset += chunk
             self.assertEqual(crc, expected, f"iteration {iteration}")
 
+    def test_fused_crc_and_s12_q15_word_path_is_bit_exact(self) -> None:
+        boundaries = (
+            -32768, -2049, -2048, -2047, -1, 0, 1,
+            2046, 2047, 2048, 32767,
+        )
+        samples = list(boundaries)
+        rng = random.Random(0x512_15)
+        samples.extend(rng.randint(-32768, 32767) for _ in range(4096))
+        if len(samples) & 1:
+            samples.append(0)
+        payload = b"".join(
+            int(sample & 0xFFFF).to_bytes(2, "little") for sample in samples
+        )
+        fused_crc, converted = fused_word_update(
+            CRC32C_INIT, payload, self.byte_table
+        )
+        self.assertEqual(
+            fused_crc,
+            byte_update(CRC32C_INIT, payload, self.byte_table),
+        )
+        self.assertEqual(
+            converted,
+            tuple(
+                max(-32768, min(32767, sample * 16))
+                for sample in samples
+            ),
+        )
+
     def test_complete_low_latency_window(self) -> None:
         rng = random.Random(0x590336)
         payload = rng.randbytes(LOW_LATENCY_WINDOW_BYTES)
@@ -195,17 +290,32 @@ class Crc32cEquivalenceTest(unittest.TestCase):
     def test_cpu0_source_keeps_hardware_and_table_paths(self) -> None:
         for marker in (
             "IQ_CRC32C_HAS_HW",
-            "R_CRC->CRCDIR = word",
+            "IQ_CRC32C_HAS_SLICING",
+            "R_CRC->CRCDIR = words[0]",
+            "R_CRC->CRCDIR = iq_read_le32(&data[28])",
             "IQ_CRC32C_RA8P1_GPS",
             "iq_crc32c_ra8p1_prepare",
-            "__crc32cw(crc, word)",
+            "__crc32cw(crc,",
             "__crc32cb(crc, *data++)",
             "g_iq_crc32c_slicing_table[7][first & 0xFFU]",
             "iq_crc32c_prepare_slicing_table();",
+            "iq_crc32c_reference_update(crc, data, length)",
             'section(".dtcm")',
         ):
             self.assertIn(marker, self.cpu0_source)
         self.assertNotIn("g_iq_crc32c_nibble_table", self.cpu0_source)
+
+    def test_rf_worker_uses_the_single_pass_s12_q15_path(self) -> None:
+        for marker in (
+            "eth_iq_fast_crc_consume_s12_q15",
+            "iq_crc32c_convert_word",
+            "iq_s12_to_q15",
+        ):
+            self.assertIn(marker, self.cpu0_source)
+        self.assertIn(
+            "eth_iq_fast_crc_consume_s12_q15(", RF_PIPELINE_SOURCE
+        )
+        self.assertIn("analysis_pipeline_ingest_q15(q15_payload", RF_PIPELINE_SOURCE)
 
     def test_cpu0_exports_end_to_crc_completion_timing(self) -> None:
         for marker in (

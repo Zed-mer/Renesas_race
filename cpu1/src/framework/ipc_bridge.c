@@ -22,6 +22,7 @@ static bool g_have_last_command;
 static ra8p1_ui_command_t g_last_command;
 static uint32_t g_display_sequence;
 static uint32_t g_display_session_id;
+static uint32_t g_display_cpu0_boot_epoch;
 static bool g_display_session_changed;
 static uint32_t g_tile_sequence;
 static uint32_t g_visible_pending_session;
@@ -29,6 +30,7 @@ static uint32_t g_visible_pending_sequence;
 static uint32_t g_visible_pending_window;
 static uint32_t g_activity_sequence;
 static uint32_t g_activity_cpu0_epoch;
+static bool g_panel_shutdown_ack;
 
 #define CPU1_COMMAND_RETRY_SERVICE_CALLS (50U)
 
@@ -71,7 +73,12 @@ static void ipc_cpu1_activity_state_publish(void)
     state->size = (uint16_t)sizeof(*state);
     state->boot_epoch = g_cpu1_boot_epoch;
     ipc_barrier();
-    state->flags = RA8P1_ACTIVITY_CPU1_FLAG_ONLINE;
+    uint32_t flags = RA8P1_ACTIVITY_CPU1_FLAG_ONLINE;
+    if (g_panel_shutdown_ack)
+    {
+        flags |= RA8P1_ACTIVITY_CPU1_FLAG_PANEL_SHUTDOWN_ACK;
+    }
+    state->flags = flags;
     ipc_barrier();
     ipc_cpu1_activity_state_clean();
 }
@@ -253,6 +260,7 @@ void ipc_bridge_cpu1_init(void)
     memset(&g_last_command, 0, sizeof(g_last_command));
     g_display_sequence = 0U;
     g_display_session_id = 0U;
+    g_display_cpu0_boot_epoch = 0U;
     g_display_session_changed = false;
     g_tile_sequence = 0U;
     g_visible_pending_session = 0U;
@@ -260,6 +268,7 @@ void ipc_bridge_cpu1_init(void)
     g_visible_pending_window = 0U;
     g_activity_sequence = 0U;
     g_activity_cpu0_epoch = 0U;
+    g_panel_shutdown_ack = false;
     state->published_command_sequence = 0U;
     state->published_mailbox_sequence = 0U;
     ipc_cpu1_state_publish();
@@ -314,6 +323,7 @@ bool ipc_bridge_cpu1_activity_poll(
     {
         g_activity_cpu0_epoch = first.boot_epoch;
         g_activity_sequence = 0U;
+        g_panel_shutdown_ack = false;
         ack->observed_cpu0_epoch = first.boot_epoch;
         ack->acknowledged_message_sequence = 0U;
         ipc_barrier();
@@ -408,8 +418,8 @@ bool ipc_bridge_cpu1_poll(ra8p1_system_telemetry_t *telemetry)
 bool ipc_bridge_cpu1_display_poll(ra8p1_display_frame_t *frame)
 {
     volatile ra8p1_display_stream_control_t *control = RA8P1_DISPLAY_STREAM_CONTROL;
-    ra8p1_display_frame_t newest;
-    uint32_t newest_sequence = g_display_sequence;
+    ra8p1_display_frame_t oldest;
+    uint32_t oldest_sequence = 0U;
     uint32_t session_id;
     bool found = false;
     uint32_t index;
@@ -417,6 +427,20 @@ bool ipc_bridge_cpu1_display_poll(ra8p1_display_frame_t *frame)
     if (frame == NULL)
     {
         return false;
+    }
+
+    /* SDR sessions share one monotonic result queue. A CPU0 reboot is the
+     * only event that restarts the producer sequence, so reset the consumer
+     * from the handshake epoch rather than from each capture session. */
+    if (g_observed_cpu0_boot_epoch != g_display_cpu0_boot_epoch)
+    {
+        g_display_cpu0_boot_epoch = g_observed_cpu0_boot_epoch;
+        g_display_sequence = 0U;
+        g_display_session_id = 0U;
+        g_tile_sequence = 0U;
+        g_visible_pending_session = 0U;
+        g_visible_pending_sequence = 0U;
+        g_visible_pending_window = 0U;
     }
 
     ipc_barrier();
@@ -431,8 +455,6 @@ bool ipc_bridge_cpu1_display_poll(ra8p1_display_frame_t *frame)
     if (session_id != g_display_session_id)
     {
         g_display_session_id = session_id;
-        g_display_sequence = 0U;
-        newest_sequence = 0U;
         g_display_session_changed = true;
         g_tile_sequence = 0U;
     }
@@ -448,7 +470,7 @@ bool ipc_bridge_cpu1_display_poll(ra8p1_display_frame_t *frame)
         ipc_barrier();
         begin = slot->begin_sequence;
         if (((begin & 1U) != 0U) || (begin == 0U) ||
-            ((int32_t) (begin - newest_sequence) <= 0))
+            ((int32_t) (begin - g_display_sequence) <= 0))
         {
             continue;
         }
@@ -459,7 +481,7 @@ bool ipc_bridge_cpu1_display_poll(ra8p1_display_frame_t *frame)
         final_begin = slot->begin_sequence;
         if ((begin != end) || (begin != final_begin) ||
             (candidate.sequence != begin) ||
-            (candidate.session_id != session_id) ||
+            (candidate.session_id == 0U) ||
             (candidate.magic != RA8P1_DISPLAY_STREAM_MAGIC) ||
             (candidate.version != RA8P1_DISPLAY_STREAM_VERSION) ||
             (candidate.size != sizeof(candidate)))
@@ -467,9 +489,12 @@ bool ipc_bridge_cpu1_display_poll(ra8p1_display_frame_t *frame)
             continue;
         }
 
-        newest = candidate;
-        newest_sequence = begin;
-        found = true;
+        if (!found || ((int32_t) (begin - oldest_sequence) < 0))
+        {
+            oldest = candidate;
+            oldest_sequence = begin;
+            found = true;
+        }
     }
 
     if (!found)
@@ -477,11 +502,11 @@ bool ipc_bridge_cpu1_display_poll(ra8p1_display_frame_t *frame)
         return false;
     }
 
-    *frame = newest;
-    g_display_sequence = newest_sequence;
-    g_visible_pending_session = newest.session_id;
-    g_visible_pending_sequence = newest.sequence;
-    g_visible_pending_window = newest.analysis.window_sequence;
+    *frame = oldest;
+    g_display_sequence = oldest_sequence;
+    g_visible_pending_session = oldest.session_id;
+    g_visible_pending_sequence = oldest.sequence;
+    g_visible_pending_window = oldest.analysis.window_sequence;
     return true;
 }
 
@@ -719,6 +744,33 @@ bool ipc_bridge_cpu1_command_pending(void)
 uint32_t ipc_bridge_cpu1_command_retry_count(void)
 {
     return g_command_retry_count;
+}
+
+bool ipc_bridge_cpu1_panel_shutdown_requested(void)
+{
+    volatile ra8p1_activity_cpu0_state_t * const state =
+        &RA8P1_ACTIVITY_CONTROL->cpu0;
+    ra8p1_activity_cpu0_state_t snapshot;
+#if (__DCACHE_PRESENT == 1U)
+    SCB_InvalidateDCache_by_Addr((volatile void *)state,
+                                 (int32_t)sizeof(*state));
+#endif
+    ipc_barrier();
+    memcpy(&snapshot, (const void *)state, sizeof(snapshot));
+    ipc_barrier();
+    return (snapshot.magic == RA8P1_ACTIVITY_CONTROL_MAGIC) &&
+           (snapshot.version == RA8P1_ACTIVITY_CONTROL_VERSION) &&
+           (snapshot.size == sizeof(snapshot)) &&
+           (snapshot.boot_epoch == g_activity_cpu0_epoch) &&
+           ((snapshot.flags & RA8P1_ACTIVITY_CPU0_FLAG_READY) != 0U) &&
+           ((snapshot.flags &
+             RA8P1_ACTIVITY_CPU0_FLAG_PANEL_SHUTDOWN_REQUEST) != 0U);
+}
+
+void ipc_bridge_cpu1_panel_shutdown_ack(void)
+{
+    g_panel_shutdown_ack = true;
+    ipc_cpu1_activity_state_publish();
 }
 
 void ipc_bridge_cpu1_runtime_update(uint32_t heartbeat,

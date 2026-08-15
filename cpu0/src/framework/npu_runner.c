@@ -16,10 +16,10 @@ static bool npu_dwt_enabled(void)
 
 static uint32_t npu_cycle_now(void)
 {
-    __DSB();
-    uint32_t value = DWT->CYCCNT;
-    __ISB();
-    return value;
+    /* CYCCNT is a volatile timestamp, not a memory-ownership boundary.  The
+     * model wrapper keeps the DMBs that order NPU arena accesses. */
+    __asm volatile ("" ::: "memory");
+    return DWT->CYCCNT;
 }
 
 static bool npu_enable_dwt(bool *recovered)
@@ -94,12 +94,10 @@ bool npu_runner_infer(const void *features, uint32_t feature_bytes)
         return false;
     }
 
-    __DMB();
     start = npu_cycle_now();
     result = iq_npu_model_invoke((const int8_t *)features,
                                  feature_bytes,
                                  &stages);
-    __DMB();
     if (!npu_enable_dwt(&recovered_end))
     {
         g_npu_stats.last_cycles = 0U;

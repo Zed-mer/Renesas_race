@@ -33,7 +33,7 @@
  * normal real-stream configuration.  Production builds can disable the boot
  * delay with -DRA8P1_STFT_BOOT_PROOF_ENABLE=0 while retaining the proof ABI. */
 #ifndef RA8P1_STFT_BOOT_PROOF_ENABLE
-#define RA8P1_STFT_BOOT_PROOF_ENABLE  (1)
+#define RA8P1_STFT_BOOT_PROOF_ENABLE  (0)
 #endif
 
 #define ANALYSIS_STFT_PROOF_MAGIC              (0x53544650U) /* STFP */
@@ -143,6 +143,13 @@ void analysis_pipeline_set_session(uint32_t session_id);
 void analysis_pipeline_set_stream_info(uint64_t total_samples, uint32_t center_index);
 void analysis_pipeline_set_queue(uint32_t queue_depth, uint32_t ingress_drops);
 void analysis_pipeline_ingest_s16(const int16_t *iq,
+                                  uint32_t complex_samples,
+                                  uint64_t sample_index,
+                                  uint32_t flags);
+/* Consume an already converted interleaved Q15 block.  The RF worker uses
+ * this entry point when CRC and S12 conversion were fused into one payload
+ * traversal. */
+void analysis_pipeline_ingest_q15(const int16_t *iq,
                                   uint32_t complex_samples,
                                   uint64_t sample_index,
                                   uint32_t flags);

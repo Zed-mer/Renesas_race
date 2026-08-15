@@ -202,12 +202,23 @@ typedef struct st_display_diag
     uint32_t startup_sequence_valid;
     uint32_t startup_reset_low_hold_ms;
     uint32_t startup_reset_release_wait_ms;
+    /* Appended startup/shutdown fields; keep the legacy diagnostic offsets
+     * above stable for existing UART and shared-memory samplers. */
+    uint32_t startup_initial_frame_ready;
+    uint32_t panel_shutdown_attempts;
+    uint32_t panel_shutdown_completed;
+    uint32_t panel_shutdown_fallback_used;
+    uint32_t panel_shutdown_last_error;
 } display_diag_t;
 
 extern volatile display_diag_t g_display_diag;
 
 void display_bringup_run(void);
+bool display_bringup_ready_for_first_frame(void);
+fsp_err_t display_video_start(void);
 fsp_err_t display_backlight_startup_step(void);
+/* Run the JD9165 orderly shutdown sequence and leave RESX asserted. */
+fsp_err_t display_panel_graceful_shutdown(void);
 void display_startup_diag_note_reset_asserted(void);
 void display_startup_diag_note_first_dsi_command(uint8_t command);
 void display_underflow_context_enter(uint32_t context_mask);

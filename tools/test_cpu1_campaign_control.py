@@ -260,6 +260,33 @@ class Cpu1CampaignControlTests(unittest.TestCase):
         self.assertLess(backoff, restart)
         self.assertNotIn("display_app_resend_live_start", service[stop_required:backoff])
 
+    def test_live_progress_watchdog_uses_ordered_recovery(self):
+        display = DISPLAY.read_text(encoding="utf-8")
+        step = c_function_body(display, "void display_app_step(void)")
+        watchdog = c_function_body(
+            display, "static void display_app_live_progress_service("
+        )
+
+        self.assertIn(
+            "#define DISPLAY_APP_LIVE_STALL_LINE_EVENTS     (90U)", display
+        )
+        valid = step.index("display_frame_valid = display_frame_ready")
+        consume = step.index("if (display_frame_valid)", valid)
+        service = step.index(
+            "display_app_live_progress_service(display_frame_valid);", consume
+        )
+        self.assertLess(valid, consume)
+        self.assertLess(consume, service)
+        self.assertIn("g_display_diag.glcdc_line_events", watchdog)
+        self.assertIn("g_last_command_status != RA8P1_COMMAND_APPLIED", watchdog)
+        self.assertIn("DISPLAY_APP_LIVE_STALL_LINE_EVENTS", watchdog)
+        self.assertIn("g_display_app_stall_recoveries++;", watchdog)
+        self.assertIn(
+            "g_live_recovery_state = DISPLAY_APP_LIVE_RECOVERY_STOP_REQUIRED;",
+            watchdog,
+        )
+        self.assertNotIn("display_app_resend_live_start", watchdog)
+
     def test_focus_request_queues_stop_before_continuous_single_start(self):
         display = DISPLAY.read_text(encoding="utf-8")
         header = DISPLAY_HEADER.read_text(encoding="utf-8")

@@ -148,6 +148,7 @@
 #define RF_CHANNEL_SWITCH_MAX_WRITE_BYTES (32u * 1024u)
 #define RF_UI_PENDING_BOX_BATCH_CAPACITY (RF_UI_CHANNEL_COUNT * 2u)
 #define RF_UI_FUSION_DECISION_CACHE_CAPACITY (RF_UI_CHANNEL_COUNT * 2u)
+#define RF_UI_WINDOW_ANCHOR_CAPACITY (RF_UI_CHANNEL_COUNT * 2u)
 
 #define RF_COLOR_SCREEN 0x050708u
 #define RF_COLOR_HEADER 0x0B0F11u
@@ -383,7 +384,10 @@ typedef struct {
 
 typedef struct {
     bool valid;
+    bool spectrum_snapshot_valid;
+    uint16_t reserved;
     uint32_t revision;
+    uint32_t spectrum_revision;
     uint32_t session_id;
     uint32_t window_sequence;
     uint32_t transport_sequence;
@@ -391,6 +395,8 @@ typedef struct {
 
 static rf_ui_spectrum_identity_t g_spectrum_identity[RF_UI_CHANNEL_COUNT];
 static rf_ui_complete_window_t g_complete_windows[RF_UI_CHANNEL_COUNT];
+static uint8_t
+    g_complete_spectrum_data[RF_UI_CHANNEL_COUNT][RF_UI_SPECTRUM_BINS];
 
 typedef struct {
     rf_ui_rf_box_t boxes[RF_UI_MAX_RF_BOXES];
@@ -420,6 +426,15 @@ typedef struct {
     rf_ui_fusion_round_t round;
 } rf_ui_fusion_decision_cache_t;
 
+typedef struct {
+    bool valid;
+    uint8_t channel;
+    uint16_t reserved;
+    uint32_t session_id;
+    uint32_t window_sequence;
+    uint64_t waterfall_end_column;
+} rf_ui_window_anchor_t;
+
 static rf_ui_rf_box_batch_t g_rf_box_batches[RF_UI_CHANNEL_COUNT];
 static rf_ui_rf_box_batch_t g_rf_box_pause_snapshot;
 static rf_ui_rf_box_batch_t g_spectrum_rf_box_batches[RF_UI_CHANNEL_COUNT];
@@ -428,6 +443,9 @@ static rf_ui_pending_box_batch_t
     g_pending_box_batches[RF_UI_PENDING_BOX_BATCH_CAPACITY];
 static rf_ui_fusion_decision_cache_t
     g_fusion_decision_cache[RF_UI_FUSION_DECISION_CACHE_CAPACITY];
+static rf_ui_window_anchor_t
+    g_window_anchors[RF_UI_WINDOW_ANCHOR_CAPACITY];
+static uint32_t g_window_anchor_write_index;
 static uint32_t g_fusion_decision_generation;
 static bool g_latest_box_window_valid[RF_UI_CHANNEL_COUNT];
 static uint32_t g_latest_box_session_id[RF_UI_CHANNEL_COUNT];
@@ -439,6 +457,58 @@ static uint32_t g_rf_box_observation_generation;
 static uint64_t g_waterfall_total_columns[RF_UI_CHANNEL_COUNT];
 static uint64_t g_waterfall_presented_columns[RF_UI_CHANNEL_COUNT];
 static uint64_t g_waterfall_pause_total_columns;
+
+static bool rf_box_window_anchor_find(uint32_t channel,
+                                      uint32_t session_id,
+                                      uint32_t window_sequence,
+                                      uint64_t * waterfall_end_column)
+{
+    if(channel >= RF_UI_CHANNEL_COUNT || waterfall_end_column == NULL) {
+        return false;
+    }
+    for(uint32_t index = 0U; index < RF_UI_WINDOW_ANCHOR_CAPACITY; ++index) {
+        const rf_ui_window_anchor_t * const anchor = &g_window_anchors[index];
+        if(anchor->valid && anchor->channel == channel &&
+           anchor->session_id == session_id &&
+           anchor->window_sequence == window_sequence) {
+            *waterfall_end_column = anchor->waterfall_end_column;
+            return true;
+        }
+    }
+    return false;
+}
+
+static void rf_box_window_anchor_record(uint32_t channel,
+                                        uint32_t session_id,
+                                        uint32_t window_sequence,
+                                        uint64_t waterfall_end_column)
+{
+    uint64_t ignored;
+    if(rf_box_window_anchor_find(channel, session_id, window_sequence,
+                                 &ignored)) return;
+
+    rf_ui_window_anchor_t * const anchor =
+        &g_window_anchors[g_window_anchor_write_index %
+                          RF_UI_WINDOW_ANCHOR_CAPACITY];
+    g_window_anchor_write_index++;
+    *anchor = (rf_ui_window_anchor_t) {
+        .valid = true,
+        .channel = (uint8_t)channel,
+        .session_id = session_id,
+        .window_sequence = window_sequence,
+        .waterfall_end_column = waterfall_end_column,
+    };
+}
+
+static void rf_box_window_anchors_clear_channel(uint32_t channel)
+{
+    for(uint32_t index = 0U; index < RF_UI_WINDOW_ANCHOR_CAPACITY; ++index) {
+        if(g_window_anchors[index].valid &&
+           g_window_anchors[index].channel == channel) {
+            g_window_anchors[index].valid = false;
+        }
+    }
+}
 
 /* One large spectrum source is enough: selecting a channel rerasterizes this
  * texture, and Dave2D scales it 2x horizontally into the visible plot. The
@@ -558,6 +628,7 @@ typedef struct {
     rf_ui_channel_switch_state_t state;
     uint8_t channel;
     uint8_t source;
+    bool waterfall_cache_reused;
     uint16_t spectrum_row;
     uint16_t spectrum_segment;
     uint16_t waterfall_render_y;
@@ -2141,6 +2212,7 @@ static void waterfall_clear_channel(uint32_t channel)
 {
     const uint16_t background = waterfall_pixel(0U);
     waterfall_source_state_invalidate_channel(channel);
+    rf_box_window_anchors_clear_channel(channel);
     for(uint32_t frequency_row = 0; frequency_row < RF_UI_WATERFALL_FREQ_BINS;
         ++frequency_row) {
         fill_row(g_waterfall_rings[channel].rows[frequency_row], background,
@@ -3936,6 +4008,35 @@ static uint32_t channel_switch_next_revision(uint32_t revision)
     return revision == 0U ? 1U : revision;
 }
 
+static bool complete_spectrum_snapshot_ready(uint32_t channel)
+{
+    if(channel >= RF_UI_CHANNEL_COUNT) return false;
+    const rf_ui_complete_window_t * const window =
+        &g_complete_windows[channel];
+    return window->valid && window->spectrum_snapshot_valid &&
+           window->spectrum_revision != 0U;
+}
+
+static void complete_spectrum_snapshot_try_capture(uint32_t channel)
+{
+    if(channel >= RF_UI_CHANNEL_COUNT) return;
+    const rf_ui_spectrum_identity_t * const spectrum =
+        &g_spectrum_identity[channel];
+    rf_ui_complete_window_t * const window =
+        &g_complete_windows[channel];
+    if(!spectrum->valid || !window->valid ||
+       spectrum->session_id != window->session_id ||
+       spectrum->window_sequence != window->window_sequence) {
+        return;
+    }
+
+    memcpy(g_complete_spectrum_data[channel],
+           g_spectrum_data[channel],
+           sizeof(g_complete_spectrum_data[channel]));
+    window->spectrum_revision = spectrum->revision;
+    window->spectrum_snapshot_valid = true;
+}
+
 static bool waterfall_history_snapshot(uint32_t channel,
                                        uint64_t * total_columns,
                                        uint16_t * write_head)
@@ -3989,21 +4090,17 @@ static void channel_switch_record_chunk(uint32_t bytes_written,
 
 static bool channel_switch_window_ready(uint32_t channel)
 {
-    const rf_ui_spectrum_identity_t * spectrum;
     const rf_ui_complete_window_t * window;
     if(channel >= RF_UI_CHANNEL_COUNT) return false;
 
-    spectrum = &g_spectrum_identity[channel];
     window = &g_complete_windows[channel];
-    return spectrum->valid && window->valid &&
+    return complete_spectrum_snapshot_ready(channel) &&
            channel_switch_revision_reached(
-               spectrum->revision,
+               window->spectrum_revision,
                g_channel_build.required_spectrum_revision) &&
            channel_switch_revision_reached(
                window->revision,
-               g_channel_build.required_window_revision) &&
-           spectrum->session_id == window->session_id &&
-           spectrum->window_sequence == window->window_sequence;
+               g_channel_build.required_window_revision);
 }
 
 static bool channel_switch_build_start(bool restart)
@@ -4014,21 +4111,43 @@ static bool channel_switch_build_start(bool restart)
         g_channel_build.required_spectrum_revision;
     const uint32_t required_window_revision =
         g_channel_build.required_window_revision;
-    const rf_ui_spectrum_identity_t spectrum =
-        channel < RF_UI_CHANNEL_COUNT ? g_spectrum_identity[channel] :
-        (rf_ui_spectrum_identity_t){0};
     const rf_ui_complete_window_t window =
         channel < RF_UI_CHANNEL_COUNT ? g_complete_windows[channel] :
         (rf_ui_complete_window_t){0};
+    uint64_t latest_total_columns;
+    uint16_t latest_write_head;
 
-    if(!channel_switch_window_ready(channel)) {
+    if(!channel_switch_window_ready(channel) ||
+       !waterfall_history_snapshot(channel,
+                                   &latest_total_columns,
+                                   &latest_write_head)) {
         channel_switch_set_state(RF_UI_CHANNEL_SWITCH_WAIT_WINDOW);
         return false;
     }
 
+    const uint8_t source = (uint8_t)(g_waterfall_active_source ^ 1U);
+    const rf_ui_waterfall_source_state_t cached_state =
+        g_waterfall_source_state[source];
+    bool reuse_waterfall_cache = false;
+    if(cached_state.valid && cached_state.channel == channel) {
+        if(latest_total_columns >= cached_state.total_columns &&
+           (latest_total_columns - cached_state.total_columns) <=
+               RF_UI_WATERFALL_HISTORY_COLS &&
+           waterfall_history_head_matches(
+               cached_state.history_head,
+               latest_total_columns - cached_state.total_columns,
+               latest_write_head)) {
+            reuse_waterfall_cache = true;
+        }
+        else {
+            g_rf_ui_channel_switch_diag.switch_cache_stale_misses++;
+        }
+    }
+
     memset(&g_channel_build, 0, sizeof(g_channel_build));
     g_channel_build.channel = (uint8_t)channel;
-    g_channel_build.source = (uint8_t)(g_waterfall_active_source ^ 1U);
+    g_channel_build.source = source;
+    g_channel_build.waterfall_cache_reused = reuse_waterfall_cache;
     if(g_waterfall_overlay.requested && !g_waterfall_overlay.failed) {
         g_waterfall_overlay.boxes_dirty[g_channel_build.source] = true;
     }
@@ -4036,19 +4155,24 @@ static bool channel_switch_build_start(bool restart)
     g_channel_build.request_generation = request_generation;
     g_channel_build.required_spectrum_revision = required_spectrum_revision;
     g_channel_build.required_window_revision = required_window_revision;
-    g_channel_build.spectrum_revision = spectrum.revision;
+    g_channel_build.spectrum_revision = window.spectrum_revision;
     g_channel_build.session_id = window.session_id;
     g_channel_build.window_sequence = window.window_sequence;
-    g_channel_build.base_write_head = g_waterfall_write_head[channel];
+    g_channel_build.base_write_head = reuse_waterfall_cache ?
+        cached_state.history_head : latest_write_head;
     g_channel_build.logical_start = (uint16_t)(
         (g_channel_build.base_write_head + RF_UI_WATERFALL_HISTORY_COLS -
          RF_UI_WATERFALL_COLS) % RF_UI_WATERFALL_HISTORY_COLS);
-    g_channel_build.base_total_columns = g_waterfall_total_columns[channel];
+    g_channel_build.base_total_columns = reuse_waterfall_cache ?
+        cached_state.total_columns : latest_total_columns;
     g_channel_build.caught_up_total_columns =
         g_channel_build.base_total_columns;
     g_channel_build.catchup_source_head =
         g_channel_build.base_write_head;
-    memcpy(g_channel_build.spectrum_snapshot, g_spectrum_data[channel],
+    g_channel_build.render_write_column = reuse_waterfall_cache ?
+        cached_state.render_write_column : 0U;
+    memcpy(g_channel_build.spectrum_snapshot,
+           g_complete_spectrum_data[channel],
            sizeof(g_channel_build.spectrum_snapshot));
     spectrum_prepare_geometry(g_channel_build.spectrum_snapshot,
                               g_channel_build.spectrum_x,
@@ -4057,6 +4181,12 @@ static bool channel_switch_build_start(bool restart)
     channel_switch_set_state(RF_UI_CHANNEL_SWITCH_SPECTRUM_BASE);
 
     g_rf_ui_channel_switch_diag.build_starts++;
+    if(reuse_waterfall_cache) {
+        g_rf_ui_channel_switch_diag.switch_cache_hits++;
+    }
+    else {
+        g_rf_ui_channel_switch_diag.switch_cache_misses++;
+    }
     if(restart) g_rf_ui_channel_switch_diag.build_restarts++;
     g_rf_ui_channel_switch_diag.build_channel = channel;
     g_rf_ui_channel_switch_diag.last_session_id = window.session_id;
@@ -5179,7 +5309,7 @@ static bool channel_switch_prepare_catchup(void)
         return false;
     }
     delta = current_total - g_channel_build.caught_up_total_columns;
-    if(delta > RF_UI_WATERFALL_COLS) {
+    if(delta > RF_UI_WATERFALL_HISTORY_COLS) {
         channel_switch_restart();
         return false;
     }
@@ -5188,6 +5318,16 @@ static bool channel_switch_prepare_catchup(void)
         g_rf_ui_channel_switch_diag.switch_catchup_head_mismatches++;
         channel_switch_restart();
         return false;
+    }
+    if(g_channel_build.waterfall_cache_reused) {
+        const uint32_t catchup_columns = (uint32_t)delta;
+        g_rf_ui_channel_switch_diag.switch_cache_catchup_columns +=
+            catchup_columns;
+        if(catchup_columns >
+           g_rf_ui_channel_switch_diag.switch_cache_max_catchup_columns) {
+            g_rf_ui_channel_switch_diag.switch_cache_max_catchup_columns =
+                catchup_columns;
+        }
     }
     if(delta == 0U) {
         (void)channel_switch_prepare_render();
@@ -5270,6 +5410,9 @@ bool rf_ui_channel_switch_step(void)
             g_channel_build.spectrum_y,
             g_channel_build.spectrum_peak_index);
         channel_switch_record_chunk(bytes_written, 0U);
+        if(g_channel_build.waterfall_cache_reused) {
+            return channel_switch_prepare_catchup();
+        }
         g_channel_build.waterfall_render_y = 0U;
         g_channel_build.waterfall_source_row = 0U;
         channel_switch_set_state(RF_UI_CHANNEL_SWITCH_WATERFALL_BASE);
@@ -5283,11 +5426,18 @@ bool rf_ui_channel_switch_step(void)
         const uint32_t rows_per_tick = overlay_build ?
             RF_WATERFALL_OVERLAY_BUILD_ROWS_PER_TICK :
             RF_CHANNEL_SWITCH_WATERFALL_SOURCE_ROWS_PER_TICK;
-        if(g_waterfall_total_columns[g_channel_build.channel] <
-               g_channel_build.base_total_columns ||
-           (g_waterfall_total_columns[g_channel_build.channel] -
-            g_channel_build.base_total_columns) >
-               (RF_UI_WATERFALL_HISTORY_COLS - RF_UI_WATERFALL_COLS)) {
+        uint64_t latest_total;
+        uint16_t latest_head;
+        if(!waterfall_history_snapshot(g_channel_build.channel,
+                                       &latest_total,
+                                       &latest_head) ||
+           latest_total < g_channel_build.base_total_columns ||
+           (latest_total - g_channel_build.base_total_columns) >
+               (RF_UI_WATERFALL_HISTORY_COLS - RF_UI_WATERFALL_COLS) ||
+           !waterfall_history_head_matches(
+               g_channel_build.base_write_head,
+               latest_total - g_channel_build.base_total_columns,
+               latest_head)) {
             channel_switch_restart();
             return false;
         }
@@ -5460,6 +5610,7 @@ void rf_ui_create(void)
     g_render_txn.kind = RF_UI_RENDER_NONE;
     memset(g_spectrum_identity, 0, sizeof(g_spectrum_identity));
     memset(g_complete_windows, 0, sizeof(g_complete_windows));
+    memset(g_complete_spectrum_data, 0, sizeof(g_complete_spectrum_data));
     memset((void *)&g_rf_ui_channel_switch_diag, 0,
            sizeof(g_rf_ui_channel_switch_diag));
     g_rf_ui_channel_switch_diag.magic = RF_UI_CHANNEL_SWITCH_DIAG_MAGIC;
@@ -5489,6 +5640,8 @@ void rf_ui_create(void)
            sizeof(g_spectrum_rf_box_pause_snapshot));
     memset(g_pending_box_batches, 0, sizeof(g_pending_box_batches));
     memset(g_fusion_decision_cache, 0, sizeof(g_fusion_decision_cache));
+    memset(g_window_anchors, 0, sizeof(g_window_anchors));
+    g_window_anchor_write_index = 0U;
     memset(g_latest_box_window_valid, 0, sizeof(g_latest_box_window_valid));
     memset(g_latest_box_session_id, 0, sizeof(g_latest_box_session_id));
     memset(g_latest_box_window_sequence, 0,
@@ -5721,10 +5874,31 @@ bool rf_ui_set_selected_channel(uint32_t channel_index)
     g_channel_build.channel = (uint8_t)channel_index;
     g_channel_build.request_generation =
         g_rf_ui_channel_switch_diag.request_generation;
-    g_channel_build.required_spectrum_revision = channel_switch_next_revision(
-        g_spectrum_identity[channel_index].revision);
-    g_channel_build.required_window_revision = channel_switch_next_revision(
-        g_complete_windows[channel_index].revision);
+    if(complete_spectrum_snapshot_ready(channel_index)) {
+        /* A complete spectrum/window pair is immutable until copied into the
+         * private render source.  Show it immediately; newer scan data marks
+         * the committed channel dirty and replaces it without a blank frame. */
+        g_channel_build.required_spectrum_revision =
+            g_complete_windows[channel_index].spectrum_revision;
+        g_channel_build.required_window_revision =
+            g_complete_windows[channel_index].revision;
+    }
+    else {
+        /* If a spectrum has already arrived, allow its matching final
+         * waterfall row to complete the pair.  Otherwise wait for the first
+         * post-request spectrum instead of accepting an unidentified buffer. */
+        g_channel_build.required_spectrum_revision =
+            g_spectrum_identity[channel_index].valid ?
+            g_spectrum_identity[channel_index].revision :
+            channel_switch_next_revision(
+                g_spectrum_identity[channel_index].revision);
+        g_channel_build.required_window_revision =
+            (g_complete_windows[channel_index].valid &&
+             !g_spectrum_identity[channel_index].valid) ?
+            g_complete_windows[channel_index].revision :
+            channel_switch_next_revision(
+                g_complete_windows[channel_index].revision);
+    }
     g_rf_ui_channel_switch_diag.build_channel = RF_UI_CHANNEL_NONE;
     channel_switch_set_state(RF_UI_CHANNEL_SWITCH_WAIT_WINDOW);
     return true;
@@ -5940,6 +6114,12 @@ static bool update_spectrum_internal(uint32_t channel_index,
     g_spectrum_identity[channel_index].valid = identity_valid;
     g_spectrum_identity[channel_index].session_id = session_id;
     g_spectrum_identity[channel_index].window_sequence = window_sequence;
+    if(!identity_valid) {
+        g_complete_windows[channel_index].spectrum_snapshot_valid = false;
+    }
+    else {
+        complete_spectrum_snapshot_try_capture(channel_index);
+    }
     g_ui.spectrum_dirty[channel_index] = true;
     return true;
 }
@@ -5977,13 +6157,22 @@ bool rf_ui_note_complete_window(uint32_t channel_index,
     }
 
     window->valid = true;
+    /* A new completion invalidates the previous cached spectrum until the
+     * matching spectrum event arrives.  The old snapshot remains in memory
+     * only until this assignment and can never be paired with the new window. */
+    window->spectrum_snapshot_valid = false;
+    window->spectrum_revision = 0U;
     window->revision = channel_switch_next_revision(window->revision);
     window->session_id = session_id;
     window->window_sequence = window_sequence;
     window->transport_sequence = transport_sequence;
+    rf_box_window_anchor_record(
+        channel_index, session_id, window_sequence,
+        g_waterfall_total_columns[channel_index]);
     g_rf_ui_channel_switch_diag.complete_windows++;
     g_rf_ui_channel_switch_diag.last_session_id = session_id;
     g_rf_ui_channel_switch_diag.last_window_sequence = window_sequence;
+    complete_spectrum_snapshot_try_capture(channel_index);
     return true;
 }
 
@@ -6718,6 +6907,7 @@ bool rf_ui_update_rf_boxes(uint32_t channel_index,
                            uint32_t session_id,
                            uint32_t window_sequence)
 {
+    uint64_t waterfall_end_column;
     if(channel_index >= RF_UI_CHANNEL_COUNT || session_id == 0U ||
        box_count > RF_UI_MAX_RF_BOXES ||
        (box_count != 0U && boxes == NULL)) return false;
@@ -6735,6 +6925,8 @@ bool rf_ui_update_rf_boxes(uint32_t channel_index,
            box->detection_index >= RF_UI_DETECTION_COUNT ||
            box->confidence_percent > 100U) return false;
     }
+    if(!rf_box_window_anchor_find(channel_index, session_id, window_sequence,
+                                  &waterfall_end_column)) return false;
 
     g_rf_ui_channel_switch_diag.raw_boxes_received += (uint32_t)box_count;
     g_latest_box_window_valid[channel_index] = true;
@@ -6752,7 +6944,7 @@ bool rf_ui_update_rf_boxes(uint32_t channel_index,
     incoming.session_id = session_id;
     incoming.window_sequence = window_sequence;
     incoming.staged_decision_generation = g_fusion_decision_generation;
-    incoming.anchor_end_column = g_waterfall_total_columns[channel_index];
+    incoming.anchor_end_column = waterfall_end_column;
     if(box_count != 0U) {
         memcpy(incoming.boxes, boxes, box_count * sizeof(boxes[0]));
     }
@@ -6829,6 +7021,8 @@ void rf_ui_reset_rf_box_fusion(void)
     }
     memset(g_pending_box_batches, 0, sizeof(g_pending_box_batches));
     memset(g_fusion_decision_cache, 0, sizeof(g_fusion_decision_cache));
+    memset(g_window_anchors, 0, sizeof(g_window_anchors));
+    g_window_anchor_write_index = 0U;
     memset(g_latest_box_window_valid, 0, sizeof(g_latest_box_window_valid));
     memset(g_latest_box_session_id, 0, sizeof(g_latest_box_session_id));
     memset(g_latest_box_window_sequence, 0,

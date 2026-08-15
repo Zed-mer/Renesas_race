@@ -79,6 +79,16 @@ void eth_iq_fast_crc_consume(uint32_t session_id,
                              const uint8_t *data,
                              uint32_t length);
 
+/* Convert a validated S12 interleaved payload to Q15 while updating the
+ * session CRC from the same word loads.  The output is always produced for a
+ * structurally valid payload even when the CRC state has already aborted, so
+ * analysis and transport error reporting retain their independent contracts. */
+bool eth_iq_fast_crc_consume_s12_q15(uint32_t session_id,
+                                     const uint8_t *data,
+                                     uint32_t length,
+                                     int16_t *q15_output,
+                                     uint32_t q15_capacity_scalars);
+
 /* Return ring-drop deltas relative to the current IQSC session START.  The
  * ring counters themselves are lifetime diagnostics; ACK status is
  * intentionally session-scoped so a prior failed attempt can be retried. */

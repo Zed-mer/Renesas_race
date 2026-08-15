@@ -11,7 +11,9 @@
 #define RA8P1_ACTIVITY_CONTROL_VERSION (1U)
 #define RA8P1_ACTIVITY_CACHE_LINE_BYTES (32U)
 #define RA8P1_ACTIVITY_CPU0_FLAG_READY (1UL << 0)
+#define RA8P1_ACTIVITY_CPU0_FLAG_PANEL_SHUTDOWN_REQUEST (1UL << 1)
 #define RA8P1_ACTIVITY_CPU1_FLAG_ONLINE (1UL << 0)
+#define RA8P1_ACTIVITY_CPU1_FLAG_PANEL_SHUTDOWN_ACK (1UL << 1)
 
 /* Each core owns one cache-line-sized half.  A core only cleans its own half,
  * so an ACK can never write back stale producer state (or vice versa). */

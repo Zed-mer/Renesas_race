@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import ctypes
+import json
 import pathlib
 import re
 import unittest
@@ -16,6 +17,8 @@ FUSION_HEADER = ROOT / "shared" / "rf_v13_activity_fusion.h"
 CALIBRATION_SOURCE = (
     ROOT / "cpu1" / "src" / "framework" / "rf_v25_activity_calibration.c"
 )
+V25_SOURCE = ROOT / "cpu1" / "src" / "framework" / "rf_v25_activity_fusion.c"
+V25_CONFIG = ROOT / "tools" / "v25" / "activity_v25_config.json"
 V25_HEADER = ROOT / "cpu1" / "src" / "framework" / "rf_v25_activity_fusion.h"
 SERVICE_HEADER = ROOT / "cpu1" / "src" / "framework" / "activity_service.h"
 SERVICE_SOURCE = ROOT / "cpu1" / "src" / "framework" / "activity_service.c"
@@ -178,6 +181,25 @@ class V25ActivityIntegrationTests(unittest.TestCase):
         service_header = SERVICE_HEADER.read_text(encoding="utf-8")
         self.assertIn("sizeof(rf_v25_activity_service_proof_t) == 592U", service_header)
         self.assertIn("g_rf_v25_activity_output_generation", service_header)
+
+    def test_t12_and_dji_2p4_relaxation_preserves_dji_5p8_thresholds(self) -> None:
+        source = V25_SOURCE.read_text(encoding="utf-8")
+        config = json.loads(V25_CONFIG.read_text(encoding="utf-8"))
+        tables = {item["enum_name"]: item for item in config["class_tables"]}
+        overrides = config["band_overrides"]
+
+        self.assertEqual(0.45, tables["T12"]["bins"][0]["minimum_score"])
+        self.assertEqual(0.5, tables["AT9S"]["bins"][0]["minimum_score"])
+        self.assertEqual(0.5, tables["DJI_CONTROL"]["bins"][0]["minimum_score"])
+        self.assertEqual([0, 1], overrides["DJI_2P4_GHZ"]["center_slots"])
+        self.assertEqual(0.7, overrides["DJI_2P4_GHZ"]["support_score"])
+        self.assertEqual([2, 3], overrides["DJI_5P8_GHZ"]["center_slots"])
+        self.assertEqual(0.75, overrides["DJI_5P8_GHZ"]["support_score"])
+        self.assertIn("item->center_slot < 2u", source)
+        self.assertIn("RF_V25_DJI_2P4_SUPPORT_CONFIDENCE_Q15", source)
+        self.assertIn("RF_V25_DJI_SUPPORT_BIN_CONFIDENCE_Q15", source)
+        self.assertIn("round->dji_2p4_support != 0u", source)
+        self.assertIn("single_strong_rounds--", source)
 
     def test_cpu0_epoch_resets_before_any_new_message_is_applied(self) -> None:
         source = SERVICE_SOURCE.read_text(encoding="utf-8")

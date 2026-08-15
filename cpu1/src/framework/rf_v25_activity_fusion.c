@@ -4,6 +4,10 @@
 #include <string.h>
 
 #define RF_V25_CLASS_SLOT_COUNT 4u
+#define RF_V25_DJI_2P4_MIN_CONFIDENCE_Q15 UINT16_C(14745)
+#define RF_V25_DJI_MIN_BIN_CONFIDENCE_Q15 UINT16_C(16384)
+#define RF_V25_DJI_2P4_SUPPORT_CONFIDENCE_Q15 UINT16_C(22937)
+#define RF_V25_DJI_SUPPORT_BIN_CONFIDENCE_Q15 UINT16_C(24575)
 
 typedef struct rf_v25_round_object {
     int32_t on_llr_q12;
@@ -12,6 +16,7 @@ typedef struct rf_v25_round_object {
     uint8_t source_mask;
     uint8_t center_mask;
     uint8_t duplicate_count;
+    uint8_t dji_2p4_support;
 } rf_v25_round_object_t;
 
 static uint16_t rf_v25_sat_inc_u16(uint16_t value)
@@ -148,12 +153,28 @@ static int32_t rf_v25_event_llr(
     int32_t llr;
     int32_t bonus;
     int32_t roi_scale;
+    uint16_t confidence_q15;
     if (item == NULL || item->roi_decision == RF_V13_ROI_FAIL ||
         !rf_v25_class_allowed(item->class_id, item->center_slot)) {
         return 0;
     }
+
+    confidence_q15 = item->confidence_q15;
+    if (item->center_slot < 2u &&
+        (item->class_id == RF_V13_CLASS_DJI_CONTROL ||
+         item->class_id == RF_V13_CLASS_DJI_VIDEO)) {
+        if (confidence_q15 < RF_V25_DJI_2P4_MIN_CONFIDENCE_Q15) {
+            return 0;
+        }
+        if (confidence_q15 >= RF_V25_DJI_2P4_SUPPORT_CONFIDENCE_Q15 &&
+            confidence_q15 < RF_V25_DJI_SUPPORT_BIN_CONFIDENCE_Q15) {
+            confidence_q15 = RF_V25_DJI_SUPPORT_BIN_CONFIDENCE_Q15;
+        } else if (confidence_q15 < RF_V25_DJI_MIN_BIN_CONFIDENCE_Q15) {
+            confidence_q15 = RF_V25_DJI_MIN_BIN_CONFIDENCE_Q15;
+        }
+    }
     llr = rf_v13_lookup_llr_q12(
-        &config->evidence, item->class_id, item->confidence_q15);
+        &config->evidence, item->class_id, confidence_q15);
     if (llr == INT32_MIN) {
         return 0;
     }
@@ -233,6 +254,10 @@ static void rf_v25_collect_round(
                     strong[class_id][slot] != 0u &&
                     value >= profile->strong_llr_q12) {
                     dji_strong = 1u;
+                }
+                if (object_id == RF_V13_OBJECT_DJI && slot < 2u &&
+                    value >= profile->support_llr_q12) {
+                    round_objects[object_id].dji_2p4_support = 1u;
                 }
                 if (value > maximum) {
                     extras = rf_v25_sat_add_i32(extras, maximum);
@@ -341,6 +366,7 @@ rf_v25_apply_result_t rf_v25_activity_fusion_apply_round(
         uint8_t single_entry_met;
         uint8_t dual_entry_met;
         uint8_t entry_met;
+        uint8_t single_strong_rounds;
         uint8_t current;
         uint32_t transition;
         int32_t on_increment = round->on_llr_q12;
@@ -472,9 +498,14 @@ rf_v25_apply_result_t rf_v25_activity_fusion_apply_round(
                                    : 0u;
         }
 
+        single_strong_rounds = profile->single_strong_rounds;
+        if (object_id == RF_V13_OBJECT_DJI &&
+            round->dji_2p4_support != 0u && single_strong_rounds != 0u) {
+            single_strong_rounds--;
+        }
         single_entry_met =
             state->support_count >= profile->single_support_rounds &&
-                    state->strong_count >= profile->single_strong_rounds
+                    state->strong_count >= single_strong_rounds
                 ? 1u
                 : 0u;
         dual_entry_met = object_id == RF_V13_OBJECT_DJI &&

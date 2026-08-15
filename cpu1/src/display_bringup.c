@@ -14,15 +14,18 @@
 #define DISPLAY_BACKLIGHT_PIN_CFG ((uint32_t) IOPORT_CFG_DRIVE_MID |          \
                                    (uint32_t) IOPORT_CFG_PORT_DIRECTION_OUTPUT | \
                                    (uint32_t) IOPORT_CFG_PORT_OUTPUT_LOW)
-#define DISPLAY_RESET_LOW_HOLD_MS          (10U)
+#define DISPLAY_RESET_LOW_HOLD_MS          (50U)
 #define DISPLAY_RESET_READY_MIN_MS         (17U)
 #define DISPLAY_RESET_RELEASE_WAIT_MS      (120U)
+#define DISPLAY_PANEL_SLEEP_HOLD_MS        (120U)
+#define DISPLAY_PANEL_CLOCK_HOLD_FRAMES   (2U)
+#define DISPLAY_PANEL_FRAME_GUARD_MS       (22U)
 #define DISPLAY_SDRAM_TEST_OFFSET_BYTES (0x400U)
 #define DISPLAY_SDRAM_TEST_BASE_VALUE   (0x11223344U)
 #define DISPLAY_SDRAM_TEST_OFFSET_VALUE (0x55667788U)
 #define DISPLAY_SDRAM_TEST_RETRIES      (20U)
 #define DISPLAY_SDRAM_TEST_RETRY_MS         (10U)
-#define DISPLAY_STARTUP_CLEAN_VSYNCS        (8U)
+#define DISPLAY_STARTUP_CLEAN_VSYNCS        (16U)
 #define DISPLAY_STARTUP_WAIT_MAIN_FRAME     (1UL << 0)
 #define DISPLAY_STARTUP_WAIT_LAYER2_FRAME   (1UL << 1)
 #define DISPLAY_STARTUP_WAIT_LAYER_LATCH    (1UL << 2)
@@ -535,6 +538,12 @@ void display_bringup_run(void)
         display_fail(err);
         return;
     }
+    /* Compose the first LVGL frame with scanout stopped.  Layer 2 remains
+     * transparent until its CLUT/shadow state has been prepared on real
+     * VSyncs, so a reset cannot expose a partially initialized overlay. */
+    g_external_display_cfg.input[DISPLAY_FRAME_LAYER_1].p_base =
+        (uint32_t *)&fb_background[0][0];
+    g_external_display_cfg.input[DISPLAY_FRAME_LAYER_2].p_base = NULL;
     err = R_GLCDC_Open(&g_display_ctrl, &g_external_display_cfg);
     if (FSP_SUCCESS != err)
     {
@@ -573,26 +582,174 @@ void display_bringup_run(void)
     g_display_diag.panel_lane_read_error = DISPLAY_PANEL_READ_SKIPPED;
     g_display_diag.panel_read_error = DISPLAY_PANEL_READ_SKIPPED;
 
-    /* Leave the panel in normal-video mode immediately before VRUN.  Low-power
-     * DSI commands are not valid once the video stream has started. */
-    err = jd9165_panel_disable_bist();
-    g_display_diag.bist_disable_error = (uint32_t) err;
-    if (FSP_SUCCESS != err)
+    /* Leave GLCDC stopped.  LVGL owns the first complete composition and calls
+     * display_video_start() only after that composition has been acknowledged. */
+}
+
+bool display_bringup_ready_for_first_frame(void)
+{
+    return (g_display_diag.stage == DISPLAY_STAGE_PANEL_CONFIGURED) &&
+           (g_display_ctrl.state == DISPLAY_STATE_OPENED) &&
+           (g_display_diag.last_error == 0);
+}
+
+fsp_err_t display_video_start(void)
+{
+    if (0U != g_display_diag.running)
     {
-        display_fail(err);
-        return;
+        return FSP_SUCCESS;
+    }
+    if (!display_bringup_ready_for_first_frame() ||
+        (0U == g_display_diag.startup_initial_frame_ready))
+    {
+        return FSP_ERR_NOT_OPEN;
     }
 
     display_fps_counter_start();
-    err = R_GLCDC_Start(&g_display_ctrl);
+    const fsp_err_t err = R_GLCDC_Start(&g_display_ctrl);
     if (FSP_SUCCESS != err)
     {
         display_fail(err);
-        return;
+        return err;
     }
     g_display_diag.stage = DISPLAY_STAGE_VIDEO_STARTED;
     g_display_diag.startup_video_started = 1U;
     g_display_diag.running = 1U;
+    g_display_diag.animation_frames++;
+    g_display_diag.animation_buffer_changes++;
+    g_display_diag.animation_visible_buffer = 0U;
+    g_display_diag.animation_next_buffer = 1U;
+    return FSP_SUCCESS;
+}
+
+static bool display_panel_wait_clock_frames(uint32_t frame_count)
+{
+    const uint32_t start_line = g_display_diag.glcdc_line_events;
+    const uint32_t timeout_ms =
+        (frame_count * DISPLAY_PANEL_FRAME_GUARD_MS) + 20U;
+    for (uint32_t elapsed_ms = 0U; elapsed_ms < timeout_ms; ++elapsed_ms)
+    {
+        if ((g_display_diag.glcdc_line_events - start_line) >= frame_count)
+        {
+            return true;
+        }
+        R_BSP_SoftwareDelay(1U, BSP_DELAY_UNITS_MILLISECONDS);
+    }
+    return false;
+}
+
+static fsp_err_t display_panel_stop_video(void)
+{
+    fsp_err_t err = FSP_ERR_INVALID_MODE;
+    for (uint32_t attempt = 0U; attempt < 100U; ++attempt)
+    {
+        err = R_GLCDC_Stop(&g_display_ctrl);
+        if ((FSP_SUCCESS == err) || (FSP_ERR_INVALID_MODE == err))
+        {
+            return err;
+        }
+        R_BSP_SoftwareDelay(1U, BSP_DELAY_UNITS_MILLISECONDS);
+    }
+    return err;
+}
+
+fsp_err_t display_panel_graceful_shutdown(void)
+{
+    g_display_diag.panel_shutdown_attempts++;
+    fsp_err_t first_error = R_IOPORT_PinWrite(g_ioport.p_ctrl,
+                                              DISPLAY_BACKLIGHT,
+                                              BSP_IO_LEVEL_LOW);
+    fsp_err_t err = FSP_SUCCESS;
+    const bool video_running =
+        (0U != g_display_diag.running) &&
+        (g_display_ctrl.state == DISPLAY_STATE_DISPLAYING);
+
+    if (video_running)
+    {
+        /* Keep HS video clocks alive while issuing DCS Display Off/Sleep In. */
+        err = jd9165_panel_shutdown_commands(true);
+        if (FSP_SUCCESS == err)
+        {
+            if (!display_panel_wait_clock_frames(
+                    DISPLAY_PANEL_CLOCK_HOLD_FRAMES) &&
+                (FSP_SUCCESS == first_error))
+            {
+                first_error = FSP_ERR_TIMEOUT;
+            }
+            R_BSP_SoftwareDelay(DISPLAY_PANEL_SLEEP_HOLD_MS,
+                                BSP_DELAY_UNITS_MILLISECONDS);
+        }
+        else
+        {
+            /* Fallback for bridges that accept only LP DCS packets. */
+            g_display_diag.panel_shutdown_fallback_used = 1U;
+            const fsp_err_t stop_err = display_panel_stop_video();
+            if ((FSP_SUCCESS != stop_err) &&
+                (FSP_ERR_INVALID_MODE != stop_err) &&
+                (FSP_SUCCESS == first_error))
+            {
+                first_error = stop_err;
+            }
+            err = jd9165_panel_shutdown_commands(false);
+            if ((FSP_SUCCESS != err) && (FSP_SUCCESS == first_error))
+            {
+                first_error = err;
+            }
+            if (FSP_SUCCESS == err)
+            {
+                const fsp_err_t start_err = R_GLCDC_Start(&g_display_ctrl);
+                if ((FSP_SUCCESS != start_err) &&
+                    (FSP_SUCCESS == first_error))
+                {
+                    first_error = start_err;
+                }
+                if ((FSP_SUCCESS == start_err) &&
+                    !display_panel_wait_clock_frames(
+                        DISPLAY_PANEL_CLOCK_HOLD_FRAMES) &&
+                    (FSP_SUCCESS == first_error))
+                {
+                    first_error = FSP_ERR_TIMEOUT;
+                }
+            }
+            R_BSP_SoftwareDelay(DISPLAY_PANEL_SLEEP_HOLD_MS,
+                                BSP_DELAY_UNITS_MILLISECONDS);
+        }
+        if ((FSP_SUCCESS != err) && (FSP_SUCCESS == first_error))
+        {
+            first_error = err;
+        }
+    }
+
+    const fsp_err_t reset_err = R_IOPORT_PinWrite(g_ioport.p_ctrl,
+                                                  DISPLAY_PANEL_RESET,
+                                                  DISPLAY_RESET_ACTIVE);
+    if ((FSP_SUCCESS != reset_err) && (FSP_SUCCESS == first_error))
+    {
+        first_error = reset_err;
+    }
+    if (FSP_SUCCESS == reset_err)
+    {
+        R_BSP_SoftwareDelay(DISPLAY_RESET_LOW_HOLD_MS,
+                            BSP_DELAY_UNITS_MILLISECONDS);
+    }
+    if (video_running && (g_display_ctrl.state == DISPLAY_STATE_DISPLAYING))
+    {
+        const fsp_err_t stop_err = display_panel_stop_video();
+        if ((FSP_SUCCESS != stop_err) &&
+            (FSP_ERR_INVALID_MODE != stop_err) &&
+            (FSP_SUCCESS == first_error))
+        {
+            first_error = stop_err;
+        }
+    }
+    g_display_diag.running = 0U;
+    g_display_diag.stage = DISPLAY_STAGE_PANEL_RESET;
+    g_display_diag.panel_shutdown_last_error = (uint32_t)first_error;
+    if (FSP_SUCCESS == first_error)
+    {
+        g_display_diag.panel_shutdown_completed++;
+    }
+    return first_error;
 }
 
 fsp_err_t display_backlight_startup_step(void)

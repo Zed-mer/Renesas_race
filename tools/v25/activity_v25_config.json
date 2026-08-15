@@ -4,7 +4,7 @@
       "bins": [
         {
           "llr": 0.5,
-          "minimum_score": 0.55
+          "minimum_score": 0.5
         },
         {
           "llr": 1.5,
@@ -22,7 +22,7 @@
       "bins": [
         {
           "llr": 0.5,
-          "minimum_score": 0.55
+          "minimum_score": 0.5
         },
         {
           "llr": 1.5,
@@ -40,7 +40,7 @@
       "bins": [
         {
           "llr": 2.0,
-          "minimum_score": 0.55
+          "minimum_score": 0.5
         },
         {
           "llr": 2.0,
@@ -58,7 +58,7 @@
       "bins": [
         {
           "llr": 2.0,
-          "minimum_score": 0.55
+          "minimum_score": 0.45
         },
         {
           "llr": 2.0,
@@ -76,7 +76,7 @@
       "bins": [
         {
           "llr": 2.0,
-          "minimum_score": 0.55
+          "minimum_score": 0.5
         },
         {
           "llr": 2.0,
@@ -91,6 +91,25 @@
       "enum_name": "XIAOBAWANG"
     }
   ],
+  "band_overrides": {
+    "DJI_2P4_GHZ": {
+      "center_slots": [
+        0,
+        1
+      ],
+      "minimum_score": 0.45,
+      "support_score": 0.7,
+      "support_promote_to_score": 0.75
+    },
+    "DJI_5P8_GHZ": {
+      "center_slots": [
+        2,
+        3
+      ],
+      "minimum_score": 0.5,
+      "support_score": 0.75
+    }
+  },
   "evidence": {
     "leak": 0.97,
     "leak_q12": 3973,
@@ -122,10 +141,10 @@
       "off_exit_threshold_q12": 15360,
       "off_miss_llr": 0.9375,
       "off_miss_llr_q12": 3840,
-      "on_dual_enter_threshold": 2.5,
-      "on_dual_enter_threshold_q12": 10240,
-      "on_enter_threshold": 2.5,
-      "on_enter_threshold_q12": 10240,
+      "on_dual_enter_threshold": 2.0,
+      "on_dual_enter_threshold_q12": 8192,
+      "on_enter_threshold": 2.0,
+      "on_enter_threshold_q12": 8192,
       "on_evidence_cap": 8.0,
       "on_evidence_cap_q12": 32768,
       "on_hit_leak": 1.0,
@@ -165,18 +184,18 @@
       "off_exit_threshold_q12": 30713,
       "off_miss_llr": 0.7498170711244345,
       "off_miss_llr_q12": 3071,
-      "on_dual_enter_threshold": 3.5,
-      "on_dual_enter_threshold_q12": 14336,
-      "on_enter_threshold": 3.5,
-      "on_enter_threshold_q12": 14336,
+      "on_dual_enter_threshold": 3.0,
+      "on_dual_enter_threshold_q12": 12288,
+      "on_enter_threshold": 3.0,
+      "on_enter_threshold_q12": 12288,
       "on_evidence_cap": 8.0,
       "on_evidence_cap_q12": 32768,
       "on_hit_leak": 1.0,
       "on_hit_leak_q12": 4096,
       "on_miss_decay": 0.85,
       "on_miss_decay_q12": 3482,
-      "single_strong_rounds": 2,
-      "single_support_rounds": 4,
+      "single_strong_rounds": 1,
+      "single_support_rounds": 3,
       "strong_llr": 1.5,
       "strong_llr_q12": 6144,
       "support_llr": 1.0,
@@ -208,10 +227,10 @@
       "off_exit_threshold_q12": 22322,
       "off_miss_llr": 0.9082949228320203,
       "off_miss_llr_q12": 3720,
-      "on_dual_enter_threshold": 2.5,
-      "on_dual_enter_threshold_q12": 10240,
-      "on_enter_threshold": 2.5,
-      "on_enter_threshold_q12": 10240,
+      "on_dual_enter_threshold": 2.0,
+      "on_dual_enter_threshold_q12": 8192,
+      "on_enter_threshold": 2.0,
+      "on_enter_threshold_q12": 8192,
       "on_evidence_cap": 8.0,
       "on_evidence_cap_q12": 32768,
       "on_hit_leak": 1.0,
@@ -251,10 +270,10 @@
       "off_exit_threshold_q12": 10546,
       "off_miss_llr": 0.4291168460050555,
       "off_miss_llr_q12": 1758,
-      "on_dual_enter_threshold": 2.5,
-      "on_dual_enter_threshold_q12": 10240,
-      "on_enter_threshold": 2.5,
-      "on_enter_threshold_q12": 10240,
+      "on_dual_enter_threshold": 2.0,
+      "on_dual_enter_threshold_q12": 8192,
+      "on_enter_threshold": 2.0,
+      "on_enter_threshold_q12": 8192,
       "on_evidence_cap": 8.0,
       "on_evidence_cap_q12": 32768,
       "on_hit_leak": 1.0,

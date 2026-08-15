@@ -1893,8 +1893,10 @@ void sdr_control_client_observe_window(
         client->stats.state = SDR_CONTROL_CLIENT_WAIT_LOCAL_RESULT;
         return;
     }
-    if (!data_error &&
-        (!evidence->analysis_complete || !evidence->cpu1_visible))
+    /* The derived frame is durable once CPU0 publishes it into the shared
+     * four-slot ring. CPU1 ownership/visibility acknowledgement remains
+     * asynchronous telemetry and must not hold the SDR's next-window credit. */
+    if (!data_error && !evidence->analysis_complete)
     {
         client->stats.state = SDR_CONTROL_CLIENT_WAIT_LOCAL_RESULT;
         return;

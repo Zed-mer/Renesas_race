@@ -160,6 +160,9 @@ static bool g_cfft_ready;
 static q15_t g_fft_iq[ANALYSIS_FFT_SIZE * 2U] ANALYSIS_DTCM;
 static uint32_t g_fft_power[ANALYSIS_FFT_SIZE] ANALYSIS_DTCM;
 static q15_t g_window[ANALYSIS_FFT_SIZE] ANALYSIS_DTCM;
+/* The output-oriented exact-area map is immutable after initialization. */
+static rf_v12_rebin_output_map_t
+    g_v12_output_map[RF_V12_FEATURE_FREQUENCY_BINS] ANALYSIS_DTCM;
 static uint8_t g_display_raw_bin_map[ANALYSIS_FFT_SIZE];
 static uint32_t g_display_power_divisor[RA8P1_DISPLAY_TILE_WIDTH];
 static uint16_t g_spectrum_raw_bin_map[ANALYSIS_FFT_SIZE];
@@ -965,23 +968,52 @@ static ANALYSIS_HOT_CODE void analysis_copy_window_apply(const analysis_lane_t *
     }
 }
 
-static inline uint32_t analysis_fft_power_at(uint32_t index)
+static inline __attribute__((always_inline)) void analysis_fft_power_segment(
+    const q15_t *source,
+    uint32_t *destination,
+    uint32_t complex_samples)
 {
-    const int32_t real = g_fft_iq[2U * index] >> ANALYSIS_Q15_FFT_SHIFT;
-    const int32_t imag = g_fft_iq[(2U * index) + 1U] >> ANALYSIS_Q15_FFT_SHIFT;
-    return (uint32_t)((real * real) + (imag * imag));
+#if defined(__ARM_FEATURE_MVE) && (__ARM_FEATURE_MVE > 0)
+    for (uint32_t i = 0U; i < complex_samples; i += 8U)
+    {
+        q15x8x2_t samples = vld2q(source);
+        samples.val[0] =
+            vshrq_n_s16(samples.val[0], ANALYSIS_Q15_FFT_SHIFT);
+        samples.val[1] =
+            vshrq_n_s16(samples.val[1], ANALYSIS_Q15_FFT_SHIFT);
+        int32x4_t low = vaddq_s32(
+            vmullbq_int_s16(samples.val[0], samples.val[0]),
+            vmullbq_int_s16(samples.val[1], samples.val[1]));
+        int32x4_t high = vaddq_s32(
+            vmulltq_int_s16(samples.val[0], samples.val[0]),
+            vmulltq_int_s16(samples.val[1], samples.val[1]));
+        vst1q_u32(destination, vreinterpretq_u32_s32(low));
+        vst1q_u32(destination + 4U, vreinterpretq_u32_s32(high));
+        source += 16U;
+        destination += 8U;
+    }
+#else
+    for (uint32_t i = 0U; i < complex_samples; ++i)
+    {
+        const int32_t real =
+            source[2U * i] >> ANALYSIS_Q15_FFT_SHIFT;
+        const int32_t imag =
+            source[(2U * i) + 1U] >> ANALYSIS_Q15_FFT_SHIFT;
+        destination[i] = (uint32_t)((real * real) + (imag * imag));
+    }
+#endif
 }
 
-static inline __attribute__((always_inline)) void analysis_accumulate_display_power(
-    analysis_lane_hot_t *hot,
-    uint32_t shifted_bin,
-    uint32_t power)
+static inline __attribute__((always_inline)) void analysis_fft_power_all(void)
 {
-    const uint32_t display_bin = g_display_raw_bin_map[shifted_bin];
-    if (display_bin < RA8P1_DISPLAY_TILE_WIDTH)
-    {
-        hot->display_power_sum[display_bin] += power;
-    }
+    analysis_fft_power_segment(
+        &g_fft_iq[ANALYSIS_FFT_SIZE],
+        g_fft_power,
+        ANALYSIS_FFT_SIZE / 2U);
+    analysis_fft_power_segment(
+        g_fft_iq,
+        &g_fft_power[ANALYSIS_FFT_SIZE / 2U],
+        ANALYSIS_FFT_SIZE / 2U);
 }
 
 static inline __attribute__((always_inline)) void analysis_accumulate_spectrum_power(
@@ -1003,6 +1035,7 @@ static ANALYSIS_HOT_CODE bool analysis_reduce_fft_power(analysis_lane_t *lane)
         lane->stft_frames >=
         (ANALYSIS_STFT_FRAMES_PER_TILE -
          ANALYSIS_SPECTRUM_AVERAGE_FRAMES);
+    analysis_fft_power_all();
 
     for (uint32_t shifted_bin = 0U;
          shifted_bin < ANALYSIS_FFT_SIZE;
@@ -1011,10 +1044,9 @@ static ANALYSIS_HOT_CODE bool analysis_reduce_fft_power(analysis_lane_t *lane)
         const uint32_t fft_index =
             (shifted_bin + (ANALYSIS_FFT_SIZE / 2U)) &
             (ANALYSIS_FFT_SIZE - 1U);
-        const uint32_t power = analysis_fft_power_at(fft_index);
+        const uint32_t power = g_fft_power[shifted_bin];
         const uint32_t display_bin = g_display_raw_bin_map[shifted_bin];
 
-        g_fft_power[shifted_bin] = power;
         /* The map is rebuilt whenever the sample rate or bandwidth changes.
          * Its sentinel is the cached validity decision for this hot loop. */
         if (display_bin >= RA8P1_DISPLAY_TILE_WIDTH)
@@ -1033,10 +1065,12 @@ static ANALYSIS_HOT_CODE bool analysis_reduce_fft_power(analysis_lane_t *lane)
         }
     }
 
-    return rf_v12_preprocess_frame(&lane->preprocess,
-                                   g_fft_power,
-                                   lane->stft_frames,
-                                   ANALYSIS_Q15_POWER_SCALE);
+    return rf_v12_preprocess_frame_gathered(
+        &lane->preprocess,
+        g_v12_output_map,
+        g_fft_power,
+        lane->stft_frames,
+        ANALYSIS_Q15_POWER_SCALE);
 }
 
 static void analysis_finish_processed_frame(analysis_lane_t *lane)
@@ -2135,6 +2169,7 @@ void analysis_pipeline_init(void)
         if (q > INT16_MAX) q = INT16_MAX;
         g_window[i] = (q15_t)q;
     }
+    rf_v12_preprocess_build_output_map(g_v12_output_map);
     analysis_rebuild_fft_valid_mask();
     g_analysis.configured = g_cfft_ready ? 1U : 0U;
     g_analysis.npu_ready = 0U;
@@ -2271,6 +2306,21 @@ void analysis_pipeline_ingest_s16(const int16_t *iq,
         flags &= ~RA8P1_IQ_FLAG_DISCONTINUITY;
         consumed += take;
     }
+}
+
+void analysis_pipeline_ingest_q15(const int16_t *iq,
+                                  uint32_t complex_samples,
+                                  uint64_t sample_index,
+                                  uint32_t flags)
+{
+    if (iq == NULL)
+    {
+        return;
+    }
+    analysis_feed_q15((const q15_t *)iq,
+                      complex_samples,
+                      sample_index,
+                      flags);
 }
 
 void analysis_pipeline_ingest_s8(const int8_t *iq,

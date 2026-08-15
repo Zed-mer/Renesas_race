@@ -11,6 +11,9 @@
 
 #define DISPLAY_APP_LIVE_RETRY_DELAY_STEPS    (120U)
 #define DISPLAY_APP_TILE_DRAIN_BUDGET          (4U)
+/* At the configured panel rate, 90 line events are about two seconds. A
+ * continuous scan normally publishes several frames inside this interval. */
+#define DISPLAY_APP_LIVE_STALL_LINE_EVENTS     (90U)
 
 _Static_assert(DISPLAY_APP_TILE_DRAIN_BUDGET <=
                RA8P1_DISPLAY_TILE_SLOT_COUNT,
@@ -49,6 +52,10 @@ static uint32_t g_live_retry_delay_steps;
 static display_app_live_recovery_state_t g_live_recovery_state;
 static ra8p1_ui_command_t g_live_start_command;
 static bool g_live_start_command_valid;
+static uint32_t g_live_last_progress_line_event;
+static bool g_live_progress_armed;
+volatile uint32_t g_display_app_stall_recoveries;
+static bool g_panel_shutdown_latched;
 typedef bool (*display_capture_request_api_t)(uint64_t,
                                               uint64_t,
                                               uint32_t,
@@ -81,6 +88,7 @@ static bool display_app_prepare_capture_command(
 static bool display_app_send_stop_command(void);
 static bool display_app_resend_live_start(void);
 static void display_app_live_retry_service(void);
+static void display_app_live_progress_service(bool valid_frame);
 static void display_app_panel_presentation_service(
     ra8p1_display_frame_t *frame_probe);
 static void display_app_panel_presentation_arm(
@@ -130,6 +138,10 @@ void display_app_init(void)
     g_live_recovery_state = DISPLAY_APP_LIVE_RECOVERY_IDLE;
     memset(&g_live_start_command, 0, sizeof(g_live_start_command));
     g_live_start_command_valid = false;
+    g_live_last_progress_line_event = 0U;
+    g_live_progress_armed = false;
+    g_display_app_stall_recoveries = 0U;
+    g_panel_shutdown_latched = false;
     g_capture_request_api = display_app_request_capture;
     cpu1_campaign_init();
     /* Start in continuous four-center SCAN mode so the activity service can
@@ -153,9 +165,26 @@ void display_app_step(void)
     ra8p1_display_frame_t display_frame;
     rf_v25_activity_round_decision_t activity_decision;
     bool display_frame_ready;
+    bool display_frame_valid;
     bool activity_output_ready;
     ipc_bridge_cpu1_command_service();
     activity_output_ready = rf_v25_activity_service_poll();
+    if (g_panel_shutdown_latched)
+    {
+        return;
+    }
+    if (ipc_bridge_cpu1_panel_shutdown_requested())
+    {
+        g_panel_shutdown_latched = true;
+        const fsp_err_t shutdown_error =
+            display_panel_graceful_shutdown();
+        if (FSP_SUCCESS != shutdown_error)
+        {
+            g_display_diag.last_error = (int32_t)shutdown_error;
+        }
+        ipc_bridge_cpu1_panel_shutdown_ack();
+        return;
+    }
     if (activity_output_ready)
     {
         lvgl_app_activity_update();
@@ -181,6 +210,8 @@ void display_app_step(void)
     display_app_live_retry_service();
     display_app_panel_presentation_service(&display_frame);
     display_frame_ready = ipc_bridge_cpu1_display_poll(&display_frame);
+    display_frame_valid = display_frame_ready &&
+                          display_app_frame_semantically_valid(&display_frame);
     if (ipc_bridge_cpu1_display_session_changed())
     {
         g_last_tile_sequence = 0U;
@@ -193,7 +224,7 @@ void display_app_step(void)
          * control-plane state and must not be inferred from this per-window
          * transport identifier. */
     }
-    if (display_frame_ready && display_app_frame_semantically_valid(&display_frame))
+    if (display_frame_valid)
     {
         g_ipc_frames_received++;
         g_last_session_id = display_frame.session_id;
@@ -212,6 +243,7 @@ void display_app_step(void)
         lvgl_app_signal_update(&display_frame);
         display_app_panel_presentation_arm(&display_frame);
     }
+    display_app_live_progress_service(display_frame_valid);
     display_app_drain_tiles();
     /* Every waterfall update comes from a retained STFT tile, never from a
      * synthetic animation step. */
@@ -259,6 +291,8 @@ void display_app_step(void)
             runtime_metrics.runtime_flags |= (1UL << 6);
         if (g_live_recovery_state != DISPLAY_APP_LIVE_RECOVERY_IDLE)
             runtime_metrics.runtime_flags |= (1UL << 7);
+        if (g_display_app_stall_recoveries != 0U)
+            runtime_metrics.runtime_flags |= (1UL << 16);
         runtime_metrics.runtime_flags |= (ui_model_center_valid_mask() << 8U);
         g_runtime_publish_divider = 0U;
         ipc_bridge_cpu1_runtime_update(g_display_diag.heartbeat,
@@ -618,7 +652,52 @@ static bool display_app_resend_live_start(void)
     g_live_recovery_sequence = 0U;
     g_live_retry_delay_steps = 0U;
     g_live_recovery_state = DISPLAY_APP_LIVE_RECOVERY_IDLE;
+    g_live_progress_armed = false;
     return true;
+}
+
+static void display_app_live_progress_service(bool valid_frame)
+{
+    const bool current_live_command =
+        (g_live_command_sequence != 0U) &&
+        (g_last_command_sequence == g_live_command_sequence);
+    const uint32_t line_event = g_display_diag.glcdc_line_events;
+
+    if (valid_frame)
+    {
+        g_live_last_progress_line_event = line_event;
+        g_live_progress_armed = true;
+        return;
+    }
+    if (cpu1_campaign_owns_scheduler() ||
+        (g_live_recovery_state != DISPLAY_APP_LIVE_RECOVERY_IDLE) ||
+        !g_live_start_command_valid || !current_live_command ||
+        (g_last_command_status != RA8P1_COMMAND_APPLIED) ||
+        ipc_bridge_cpu1_command_pending() ||
+        !ipc_bridge_cpu1_cpu0_ready())
+    {
+        g_live_progress_armed = false;
+        return;
+    }
+    if (!g_live_progress_armed)
+    {
+        g_live_last_progress_line_event = line_event;
+        g_live_progress_armed = true;
+        return;
+    }
+    if ((line_event - g_live_last_progress_line_event) <
+        DISPLAY_APP_LIVE_STALL_LINE_EVENTS)
+    {
+        return;
+    }
+
+    /* Reuse the ordered recovery path. It first retires every active,
+     * prefetched and fallback SDR identity, waits for STOPPED telemetry, then
+     * reissues the exact saved continuous command. */
+    g_display_app_stall_recoveries++;
+    g_live_progress_armed = false;
+    g_live_retry_delay_steps = 0U;
+    g_live_recovery_state = DISPLAY_APP_LIVE_RECOVERY_STOP_REQUIRED;
 }
 
 static void display_app_live_retry_service(void)

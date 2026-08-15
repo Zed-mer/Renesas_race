@@ -25,6 +25,10 @@ BANDWIDTH_HZ = 56_000_000
 DISPLAY_LOG2_FLOOR = np.float32(-32.0)
 DISPLAY_LOG2_CEILING = np.float32(-2.0)
 DISPLAY_FALLBACK_MARGIN = np.float32(6.0e-5)
+V12_RAW_BINS = 1024
+V12_FEATURE_BINS = 204
+V12_REBIN_RAW_UNITS = 51
+V12_REBIN_OUTPUT_UNITS = 256
 
 
 def power(iq: list[int], index: int) -> int:
@@ -371,20 +375,98 @@ def check_spectrum_reducer() -> None:
         raise AssertionError("guarded MVE spectrum levels differ from scalar levels")
 
 
+def check_v12_fused_rebin() -> None:
+    """The cached 1024->204 map must preserve the exact-area reducer."""
+    first_output = np.empty(V12_RAW_BINS, dtype=np.int32)
+    first_weight = np.empty(V12_RAW_BINS, dtype=np.int32)
+    for raw in range(V12_RAW_BINS):
+        raw_start = raw * V12_REBIN_RAW_UNITS
+        raw_end = raw_start + V12_REBIN_RAW_UNITS
+        output = raw_start // V12_REBIN_OUTPUT_UNITS
+        boundary = (output + 1) * V12_REBIN_OUTPUT_UNITS
+        first_output[raw] = output
+        first_weight[raw] = min(raw_end, boundary) - raw_start
+
+    if int(first_output.min()) != 0 or int(first_output.max()) != V12_FEATURE_BINS - 1:
+        raise AssertionError("V12 cached rebin output range changed")
+    if int(first_weight.min()) < 1 or int(first_weight.max()) > V12_REBIN_RAW_UNITS:
+        raise AssertionError("V12 cached rebin overlap weight is invalid")
+
+    coverage = np.zeros(V12_FEATURE_BINS, dtype=np.int32)
+    for raw in range(V12_RAW_BINS):
+        output = int(first_output[raw])
+        weight = int(first_weight[raw])
+        coverage[output] += weight
+        if weight != V12_REBIN_RAW_UNITS:
+            coverage[output + 1] += V12_REBIN_RAW_UNITS - weight
+    if not np.all(coverage == V12_REBIN_OUTPUT_UNITS):
+        raise AssertionError("V12 exact-area map does not cover every output cell")
+
+    rng = np.random.default_rng(0x512204)
+    for iteration in range(32):
+        powers = rng.integers(0, 1 << 31, size=V12_RAW_BINS, dtype=np.uint64)
+        legacy = np.zeros(V12_FEATURE_BINS, dtype=np.uint64)
+        fused = np.zeros(V12_FEATURE_BINS, dtype=np.uint64)
+        gathered = np.zeros(V12_FEATURE_BINS, dtype=np.uint64)
+        for raw, value in enumerate(powers):
+            raw_start = raw * V12_REBIN_RAW_UNITS
+            raw_end = raw_start + V12_REBIN_RAW_UNITS
+            output = raw_start // V12_REBIN_OUTPUT_UNITS
+            boundary = (output + 1) * V12_REBIN_OUTPUT_UNITS
+            weight = min(raw_end, boundary) - raw_start
+            legacy[output] += value * weight
+            if weight != V12_REBIN_RAW_UNITS:
+                legacy[output + 1] += value * (V12_REBIN_RAW_UNITS - weight)
+            cached_output = int(first_output[raw])
+            cached_weight = int(first_weight[raw])
+            fused[cached_output] += value * cached_weight
+            if cached_weight != V12_REBIN_RAW_UNITS:
+                fused[cached_output + 1] += value * (
+                    V12_REBIN_RAW_UNITS - cached_weight
+                )
+        for output in range(V12_FEATURE_BINS):
+            output_start = output * V12_REBIN_OUTPUT_UNITS
+            first_input = output_start // V12_REBIN_RAW_UNITS
+            first_overlap = V12_REBIN_RAW_UNITS - (
+                output_start % V12_REBIN_RAW_UNITS
+            )
+            last_overlap = (
+                V12_REBIN_OUTPUT_UNITS
+                - first_overlap
+                - 4 * V12_REBIN_RAW_UNITS
+            )
+            if first_input + 5 >= V12_RAW_BINS:
+                raise AssertionError("V12 gathered reducer exceeds the FFT")
+            middle = sum(int(value) for value in powers[first_input + 1:first_input + 5])
+            gathered[output] = (
+                int(powers[first_input]) * first_overlap
+                + middle * V12_REBIN_RAW_UNITS
+                + int(powers[first_input + 5]) * last_overlap
+            )
+        if not np.array_equal(legacy, fused):
+            raise AssertionError(f"V12 fused rebin mismatch at iteration {iteration}")
+        if not np.array_equal(legacy, gathered):
+            raise AssertionError(
+                f"V12 gathered rebin mismatch at iteration {iteration}"
+            )
+
+
 def check_source_shape() -> None:
-    source = (
+    framework = (
         resolve_cpu0(Path(__file__).resolve().parents[1])
         / "src"
         / "framework"
-        / "analysis_pipeline.c"
-    ).read_text(encoding="utf-8")
+    )
+    source = "\n".join(
+        (framework / name).read_text(encoding="utf-8")
+        for name in ("analysis_pipeline.c", "rf_v12_preprocess.c")
+    )
     required = (
         "lane->frame_head",
         "analysis_cycle_now_fast",
         "analysis_lane_hot_t g_lane_hot[2] ANALYSIS_DTCM",
         "hot->frame_iq",
         "hot->display_power_sum",
-        "analysis_accumulate_display_power",
         "hot->spectrum_power_sum",
         "g_spectrum_raw_bin_map[shifted_bin]",
         "g_spectrum_power_divisor[spectrum_bin] +=",
@@ -392,10 +474,18 @@ def check_source_shape() -> None:
         "const uint32_t display_bin = g_display_raw_bin_map[shifted_bin]",
         "if (display_bin >= RA8P1_DISPLAY_TILE_WIDTH)",
         "hot->display_power_sum[display_bin] += power",
-        "const uint32_t power = analysis_fft_power_at(fft_index)",
+        "uint32_t g_fft_power[ANALYSIS_FFT_SIZE] ANALYSIS_DTCM",
+        "analysis_fft_power_segment",
+        "vmullbq_int_s16",
+        "vmulltq_int_s16",
+        "const uint32_t power = g_fft_power[shifted_bin]",
         "q15_t local[ANALYSIS_INGEST_S16_SCALARS]",
+        "void analysis_pipeline_ingest_q15",
         "analysis_store_display_spectrum(lane)",
         "analysis_display_level_guarded",
+        "g_v12_output_map",
+        "rf_v12_preprocess_frame_gathered",
+        "rf_v12_preprocess_frame_open(tile, raw_frame_index, false)",
     )
     for marker in required:
         if marker not in source:
@@ -407,8 +497,6 @@ def check_source_shape() -> None:
             raise AssertionError(f"SDRAM hot-path field returned: {stale_field}")
     if "analysis_store_spectrum_level" in source:
         raise AssertionError("the legacy 128-bin model-pool spectrum path returned")
-    if "analysis_fft_power8" in source:
-        raise AssertionError("the unproven MVE FFT power path returned")
 
 
 def main() -> None:
@@ -417,11 +505,13 @@ def main() -> None:
     check_pool_divisor()
     check_display_reducer()
     check_spectrum_reducer()
+    check_v12_fused_rebin()
     check_source_shape()
     print(
         "PASS: 300 randomized power frames plus Q15 boundaries/masks are bit-exact; "
         "80 randomized frames preserve every independent 192-bin display sum; "
         "955 raw bins form 187x4 + 69x3 native spectrum groups over the final 9 frames; "
+        "the gathered 1024-to-204 exact-area map matches the legacy scatter path; "
         "guarded MVE/scalar spectrum levels match at all tested boundaries; "
         "590336 samples produce the same 1152 overlapping windows without memmove; "
         "all 256 valid masks preserve the 9-frame pool divisor"

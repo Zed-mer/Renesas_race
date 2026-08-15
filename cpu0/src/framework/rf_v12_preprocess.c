@@ -5,10 +5,22 @@
 #include <stddef.h>
 #include <string.h>
 
-#define RF_V12_REBIN_RAW_UNITS       (51U)
-#define RF_V12_REBIN_OUTPUT_UNITS    (256U)
 #define RF_V12_DB_PER_LOG2_POWER     (3.010299956639812F)
 #define RF_V12_POWER_EPSILON         (1.0e-12F)
+#define RF_V12_LOG2_INV_LN2          (1.44269504088896340736F)
+#define RF_V12_LOG_FALLBACK_MARGIN_DB (2.0e-4F)
+
+#if defined(__ARM_FEATURE_MVE) && (__ARM_FEATURE_MVE > 0)
+#include "arm_math.h"
+#if defined(ARM_MATH_MVEF) && !defined(ARM_MATH_AUTOVECTORIZE)
+#include "arm_vec_math.h"
+#define RF_V12_HAS_MVEF (1)
+#else
+#define RF_V12_HAS_MVEF (0)
+#endif
+#else
+#define RF_V12_HAS_MVEF (0)
+#endif
 
 #if defined(__GNUC__) && (defined(__arm__) || defined(__thumb__))
 #define RF_V12_HOT_CODE __attribute__((section(".itcm_code_from_flash")))
@@ -24,6 +36,13 @@ _Static_assert((RF_V12_RAW_STFT_FRAMES -
                 (2U * RF_V12_STFT_EDGE_CROP_FRAMES)) ==
                (RF_V12_FEATURE_TIME_BINS * RF_V12_TIME_POOL_FRAMES),
                "V12 crop/time-pool contract changed");
+_Static_assert(RF_V12_FEATURE_FREQUENCY_BINS < UINT8_MAX,
+               "rebin output index no longer fits the cached map");
+_Static_assert((RF_V12_FEATURE_FREQUENCY_BINS % 4U) == 0U,
+               "MVE frequency reducer requires complete four-lane groups");
+_Static_assert(RF_V12_REBIN_OUTPUT_UNITS ==
+               ((5U * RF_V12_REBIN_RAW_UNITS) + 1U),
+               "gathered reducer no longer spans exactly six raw bins");
 
 static const float g_rf_v12_clip_min[RF_V12_FEATURE_CHANNELS] =
 {
@@ -137,6 +156,84 @@ static float rf_v12_power_db(uint64_t weighted_power,
            RF_V12_DB_PER_LOG2_POWER;
 }
 
+static bool rf_v12_power_near_quantization_boundary(float value,
+                                                    uint32_t channel)
+{
+    float clipped;
+    float scaled;
+    float lower;
+    float margin;
+
+    if (channel >= RF_V12_FEATURE_CHANNELS ||
+        !(value == value))
+    {
+        return true;
+    }
+    margin = RF_V12_LOG_FALLBACK_MARGIN_DB /
+             (g_rf_v12_std[channel] * RF_V12_INPUT_SCALE);
+    clipped = value;
+    if (clipped < g_rf_v12_clip_min[channel])
+    {
+        return (g_rf_v12_clip_min[channel] - clipped) <=
+               RF_V12_LOG_FALLBACK_MARGIN_DB;
+    }
+    if (clipped > g_rf_v12_clip_max[channel])
+    {
+        return (clipped - g_rf_v12_clip_max[channel]) <=
+               RF_V12_LOG_FALLBACK_MARGIN_DB;
+    }
+    scaled = (((clipped - g_rf_v12_mean[channel]) /
+               g_rf_v12_std[channel]) /
+              RF_V12_INPUT_SCALE) +
+             (float)RF_V12_INPUT_ZERO_POINT;
+    lower = floorf(scaled);
+    return fabsf((scaled - lower) - 0.5F) <= margin;
+}
+
+#if RF_V12_HAS_MVEF
+static RF_V12_HOT_CODE void rf_v12_power_db_max_mve4(
+    const uint64_t *weighted_power,
+    uint32_t divisor,
+    float linear_power_scale,
+    float destination[4])
+{
+    float input[4] __attribute__((aligned(16)));
+    uint32_t invalid = 0U;
+
+    for (uint32_t i = 0U; i < 4U; ++i)
+    {
+        if ((weighted_power[i] == 0U) ||
+            (divisor == 0U) ||
+            !(linear_power_scale > 0.0F))
+        {
+            input[i] = RF_V12_POWER_EPSILON;
+            invalid |= 1UL << i;
+        }
+        else
+        {
+            input[i] = ((float)weighted_power[i] / (float)divisor) *
+                       linear_power_scale + RF_V12_POWER_EPSILON;
+        }
+    }
+
+    {
+        f32x4_t logs = vlogq_f32(vld1q(input));
+        logs = vmulq_n_f32(
+            logs,
+            RF_V12_LOG2_INV_LN2 * RF_V12_DB_PER_LOG2_POWER);
+        vst1q(destination, logs);
+    }
+    for (uint32_t i = 0U; i < 4U; ++i)
+    {
+        if ((invalid & (1UL << i)) != 0U)
+        {
+            destination[i] = rf_v12_power_db(
+                weighted_power[i], divisor, linear_power_scale);
+        }
+    }
+}
+#endif
+
 void rf_v12_preprocess_tile_reset(rf_v12_preprocess_tile_t *tile,
                                   int8_t *feature_staging)
 {
@@ -157,8 +254,63 @@ void rf_v12_preprocess_tile_reset(rf_v12_preprocess_tile_t *tile,
     tile->frame_open = 0U;
 }
 
-bool rf_v12_preprocess_frame_begin(rf_v12_preprocess_tile_t *tile,
-                                   uint32_t raw_frame_index)
+void rf_v12_preprocess_build_rebin_map(
+    rf_v12_rebin_map_t map[RF_V12_FFT_POINTS])
+{
+    if (map == NULL)
+    {
+        return;
+    }
+    for (uint32_t frequency = 0U;
+         frequency < RF_V12_FFT_POINTS;
+         ++frequency)
+    {
+        const uint32_t raw_start = frequency * RF_V12_REBIN_RAW_UNITS;
+        const uint32_t raw_end = raw_start + RF_V12_REBIN_RAW_UNITS;
+        const uint32_t first_output = raw_start / RF_V12_REBIN_OUTPUT_UNITS;
+        const uint32_t first_end =
+            (first_output + 1U) * RF_V12_REBIN_OUTPUT_UNITS;
+        const uint32_t first_weight =
+            ((raw_end < first_end) ? raw_end : first_end) - raw_start;
+
+        map[frequency].first_output = (uint8_t)first_output;
+        map[frequency].first_weight = (uint8_t)first_weight;
+    }
+}
+
+void rf_v12_preprocess_build_output_map(
+    rf_v12_rebin_output_map_t map[RF_V12_FEATURE_FREQUENCY_BINS])
+{
+    if (map == NULL)
+    {
+        return;
+    }
+    for (uint32_t frequency = 0U;
+         frequency < RF_V12_FEATURE_FREQUENCY_BINS;
+         ++frequency)
+    {
+        const uint32_t output_start =
+            frequency * RF_V12_REBIN_OUTPUT_UNITS;
+        const uint32_t first_input =
+            output_start / RF_V12_REBIN_RAW_UNITS;
+        const uint32_t first_offset =
+            output_start % RF_V12_REBIN_RAW_UNITS;
+        const uint32_t first_weight =
+            RF_V12_REBIN_RAW_UNITS - first_offset;
+        const uint32_t last_weight =
+            RF_V12_REBIN_OUTPUT_UNITS - first_weight -
+            (4U * RF_V12_REBIN_RAW_UNITS);
+
+        map[frequency].first_input = (uint16_t)first_input;
+        map[frequency].first_weight = (uint8_t)first_weight;
+        map[frequency].last_weight = (uint8_t)last_weight;
+    }
+}
+
+static bool rf_v12_preprocess_frame_open(
+    rf_v12_preprocess_tile_t *tile,
+    uint32_t raw_frame_index,
+    bool clear_scatter_buffer)
 {
     if ((tile == NULL) || (tile->frame_open != 0U) ||
         (raw_frame_index >= RF_V12_RAW_STFT_FRAMES) ||
@@ -166,10 +318,19 @@ bool rf_v12_preprocess_frame_begin(rf_v12_preprocess_tile_t *tile,
     {
         return false;
     }
-    memset(tile->frame_weighted_power, 0,
-           sizeof(tile->frame_weighted_power));
+    if (clear_scatter_buffer)
+    {
+        memset(tile->frame_weighted_power, 0,
+               sizeof(tile->frame_weighted_power));
+    }
     tile->frame_open = 1U;
     return true;
+}
+
+bool rf_v12_preprocess_frame_begin(rf_v12_preprocess_tile_t *tile,
+                                   uint32_t raw_frame_index)
+{
+    return rf_v12_preprocess_frame_open(tile, raw_frame_index, true);
 }
 
 static inline __attribute__((always_inline)) void
@@ -183,7 +344,6 @@ rf_v12_accumulate_power_bin_unchecked(
     uint32_t first_output;
     uint32_t first_end;
     uint32_t first_weight;
-    uint32_t second_weight;
 
     /* Boundaries are represented in 1/51 of a raw FFT bin. One output cell
      * is exactly 256 such units, so a raw bin can touch at most two outputs. */
@@ -192,15 +352,13 @@ rf_v12_accumulate_power_bin_unchecked(
     first_output = raw_start / RF_V12_REBIN_OUTPUT_UNITS;
     first_end = (first_output + 1U) * RF_V12_REBIN_OUTPUT_UNITS;
     first_weight = ((raw_end < first_end) ? raw_end : first_end) - raw_start;
-    tile->frame_weighted_power[first_output] +=
-        (uint64_t)linear_power * first_weight;
-
-    second_weight = RF_V12_REBIN_RAW_UNITS - first_weight;
-    if ((second_weight != 0U) &&
-        ((first_output + 1U) < RF_V12_FEATURE_FREQUENCY_BINS))
     {
-        tile->frame_weighted_power[first_output + 1U] +=
-            (uint64_t)linear_power * second_weight;
+        const rf_v12_rebin_map_t map =
+        {
+            (uint8_t)first_output,
+            (uint8_t)first_weight
+        };
+        rf_v12_preprocess_power_bin_mapped(tile, &map, linear_power);
     }
 }
 
@@ -219,7 +377,121 @@ RF_V12_HOT_CODE void rf_v12_preprocess_power_bin(
     }
     rf_v12_accumulate_power_bin_unchecked(tile,
                                           shifted_frequency_bin,
-                                          linear_power);
+                                           linear_power);
+}
+
+static RF_V12_HOT_CODE inline void rf_v12_finalize_pool_frequency(
+    rf_v12_preprocess_tile_t *tile,
+    uint32_t frequency,
+    uint64_t sum,
+    uint64_t maximum,
+    float linear_power_scale,
+    float maximum_db,
+    bool maximum_is_approximate)
+{
+    const uint32_t time = tile->time_bin;
+    const uint32_t cell =
+        (frequency * RF_V12_FEATURE_TIME_BINS) + time;
+    const uint32_t feature = cell * RF_V12_FEATURE_CHANNELS;
+    const float mean_db = rf_v12_power_db(
+        sum,
+        RF_V12_REBIN_OUTPUT_UNITS * RF_V12_TIME_POOL_FRAMES,
+        linear_power_scale);
+    float c1;
+
+    /* Only C1 uses the vector approximation. C0 remains scalar so background
+     * calibration and all spatial/temporal derivatives retain their exact
+     * scalar values. Near a quantization boundary, recompute the one scalar
+     * logarithm and keep the model input byte-identical. */
+    c1 = maximum_db - mean_db;
+    if (maximum_is_approximate &&
+        rf_v12_power_near_quantization_boundary(c1, 1U))
+    {
+        maximum_db = rf_v12_power_db(
+            maximum, RF_V12_REBIN_OUTPUT_UNITS, linear_power_scale);
+        c1 = maximum_db - mean_db;
+    }
+    if (!(c1 > 0.0F))
+    {
+        c1 = 0.0F;
+    }
+    tile->c0_db[cell] = mean_db;
+    if (tile->feature_staging != NULL)
+    {
+        tile->feature_staging[feature + 1U] =
+            rf_v12_preprocess_quantize(c1, 1U);
+    }
+}
+
+static RF_V12_HOT_CODE void rf_v12_finish_pool_frame(
+    rf_v12_preprocess_tile_t *tile,
+    float linear_power_scale)
+{
+    tile->pool_frame_count++;
+    if (tile->pool_frame_count != RF_V12_TIME_POOL_FRAMES)
+    {
+        return;
+    }
+
+#if RF_V12_HAS_MVEF
+    for (uint32_t base = 0U;
+         base < RF_V12_FEATURE_FREQUENCY_BINS;
+         base += 4U)
+    {
+        uint64_t sums[4] __attribute__((aligned(16)));
+        uint64_t maxima[4] __attribute__((aligned(16)));
+        float maximum_db[4] __attribute__((aligned(16)));
+        for (uint32_t index = 0U; index < 4U; ++index)
+        {
+            sums[index] =
+                tile->pool_weighted_power_sum[base + index];
+            maxima[index] =
+                tile->pool_weighted_power_max[base + index];
+        }
+        rf_v12_power_db_max_mve4(
+            maxima,
+            RF_V12_REBIN_OUTPUT_UNITS,
+            linear_power_scale,
+            maximum_db);
+        for (uint32_t index = 0U; index < 4U; ++index)
+        {
+            rf_v12_finalize_pool_frequency(
+                tile,
+                base + index,
+                sums[index],
+                maxima[index],
+                linear_power_scale,
+                maximum_db[index],
+                true);
+        }
+    }
+#else
+    for (uint32_t frequency = 0U;
+         frequency < RF_V12_FEATURE_FREQUENCY_BINS;
+         ++frequency)
+    {
+        rf_v12_finalize_pool_frequency(
+            tile,
+            frequency,
+            tile->pool_weighted_power_sum[frequency],
+            tile->pool_weighted_power_max[frequency],
+            linear_power_scale,
+            rf_v12_power_db(
+                tile->pool_weighted_power_max[frequency],
+                RF_V12_REBIN_OUTPUT_UNITS,
+                linear_power_scale),
+            false);
+    }
+#endif
+    for (uint32_t frequency = 0U;
+         frequency < RF_V12_FEATURE_FREQUENCY_BINS;
+         ++frequency)
+    {
+        tile->pool_weighted_power_sum[frequency] = 0U;
+        tile->pool_weighted_power_max[frequency] = 0U;
+    }
+    tile->pool_frame_count = 0U;
+    tile->time_bin++;
 }
 
 RF_V12_HOT_CODE bool rf_v12_preprocess_frame_end(
@@ -256,46 +528,7 @@ RF_V12_HOT_CODE bool rf_v12_preprocess_frame_end(
                 tile->pool_weighted_power_max[frequency] = weighted;
             }
         }
-        tile->pool_frame_count++;
-        if (tile->pool_frame_count == RF_V12_TIME_POOL_FRAMES)
-        {
-            const uint32_t time = tile->time_bin;
-            for (uint32_t frequency = 0U;
-                 frequency < RF_V12_FEATURE_FREQUENCY_BINS;
-                 ++frequency)
-            {
-                const uint64_t sum =
-                    tile->pool_weighted_power_sum[frequency];
-                const uint64_t maximum =
-                    tile->pool_weighted_power_max[frequency];
-                const uint32_t cell =
-                    (frequency * RF_V12_FEATURE_TIME_BINS) + time;
-                const uint32_t feature = cell * RF_V12_FEATURE_CHANNELS;
-                const float mean_db = rf_v12_power_db(
-                    sum,
-                    RF_V12_REBIN_OUTPUT_UNITS * RF_V12_TIME_POOL_FRAMES,
-                    linear_power_scale);
-                const float maximum_db = rf_v12_power_db(
-                    maximum,
-                    RF_V12_REBIN_OUTPUT_UNITS,
-                    linear_power_scale);
-                float c1 = maximum_db - mean_db;
-                if (!(c1 > 0.0F))
-                {
-                    c1 = 0.0F;
-                }
-                tile->c0_db[cell] = mean_db;
-                if (tile->feature_staging != NULL)
-                {
-                    tile->feature_staging[feature + 1U] =
-                        rf_v12_preprocess_quantize(c1, 1U);
-                }
-                tile->pool_weighted_power_sum[frequency] = 0U;
-                tile->pool_weighted_power_max[frequency] = 0U;
-            }
-            tile->pool_frame_count = 0U;
-            tile->time_bin++;
-        }
+        rf_v12_finish_pool_frame(tile, linear_power_scale);
     }
     tile->frame_open = 0U;
     tile->raw_frame_index++;
@@ -326,6 +559,62 @@ RF_V12_HOT_CODE bool rf_v12_preprocess_frame(
         }
     }
     return rf_v12_preprocess_frame_end(tile, linear_power_scale);
+}
+
+RF_V12_HOT_CODE bool rf_v12_preprocess_frame_gathered(
+    rf_v12_preprocess_tile_t *tile,
+    const rf_v12_rebin_output_map_t
+        map[RF_V12_FEATURE_FREQUENCY_BINS],
+    const uint32_t fftshift_power[RF_V12_FFT_POINTS],
+    uint32_t raw_frame_index,
+    float linear_power_scale)
+{
+    const bool retained =
+        (raw_frame_index >= RF_V12_STFT_EDGE_CROP_FRAMES) &&
+        (raw_frame_index <
+         (RF_V12_RAW_STFT_FRAMES - RF_V12_STFT_EDGE_CROP_FRAMES));
+
+    if ((map == NULL) || (fftshift_power == NULL) ||
+        !rf_v12_preprocess_frame_open(tile, raw_frame_index, false))
+    {
+        return false;
+    }
+    if (retained)
+    {
+        if ((tile->time_bin >= RF_V12_FEATURE_TIME_BINS) ||
+            (tile->pool_frame_count >= RF_V12_TIME_POOL_FRAMES))
+        {
+            tile->frame_open = 0U;
+            return false;
+        }
+        for (uint32_t frequency = 0U;
+             frequency < RF_V12_FEATURE_FREQUENCY_BINS;
+             ++frequency)
+        {
+            const uint32_t first = map[frequency].first_input;
+            const uint64_t middle =
+                (uint64_t)fftshift_power[first + 1U] +
+                fftshift_power[first + 2U] +
+                fftshift_power[first + 3U] +
+                fftshift_power[first + 4U];
+            const uint64_t weighted =
+                ((uint64_t)fftshift_power[first] *
+                 map[frequency].first_weight) +
+                (middle * RF_V12_REBIN_RAW_UNITS) +
+                ((uint64_t)fftshift_power[first + 5U] *
+                 map[frequency].last_weight);
+
+            tile->pool_weighted_power_sum[frequency] += weighted;
+            if (weighted > tile->pool_weighted_power_max[frequency])
+            {
+                tile->pool_weighted_power_max[frequency] = weighted;
+            }
+        }
+        rf_v12_finish_pool_frame(tile, linear_power_scale);
+    }
+    tile->frame_open = 0U;
+    tile->raw_frame_index++;
+    return true;
 }
 
 void rf_v12_preprocess_background_init(

@@ -117,7 +117,7 @@ class SdrControlProtocolTests(unittest.TestCase):
         self.assertIn("uint32_t ring_full_drops", protocol)
         self.assertIn("uint32_t test_fault_flags", protocol)
         self.assertIn("!evidence->payload_complete", client)
-        self.assertIn("evidence->cpu1_visible", client)
+        self.assertNotIn("!evidence->cpu1_visible", client)
         self.assertIn("sdr_control_client_start_continuous_scan", client)
         self.assertIn("sdr_control_client_start_continuous_single", client)
         self.assertIn(

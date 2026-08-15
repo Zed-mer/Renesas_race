@@ -49,6 +49,9 @@
 #define UI_MASK_UPDATE_PERIOD_MS    (100U)
 #define UI_GLCDC_SUBMIT_RETRY_LIMIT (4U)
 #define UI_DEFERRED_RESYNC_MAX_BYTES (32U * 1024U)
+#define UI_SDRAM_WORK_BUDGET_US       (8000U)
+#define UI_SDRAM_WORK_GUARD_US        (1500U)
+#define UI_CHANNEL_SWITCH_MAX_STEPS_PER_VSYNC (12U)
 #define UI_CHANNEL_COUNT            (RA8P1_CENTER_COUNT)
 #define UI_CLASS_COUNT              (4U)
 #define UI_SINGLE_FLOW_ENABLED      (1U)
@@ -3949,7 +3952,6 @@ void lvgl_app_tile_update(const ra8p1_display_tile_payload_t *tile)
                                                        gap_columns);
         }
         const bool appended = ui_flow_append_waterfall_tile(tile);
-        ui_flow_commit_rf_boxes_for_tile(tile);
         if (appended &&
             (tile->novel_time_start ==
              (RA8P1_DISPLAY_TILE_HEIGHT - 1U)))
@@ -3960,6 +3962,10 @@ void lvgl_app_tile_update(const ra8p1_display_tile_payload_t *tile)
                 tile->window_sequence,
                 tile->sequence);
         }
+        /* Publish the exact completed-window waterfall anchor before a frame
+         * box batch is released. This keeps delayed boxes attached to their
+         * own retained columns during pause/review. */
+        ui_flow_commit_rf_boxes_for_tile(tile);
     }
     else
     {
@@ -4009,6 +4015,21 @@ static void lvgl_wait_for_next_line_event(uint32_t line_event)
 
 static void lvgl_flush_callback(lv_display_t * display, const lv_area_t * area, uint8_t * pixel_map)
 {
+    if (0U == g_display_diag.running)
+    {
+        /* Compose the initial frame while GLCDC is stopped.  The pixels remain
+         * in framebuffer 0; the video start gate below makes them visible only
+         * after the complete LVGL refresh has finished. */
+        FSP_PARAMETER_NOT_USED(area);
+        FSP_PARAMETER_NOT_USED(pixel_map);
+        if (lv_display_flush_is_last(display))
+        {
+            g_display_diag.startup_initial_frame_ready = 1U;
+        }
+        lv_display_flush_ready(display);
+        return;
+    }
+
     if (lv_display_deferred_is_active(display) &&
         !lv_display_deferred_is_commit(display))
     {
@@ -4291,7 +4312,8 @@ void SysTick_Handler(void)
 
 fsp_err_t lvgl_app_init(bool touch_available)
 {
-    if (0U == g_display_diag.running)
+    if ((0U == g_display_diag.running) &&
+        !display_bringup_ready_for_first_frame())
     {
         return FSP_ERR_NOT_OPEN;
     }
@@ -4394,12 +4416,11 @@ fsp_err_t lvgl_app_init(bool touch_available)
     lv_display_set_flush_cb(g_lvgl_display, lvgl_flush_callback);
     lv_display_set_flush_wait_cb(g_lvgl_display, lvgl_flush_wait_callback);
     lv_display_set_buffers_with_stride(g_lvgl_display,
-                                       /* GLCDC starts with framebuffer 0.  Render
-                                        * the first direct LVGL frame into the
-                                        * off-screen buffer and swap only from
-                                        * the VSync-safe final flush above. */
-                                       &fb_background[1][0],
+                                       /* Compose startup with one buffer so no
+                                        * full-screen peer-buffer sync can occur
+                                        * before the panel has a valid frame. */
                                        &fb_background[0][0],
+                                       NULL,
                                        DISPLAY_BUFFER_STRIDE_BYTES_INPUT0 * DISPLAY_VSIZE_INPUT0,
                                        DISPLAY_BUFFER_STRIDE_BYTES_INPUT0,
                                        LV_DISPLAY_RENDER_MODE_DIRECT);
@@ -4467,6 +4488,28 @@ fsp_err_t lvgl_app_init(bool touch_available)
     display_underflow_context_enter(initial_refresh_context);
     (void) lv_timer_handler();
     display_underflow_context_leave(initial_refresh_context);
+    if (0U == g_display_diag.startup_initial_frame_ready)
+    {
+        return FSP_ERR_NOT_INITIALIZED;
+    }
+
+    const size_t framebuffer_bytes =
+        (size_t)DISPLAY_BUFFER_STRIDE_BYTES_INPUT0 * DISPLAY_VSIZE_INPUT0;
+    memcpy(&fb_background[1][0], &fb_background[0][0], framebuffer_bytes);
+    __DSB();
+    /* Both buffers contain the same complete frame.  Restore direct double
+     * buffering before starting scanout so subsequent frames stay tear-free. */
+    lv_display_set_buffers_with_stride(g_lvgl_display,
+                                       &fb_background[1][0],
+                                       &fb_background[0][0],
+                                       DISPLAY_BUFFER_STRIDE_BYTES_INPUT0 * DISPLAY_VSIZE_INPUT0,
+                                       DISPLAY_BUFFER_STRIDE_BYTES_INPUT0,
+                                       LV_DISPLAY_RENDER_MODE_DIRECT);
+    const fsp_err_t video_error = display_video_start();
+    if (FSP_SUCCESS != video_error)
+    {
+        return video_error;
+    }
     /* Ignore the initial composition.  From this point onward the counter
      * measures only a real spectrum or waterfall canvas that reaches the
      * panel through a successful final flush. */
@@ -4517,7 +4560,8 @@ void lvgl_app_step(uint32_t elapsed_ms)
             }
         }
 
-        if (have_work_slot && !work_slot_used)
+        if (have_work_slot && !work_slot_used &&
+            !rf_ui_channel_switch_busy())
         {
             display_underflow_context_enter(
                 DISPLAY_UNDERFLOW_CONTEXT_WATERFALL_PRESENT);
@@ -4530,9 +4574,43 @@ void lvgl_app_step(uint32_t elapsed_ms)
         if (have_work_slot && !work_slot_used)
         {
             const bool busy_before = rf_ui_channel_switch_busy();
+            const bool cycle_budget_available =
+                (g_display_diag.fps_counter_enabled != 0U) &&
+                (SystemCoreClock != 0U) &&
+                ((DWT->CTRL & DWT_CTRL_NOCYCCNT_Msk) == 0U) &&
+                ((DWT->CTRL & DWT_CTRL_CYCCNTENA_Msk) != 0U);
+            const uint32_t switch_start_cycles = DWT->CYCCNT;
+            const uint32_t switch_budget_cycles = (uint32_t)(
+                ((uint64_t)SystemCoreClock * UI_SDRAM_WORK_BUDGET_US) /
+                1000000U);
+            const uint32_t switch_guard_cycles = (uint32_t)(
+                ((uint64_t)SystemCoreClock * UI_SDRAM_WORK_GUARD_US) /
+                1000000U);
+            uint32_t switch_steps = 0U;
             display_underflow_context_enter(
                 DISPLAY_UNDERFLOW_CONTEXT_CHANNEL_SWITCH);
-            channel_switch_committed = rf_ui_channel_switch_step();
+            do
+            {
+                channel_switch_committed =
+                    rf_ui_channel_switch_step() ||
+                    channel_switch_committed;
+                switch_steps++;
+                if (channel_switch_committed ||
+                    !rf_ui_channel_switch_busy() ||
+                    !cycle_budget_available)
+                {
+                    break;
+                }
+                const uint32_t elapsed_cycles =
+                    DWT->CYCCNT - switch_start_cycles;
+                if (((uint64_t)elapsed_cycles + switch_guard_cycles) >=
+                    switch_budget_cycles)
+                {
+                    break;
+                }
+            }
+            while (switch_steps <
+                   UI_CHANNEL_SWITCH_MAX_STEPS_PER_VSYNC);
             display_underflow_context_leave(
                 DISPLAY_UNDERFLOW_CONTEXT_CHANNEL_SWITCH);
             work_slot_used = busy_before || channel_switch_committed ||

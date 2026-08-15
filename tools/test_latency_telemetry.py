@@ -132,7 +132,7 @@ class LatencyTelemetryTests(unittest.TestCase):
         self.assertLess(publish_body.index("ipc_cpu0_latency_update_npu"),
                         publish_body.index("slot->end_sequence = sequence"))
         display_poll = cpu1_ipc[cpu1_ipc.index("bool ipc_bridge_cpu1_display_poll"):]
-        self.assertLess(display_poll.index("*frame = newest"),
+        self.assertLess(display_poll.index("*frame = oldest"),
                         display_poll.index("ipc_cpu1_latency_ack"))
         lane_publish = analysis[analysis.index("static void analysis_publish_lane"):]
         self.assertLess(lane_publish.index("ipc_bridge_cpu0_latency_window_complete"),
@@ -143,34 +143,67 @@ class LatencyTelemetryTests(unittest.TestCase):
         self.assertLess(ingest.index("iq_ring_push_copy"),
                         ingest.index("ipc_bridge_cpu0_latency_ingress_commit"))
 
-    def test_retry_keeps_the_display_and_latency_session_identity(self) -> None:
+    def test_result_rings_and_latency_ack_span_capture_sessions(self) -> None:
         cpu0_ipc = (CPU0 / "src" / "framework" / "ipc_bridge.c").read_text(encoding="utf-8")
         setter = cpu0_ipc[cpu0_ipc.index("void ipc_bridge_cpu0_display_session_set"):]
         setter = setter[:setter.index("void ipc_bridge_cpu0_display_tile_publish")]
 
-        # A retransmitted IQSC window retains the SDR session ID.  CPU1's
-        # visible acknowledgement must therefore address that same record.
-        self.assertNotIn("next_session == g_display_session_id", setter)
+        # The four result slots are a cross-session queue. Tile rows retain
+        # their existing session-local restart semantics.
         self.assertIn("g_display_session_id = next_session", setter)
         self.assertIn("bool session_changed = (next_session != g_display_session_id)", setter)
-        guarded_reset = re.search(
-            r"if \(session_changed\)\s*\{\s*"
-            r"g_display_sequence = 0U;\s*g_tile_sequence = 0U;\s*\}",
-            setter,
-        )
-        self.assertIsNotNone(guarded_reset)
+        self.assertNotIn("g_display_sequence = 0U", setter)
+        self.assertNotIn("memset((void *) RA8P1_DISPLAY_STREAM_SLOTS", setter)
+        self.assertIn("g_tile_sequence = 0U", setter)
+        self.assertIn("memset((void *) RA8P1_DISPLAY_TILE_SLOTS", setter)
 
-        # A same-session replay must continue above the consumer's last even
-        # sequence; resetting to two would make every new slot look stale.
+        # A same-session replay and a normal handover both remain above the
+        # consumer's last even sequence.
         producer_sequence = 16
         consumer_sequence = 16
-        session_changed = False
-        if session_changed:
-            producer_sequence = 0
         replay_sequence = (producer_sequence + 2) & ~1
         self.assertGreater(replay_sequence, consumer_sequence)
 
         cpu1_ipc = (CPU1 / "src" / "framework" / "ipc_bridge.c").read_text(encoding="utf-8")
+        display_poll = cpu1_ipc[cpu1_ipc.index("bool ipc_bridge_cpu1_display_poll"):]
+        display_poll = display_poll[:display_poll.index("bool ipc_bridge_cpu1_display_visible")]
+        producer_reset = display_poll[
+            display_poll.index(
+                "if (g_observed_cpu0_boot_epoch != g_display_cpu0_boot_epoch)"
+            ):
+        ]
+        producer_reset = producer_reset[:producer_reset.index("ipc_barrier()")]
+        self.assertIn("g_display_sequence = 0U", producer_reset)
+        session_handover = display_poll[
+            display_poll.index("if (session_id != g_display_session_id)"):
+        ]
+        session_handover = session_handover[:session_handover.index("for (index")]
+        self.assertNotIn("g_display_sequence = 0U", session_handover)
+        self.assertNotIn("candidate.session_id != session_id", display_poll)
+        self.assertIn("candidate.session_id == 0U", display_poll)
+        self.assertIn("begin - g_display_sequence", display_poll)
+        self.assertIn("begin - oldest_sequence", display_poll)
+
+        session_begin = cpu0_ipc[cpu0_ipc.index("void ipc_bridge_cpu0_latency_session_begin"):]
+        session_begin = session_begin[:session_begin.index("uint32_t ipc_bridge_cpu0_latency_ingress_prepare")]
+        self.assertIn("if (session_id == 0U)", session_begin)
+        self.assertEqual(
+            1,
+            session_begin.count(
+                "memset((void *) control, 0, RA8P1_IPC_LATENCY_BYTES)"
+            ),
+        )
+        self.assertLess(
+            session_begin.index("ipc_bridge_cpu0_latency_poll()"),
+            session_begin.index("g_cpu0_latency.session_id = session_id"),
+        )
+        latency_poll = cpu0_ipc[cpu0_ipc.index("void ipc_bridge_cpu0_latency_poll"):]
+        latency_poll = latency_poll[:latency_poll.index("bool ipc_bridge_cpu0_latency_result_visible")]
+        self.assertNotIn("g_cpu0_latency.active == 0U", latency_poll)
+        result_visible = cpu0_ipc[cpu0_ipc.index("bool ipc_bridge_cpu0_latency_result_visible"):]
+        result_visible = result_visible[:result_visible.index("void ipc_bridge_cpu0_init")]
+        self.assertNotIn("g_cpu0_latency.session_id != session_id", result_visible)
+
         tile_poll = cpu1_ipc[cpu1_ipc.index("bool ipc_bridge_cpu1_display_tile_poll"):]
         tile_poll = tile_poll[:tile_poll.index("bool ipc_bridge_cpu1_command_send")]
         self.assertNotIn("g_tile_window_sequence", cpu1_ipc)

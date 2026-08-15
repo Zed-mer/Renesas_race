@@ -1,19 +1,31 @@
 [CmdletBinding()]
 param(
-    [string] $Elf = (Join-Path $PSScriptRoot '..\cpu1\Debug\ra8p1_sdr_ai_display_solution_20260718_CPU1.elf'),
+    [string] $Elf,
     [ValidatePattern('^[0-9]{6,20}$')] [string] $ProbeSerial = '1082495494',
     [ValidateRange(1, 10000)] [uint32] $Switches = 100,
     [ValidateRange(1, 10)] [int] $PollSeconds = 2,
     [ValidateRange(10, 1800)] [int] $TimeoutSeconds = 600,
     [string] $JLinkExe = 'C:\Program Files\SEGGER\JLink_V956\JLink.exe',
     [string] $NmExe = 'C:\Renesas\RA\e2studio_v2025-12_fsp_v6.4.0\toolchains\gcc_arm\13.2.rel1\bin\arm-none-eabi-nm.exe',
-    [string] $DisplayDiagScript = (Join-Path $PSScriptRoot 'read_display_diag.ps1'),
-    [string] $RfUiDiagScript = (Join-Path $PSScriptRoot 'read_rf_ui_diag.ps1'),
+    [string] $DisplayDiagScript,
+    [string] $RfUiDiagScript,
     [string] $OutputPath
 )
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+
+$scriptDirectory = Split-Path -Parent $MyInvocation.MyCommand.Path
+if([string]::IsNullOrWhiteSpace($Elf)) {
+    $Elf = Join-Path $scriptDirectory `
+        '..\cpu1\Debug\ra8p1_sdr_ai_display_solution_20260718_CPU1.elf'
+}
+if([string]::IsNullOrWhiteSpace($DisplayDiagScript)) {
+    $DisplayDiagScript = Join-Path $scriptDirectory 'read_display_diag.ps1'
+}
+if([string]::IsNullOrWhiteSpace($RfUiDiagScript)) {
+    $RfUiDiagScript = Join-Path $scriptDirectory 'read_rf_ui_diag.ps1'
+}
 
 $fieldNames = @(
     'magic', 'version', 'command_generation', 'active_generation',
@@ -101,7 +113,7 @@ function Read-SoakSnapshot {
     for($index = 0; $index -lt $fieldNames.Count; ++$index) {
         $snapshot[$fieldNames[$index]] = [uint32]$words[$index]
     }
-    if($snapshot.magic -ne $expectedMagic -or $snapshot.version -ne 1U) {
+    if($snapshot.magic -ne $expectedMagic -or $snapshot.version -ne 1) {
         throw ('Unexpected channel-soak identity: magic=0x{0:X8}, version={1}' -f
                $snapshot.magic, $snapshot.version)
     }
@@ -110,18 +122,18 @@ function Read-SoakSnapshot {
 
 function Read-JsonScript {
     param([string] $Path)
-    $json = @(& $Path -ProbeSerial $ProbeSerial -Elf $Elf) -join "`n"
+    $json = @(& $Path -ProbeSerial $ProbeSerial -Elf $Elf -JLinkExe $JLinkExe) -join "`n"
     return $json | ConvertFrom-Json
 }
 
 $beforeDisplay = Read-JsonScript -Path $DisplayDiagScript
 $beforeRfUi = Read-JsonScript -Path $RfUiDiagScript
 $initialSoak = Read-SoakSnapshot
-$generation = [uint32]($initialSoak.command_generation + 1U)
-if($generation -eq 0U) { $generation = 1U }
+$generation = [uint32]($initialSoak.command_generation + 1)
+if($generation -eq 0) { $generation = 1 }
 
-$requestedAddress = $address + (4U * 4U)
-$generationAddress = $address + (2U * 4U)
+$requestedAddress = $address + (4 * 4)
+$generationAddress = $address + (2 * 4)
 $writeCommands = @(
     ('w4 0x{0:X8}, 0x{1:X8}' -f $requestedAddress, $Switches),
     ('w4 0x{0:X8}, 0x{1:X8}' -f $generationAddress, $generation)
@@ -131,7 +143,7 @@ $writeCommands = @(
 $startedAt = Get-Date
 $deadline = $startedAt.AddSeconds($TimeoutSeconds)
 $last = Read-SoakSnapshot
-while($last.active_generation -ne $generation -or $last.running -ne 0U) {
+while($last.active_generation -ne $generation -or $last.running -ne 0) {
     if((Get-Date) -ge $deadline) {
         throw "Channel switch soak timed out after $TimeoutSeconds seconds: completed=$($last.completed_switches)/$Switches errors=$($last.errors)."
     }
@@ -156,13 +168,13 @@ $elapsed = (Get-Date) - $startedAt
 
 $success = $last.active_generation -eq $generation -and
            $last.completed_switches -eq $Switches -and
-           $last.errors -eq 0U -and
+           $last.errors -eq 0 -and
            $requestDelta -eq $Switches -and
            $commitDelta -eq $Switches -and
-           $underflowDelta -eq 0U -and
-           $afterDisplay.Snapshot.animation_buffer_errors -eq 0U -and
-           $afterDisplay.Snapshot.fatal_status -eq 0U -and
-           $afterDisplay.Snapshot.running -eq 1U
+           $underflowDelta -eq 0 -and
+           $afterDisplay.Snapshot.animation_buffer_errors -eq 0 -and
+           $afterDisplay.Snapshot.fatal_status -eq 0 -and
+           $afterDisplay.Snapshot.running -eq 1
 
 $result = [ordered]@{
     CapturedAt = (Get-Date).ToString('o')

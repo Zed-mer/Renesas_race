@@ -5,6 +5,10 @@
 
 #define JD9165_MAX_PARAMETERS       (14U)
 #define JD9165_COMMAND_TIMEOUT_MS   (1000U)
+#define JD9165_SHUTDOWN_COMMAND_TIMEOUT_MS (100U)
+#define JD9165_DISPLAY_OFF          (0x28U)
+#define JD9165_SLEEP_IN             (0x10U)
+#define JD9165_DISPLAY_OFF_WAIT_MS  (40U)
 #define JD9165_READ_DSI_ERRORS      (0x05U)
 #define JD9165_READ_POWER_MODE      (0x0AU)
 #define JD9165_TWO_LANE_1024_X_600  (0x11U)
@@ -112,7 +116,11 @@ static volatile bool g_read_failed;
 static volatile bool g_read_in_progress;
 static volatile uint8_t g_read_value;
 
-static fsp_err_t jd9165_send(uint8_t command, const uint8_t * p_parameters, uint8_t parameter_count)
+static fsp_err_t jd9165_send_with_flags(uint8_t command,
+                                         const uint8_t * p_parameters,
+                                         uint8_t parameter_count,
+                                         mipi_dsi_cmd_flag_t flags,
+                                         uint32_t timeout_ms)
 {
     mipi_dsi_cmd_t message = {0};
 
@@ -123,7 +131,7 @@ static fsp_err_t jd9165_send(uint8_t command, const uint8_t * p_parameters, uint
     }
 
     message.channel = 0;
-    message.flags = MIPI_DSI_CMD_FLAG_LOW_POWER;
+    message.flags = flags;
     message.tx_len = (uint16_t) parameter_count + 1U;
     message.p_tx_buffer = g_dsi_tx_buffer;
     if (0U == parameter_count)
@@ -147,7 +155,7 @@ static fsp_err_t jd9165_send(uint8_t command, const uint8_t * p_parameters, uint
         return err;
     }
 
-    for (uint32_t elapsed_ms = 0; elapsed_ms < JD9165_COMMAND_TIMEOUT_MS; elapsed_ms++)
+    for (uint32_t elapsed_ms = 0; elapsed_ms < timeout_ms; elapsed_ms++)
     {
         if (g_command_done)
         {
@@ -158,6 +166,32 @@ static fsp_err_t jd9165_send(uint8_t command, const uint8_t * p_parameters, uint
     }
 
     return FSP_ERR_TIMEOUT;
+}
+
+static fsp_err_t jd9165_send(uint8_t command,
+                             const uint8_t * p_parameters,
+                             uint8_t parameter_count)
+{
+    return jd9165_send_with_flags(command, p_parameters, parameter_count,
+                                   MIPI_DSI_CMD_FLAG_LOW_POWER,
+                                   JD9165_COMMAND_TIMEOUT_MS);
+}
+
+fsp_err_t jd9165_panel_shutdown_commands(bool high_speed)
+{
+    const mipi_dsi_cmd_flag_t flags = high_speed ?
+        MIPI_DSI_CMD_FLAG_NONE : MIPI_DSI_CMD_FLAG_LOW_POWER;
+    fsp_err_t err = jd9165_send_with_flags(
+        JD9165_DISPLAY_OFF, NULL, 0U, flags,
+        JD9165_SHUTDOWN_COMMAND_TIMEOUT_MS);
+    if (FSP_SUCCESS != err)
+    {
+        return err;
+    }
+    R_BSP_SoftwareDelay(JD9165_DISPLAY_OFF_WAIT_MS,
+                        BSP_DELAY_UNITS_MILLISECONDS);
+    return jd9165_send_with_flags(JD9165_SLEEP_IN, NULL, 0U, flags,
+                                   JD9165_SHUTDOWN_COMMAND_TIMEOUT_MS);
 }
 
 fsp_err_t jd9165_panel_configure(void)

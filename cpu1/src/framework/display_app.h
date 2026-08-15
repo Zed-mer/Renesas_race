@@ -4,6 +4,11 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+/* Monotonic count of continuous-scan recoveries caused by a lack of new
+ * semantically valid display frames. It is exported for detached J-Link
+ * diagnostics. */
+extern volatile uint32_t g_display_app_stall_recoveries;
+
 void display_app_init(void);
 void display_app_step(void);
 /* Drain derived display tiles into CPU1-owned history. LVGL calls this while

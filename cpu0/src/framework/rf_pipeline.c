@@ -1002,6 +1002,8 @@ static void rf_pipeline_publish(void)
 
 static void rf_pipeline_thread_entry(void *parameter)
 {
+    int16_t q15_payload[IQ_RING_PAYLOAD_BYTES / sizeof(int16_t)]
+        __attribute__((aligned(8)));
     uint32_t last_publish = (uint32_t)rt_tick_get();
     (void)parameter;
 
@@ -1058,14 +1060,33 @@ static void rf_pipeline_thread_entry(void *parameter)
                 (view.format == RA8P1_IQ_FORMAT_S16_LE_INTERLEAVED) &&
                 (view.length >= 4U) && ((view.length & 3U) == 0U))
             {
-                eth_iq_fast_crc_consume(view.session_id,
-                                        view.data,
-                                        view.length);
                 complex_samples = view.length / 4U;
-                analysis_pipeline_ingest_s16((const int16_t *)view.data,
-                                             complex_samples,
-                                             view.sample_index,
-                                             view.flags);
+                if (eth_iq_fast_crc_consume_s12_q15(
+                        view.session_id,
+                        view.data,
+                        view.length,
+                        q15_payload,
+                        sizeof(q15_payload) / sizeof(q15_payload[0])))
+                {
+                    analysis_pipeline_ingest_q15(q15_payload,
+                                                 complex_samples,
+                                                 view.sample_index,
+                                                 view.flags);
+                }
+                else
+                {
+                    /* Structural validation above makes this a defensive
+                     * fallback.  Preserve the legacy transport and analysis
+                     * behavior if a future ring payload exceeds this buffer. */
+                    eth_iq_fast_crc_consume(view.session_id,
+                                            view.data,
+                                            view.length);
+                    analysis_pipeline_ingest_s16(
+                        (const int16_t *)view.data,
+                        complex_samples,
+                        view.sample_index,
+                        view.flags);
+                }
             }
             if (complex_samples != 0U)
             {

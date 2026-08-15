@@ -29,7 +29,7 @@ extern "C" {
 #define RF_UI_RF_BOX_FLAG_NEEDS_REVIEW        (1u << 5)
 
 #define RF_UI_CHANNEL_SWITCH_DIAG_MAGIC   0x53574348u /* "SWCH" */
-#define RF_UI_CHANNEL_SWITCH_DIAG_VERSION 15u
+#define RF_UI_CHANNEL_SWITCH_DIAG_VERSION 16u
 #define RF_UI_CHANNEL_SOAK_MAGIC          0x534F414Bu /* "SOAK" */
 #define RF_UI_CHANNEL_SOAK_VERSION        1u
 #define RF_UI_RUNTIME_MONITOR_MAGIC       0x4C495645u /* "LIVE" */
@@ -228,6 +228,11 @@ typedef struct {
     uint32_t history_boxes_dropped_out_of_history;
     uint32_t pending_box_batch_high_water;
     uint32_t last_committed_round_index;
+    uint32_t switch_cache_hits;
+    uint32_t switch_cache_misses;
+    uint32_t switch_cache_stale_misses;
+    uint32_t switch_cache_catchup_columns;
+    uint32_t switch_cache_max_catchup_columns;
 } rf_ui_channel_switch_diag_t;
 
 extern volatile rf_ui_channel_switch_diag_t g_rf_ui_channel_switch_diag;
