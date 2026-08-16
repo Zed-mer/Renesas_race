@@ -3,6 +3,7 @@
 #include "../display_bringup.h"
 #include "../lvgl_app.h"
 #include <string.h>
+#include "alarm_buzzer.h"
 #include "activity_service.h"
 #include "analysis_contract.h"
 #include "campaign_control.h"
@@ -113,6 +114,7 @@ void display_app_init(void)
     ui_model_init();
     ipc_bridge_cpu1_init();
     rf_v27_activity_service_init();
+    alarm_buzzer_init();
     g_ui_command_sequence = 0U;
     g_runtime_publish_divider = 0U;
     g_ipc_frames_received = 0U;
@@ -164,6 +166,7 @@ void display_app_step(void)
     ra8p1_system_telemetry_t telemetry;
     ra8p1_display_frame_t display_frame;
     rf_v27_activity_round_decision_t activity_decision;
+    const uint32_t alarm_now_ms = g_display_diag.heartbeat;
     bool display_frame_ready;
     bool display_frame_valid;
     bool activity_output_ready;
@@ -171,10 +174,12 @@ void display_app_step(void)
     activity_output_ready = rf_v27_activity_service_poll();
     if (g_panel_shutdown_latched)
     {
+        alarm_buzzer_force_off();
         return;
     }
     if (ipc_bridge_cpu1_panel_shutdown_requested())
     {
+        alarm_buzzer_force_off();
         g_panel_shutdown_latched = true;
         const fsp_err_t shutdown_error =
             display_panel_graceful_shutdown();
@@ -191,8 +196,10 @@ void display_app_step(void)
     }
     if (rf_v27_activity_service_take_round_decision(&activity_decision))
     {
+        alarm_buzzer_apply_round(&activity_decision, alarm_now_ms);
         lvgl_app_activity_round_update(&activity_decision);
     }
+    alarm_buzzer_step(alarm_now_ms);
     if (ipc_bridge_cpu1_poll(&telemetry))
     {
         ui_model_update(&telemetry);

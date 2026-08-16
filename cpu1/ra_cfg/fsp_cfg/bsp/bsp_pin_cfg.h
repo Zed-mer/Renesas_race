@@ -7,6 +7,7 @@
 FSP_HEADER
 
 #define USER_LED (BSP_IO_PORT_01_PIN_10)
+#define ALARM_BUZZER (BSP_IO_PORT_04_PIN_01)
 #define PANEL_RESET (BSP_IO_PORT_04_PIN_11)
 
 extern const ioport_cfg_t g_bsp_pin_cfg; /* RA8P1_CPKHMI.pincfg */

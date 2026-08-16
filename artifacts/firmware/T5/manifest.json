@@ -1,0 +1,69 @@
+{
+    "schema":  1,
+    "version":  "T5",
+    "snapshot_utc":  "2026-08-16T15:05:51.7030510Z",
+    "configuration":  "Debug",
+    "repository":  {
+                       "root":  "D:\\Renesas_race\\RA8P1_DRONE_DETECT_Zt813\\RA8P1_DRONE_DETECT_Zt_haenpu",
+                       "head_before_version_commit":  "30b7303cceb27df453ddf8d99184bf7e07304cdf",
+                       "branch":  "fix/long-fpc-links",
+                       "dirty_paths_before_snapshot":  [
+                                                           " M cpu0/.settings/language.settings.xml",
+                                                           " M cpu1/.secure_azone",
+                                                           " M cpu1/.secure_xml",
+                                                           " M cpu1/.settings/language.settings.xml",
+                                                           " M cpu1/configuration.xml",
+                                                           " M cpu1/ra_cfg.txt",
+                                                           " M cpu1/ra_cfg/fsp_cfg/bsp/bsp_pin_cfg.h",
+                                                           " M cpu1/ra_gen/pin_data.c",
+                                                           " M cpu1/src/framework/display_app.c",
+                                                           " M cpu1/src/hal_warmstart.c",
+                                                           "?? cpu1/src/framework/alarm_buzzer.c",
+                                                           "?? cpu1/src/framework/alarm_buzzer.h",
+                                                           "?? tools/ease_configure_alarm_p401.py",
+                                                           "?? tools/test_alarm_buzzer_integration.py"
+                                                       ]
+                   },
+    "firmware":  [
+                     {
+                         "core":  "CPU0",
+                         "artifact":  "cpu0/rtthread.elf",
+                         "source":  "cpu0/Debug/rtthread.elf",
+                         "bytes":  4082012,
+                         "sha256":  "A2861CAE69FC8146FCC29DF678E2B5C3E643909F876AE96DEEE850DE1A37F827",
+                         "build_utc":  "2026-08-16T14:31:52.5801047Z"
+                     },
+                     {
+                         "core":  "CPU0",
+                         "artifact":  "cpu0/rtthread.map",
+                         "source":  "cpu0/Debug/rtthread.map",
+                         "bytes":  2516222,
+                         "sha256":  "EF6D13F4EA092D82BAD6612DC62752B616530376D9F6C823F4591B3E0D7B4D33",
+                         "build_utc":  "2026-08-16T14:31:52.5910221Z"
+                     },
+                     {
+                         "core":  "CPU0",
+                         "artifact":  "cpu0/rtthread.hex",
+                         "source":  "cpu0/Debug/rtthread.hex",
+                         "bytes":  1306241,
+                         "sha256":  "664EABF4E67B6FD36C8A7540728805C961B82CF5EFF6FE3B7DE3DAE83F2CABF5",
+                         "build_utc":  "2026-08-16T14:31:52.8691085Z"
+                     },
+                     {
+                         "core":  "CPU1",
+                         "artifact":  "cpu1/ra8p1_sdr_ai_display_solution_20260718_CPU1.elf",
+                         "source":  "cpu1/Debug/ra8p1_sdr_ai_display_solution_20260718_CPU1.elf",
+                         "bytes":  3904264,
+                         "sha256":  "BB9D184C13AE9FC3479FA60E76FAE93519456D76DC3FF94621C3DDEB4C1F0B90",
+                         "build_utc":  "2026-08-16T15:02:16.5207122Z"
+                     },
+                     {
+                         "core":  "CPU1",
+                         "artifact":  "cpu1/ra8p1_sdr_ai_display_solution_20260718_CPU1.map",
+                         "source":  "cpu1/Debug/ra8p1_sdr_ai_display_solution_20260718_CPU1.map",
+                         "bytes":  1187471,
+                         "sha256":  "DA7FD1FE8008918A525CD7B3BCDCDACA00C23F6497495ABB0CB2974D28770817",
+                         "build_utc":  "2026-08-16T15:02:16.5323538Z"
+                     }
+                 ]
+}
