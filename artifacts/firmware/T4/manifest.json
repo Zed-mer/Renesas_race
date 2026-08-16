@@ -1,0 +1,98 @@
+{
+    "schema":  1,
+    "version":  "T4",
+    "snapshot_utc":  "2026-08-16T09:48:25.2543033Z",
+    "configuration":  "Debug",
+    "repository":  {
+                       "root":  "D:\\Renesas_race\\RA8P1_DRONE_DETECT_Zt813\\RA8P1_DRONE_DETECT_Zt_haenpu",
+                       "head_before_version_commit":  "1f0a26bfdfba693170988b6829eee75d9fd6291e",
+                       "branch":  "fix/long-fpc-links",
+                       "dirty_paths_before_snapshot":  [
+                                                           " M cpu0/.settings/DebugVirtualConsoleSetting.xml",
+                                                           " M cpu0/.settings/language.settings.xml",
+                                                           " M cpu0/src/framework/analysis_pipeline.c",
+                                                           " M cpu0/src/framework/npu_model/iq_npu_model.c",
+                                                           " M cpu0/src/framework/npu_model/iq_npu_model.h",
+                                                           " M cpu0/src/framework/npu_runner.c",
+                                                           " M cpu0/src/framework/npu_runner.h",
+                                                           " M cpu0/src/framework/rf_v12_detector.c",
+                                                           " M cpu0/src/framework/rf_v12_preprocess.c",
+                                                           " M cpu0/src/framework/rf_v12_preprocess.h",
+                                                           " M cpu0/src/framework/rf_v13_round_builder.c",
+                                                           " M cpu0/src/framework/rf_v13_round_builder.h",
+                                                           " M cpu1/.settings/language.settings.xml",
+                                                           " M cpu1/src/framework/activity_service.c",
+                                                           " M cpu1/src/framework/activity_service.h",
+                                                           " M cpu1/src/framework/display_app.c",
+                                                           " M cpu1/src/lvgl_app.c",
+                                                           " M cpu1/src/lvgl_app.h",
+                                                           " M cpu1/src/ui/rf_ui.c",
+                                                           " M cpu1/src/ui/rf_ui.h",
+                                                           " M tools/test_rf_ui_waterfall_layout.py",
+                                                           " M tools/test_rf_v13_activity_integration.py",
+                                                           " M verify-solution.ps1",
+                                                           "?? cpu0/src/framework/npu_model/rf_v24_t12_model_data.h",
+                                                           "?? cpu0/src/framework/npu_model/rf_v24_t12_specialist_model.c",
+                                                           "?? cpu0/src/framework/npu_model/rf_v27_absolute_model.c",
+                                                           "?? cpu0/src/framework/npu_model/rf_v27_model_data.h",
+                                                           "?? cpu0/src/framework/rf_v24_t12_build_contract.c",
+                                                           "?? cpu0/src/framework/rf_v24_t12_build_contract.h",
+                                                           "?? cpu0/src/framework/rf_v24_t12_confidence_calibration.c",
+                                                           "?? cpu0/src/framework/rf_v24_t12_confidence_calibration.h",
+                                                           "?? cpu0/src/framework/rf_v24_t12_postprocess.c",
+                                                           "?? cpu0/src/framework/rf_v24_t12_postprocess.h",
+                                                           "?? cpu0/src/framework/rf_v24_t12_runtime.c",
+                                                           "?? cpu0/src/framework/rf_v24_t12_runtime.h",
+                                                           "?? cpu0/src/framework/rf_v24_t12_score_lut.inc",
+                                                           "?? cpu0/src/framework/rf_v27_absolute_aux.c",
+                                                           "?? cpu0/src/framework/rf_v27_absolute_aux.h",
+                                                           "?? cpu1/src/framework/rf_v27_activity_config.c",
+                                                           "?? cpu1/src/framework/rf_v27_activity_config.h",
+                                                           "?? cpu1/src/framework/rf_v27_activity_fusion.c",
+                                                           "?? cpu1/src/framework/rf_v27_activity_fusion.h",
+                                                           "?? tools/generate_rf_v27_absolute_model.py"
+                                                       ]
+                   },
+    "firmware":  [
+                     {
+                         "core":  "CPU0",
+                         "artifact":  "cpu0/rtthread.elf",
+                         "source":  "cpu0/Debug/rtthread.elf",
+                         "bytes":  4082012,
+                         "sha256":  "03B1086336D5836FACD2C49AEE26372894F933DD6D2D8E11193541CD0A25C85C",
+                         "build_utc":  "2026-08-16T09:10:06.5046318Z"
+                     },
+                     {
+                         "core":  "CPU0",
+                         "artifact":  "cpu0/rtthread.map",
+                         "source":  "cpu0/Debug/rtthread.map",
+                         "bytes":  2516222,
+                         "sha256":  "EF6D13F4EA092D82BAD6612DC62752B616530376D9F6C823F4591B3E0D7B4D33",
+                         "build_utc":  "2026-08-16T09:10:06.5641383Z"
+                     },
+                     {
+                         "core":  "CPU0",
+                         "artifact":  "cpu0/rtthread.hex",
+                         "source":  "cpu0/Debug/rtthread.hex",
+                         "bytes":  1306241,
+                         "sha256":  "6382199FFB0ADB7BFDA06EA10F352E81DAB43D9E7EBB43BDDBEBCF978865C779",
+                         "build_utc":  "2026-08-16T09:10:09.6097465Z"
+                     },
+                     {
+                         "core":  "CPU1",
+                         "artifact":  "cpu1/ra8p1_sdr_ai_display_solution_20260718_CPU1.elf",
+                         "source":  "cpu1/Debug/ra8p1_sdr_ai_display_solution_20260718_CPU1.elf",
+                         "bytes":  3892652,
+                         "sha256":  "0DA7E1AEF4B3D27E4A1D86B2BE8CEA95BECFB033577C801B8BFC718922D0C60D",
+                         "build_utc":  "2026-08-16T04:50:27.3952797Z"
+                     },
+                     {
+                         "core":  "CPU1",
+                         "artifact":  "cpu1/ra8p1_sdr_ai_display_solution_20260718_CPU1.map",
+                         "source":  "cpu1/Debug/ra8p1_sdr_ai_display_solution_20260718_CPU1.map",
+                         "bytes":  1185045,
+                         "sha256":  "BCAADB165E51AA2A43EDBE901E7180AA3928F72D8289DAEA3E1DC7060373C67E",
+                         "build_utc":  "2026-08-16T04:50:27.5347812Z"
+                     }
+                 ]
+}

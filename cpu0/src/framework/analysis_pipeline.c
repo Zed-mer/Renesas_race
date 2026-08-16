@@ -29,6 +29,7 @@
 #include "rf_v12_detector.h"
 #include "rf_v12_preprocess.h"
 #include "rf_v13_round_builder.h"
+#include "rf_v27_absolute_aux.h"
 
 #define ANALYSIS_POWER_LOG_EPSILON         (-39.863136F) /* log2(1e-12) */
 #define ANALYSIS_Q15_FFT_SHIFT             (1U)
@@ -85,6 +86,10 @@ typedef struct st_analysis_lane
     uint32_t discontinuity;
     analysis_lane_hot_t *hot;
     int8_t model_input[ANALYSIS_MODEL_INPUT_BYTES];
+    /* V27 Absolute is evaluated with the raw/absolute feature branch while
+     * V21/V20 keep consuming the background-relative tensor.  Keep both
+     * tensors per lane so the sequential NPU calls never alias staging data. */
+    int8_t absolute_model_input[ANALYSIS_MODEL_INPUT_BYTES];
     rf_v12_preprocess_tile_t preprocess;
     /* Keep the real STFT visualization independent from the trained tensor.
      * Background calibration must not turn a valid RF display black. */
@@ -653,6 +658,8 @@ static void analysis_lane_reset(analysis_lane_t *lane)
     memset(hot, 0, sizeof(*hot));
     lane->hot = hot;
     rf_v12_preprocess_tile_reset(&lane->preprocess, lane->model_input);
+    rf_v12_preprocess_tile_set_absolute_staging(
+        &lane->preprocess, lane->absolute_model_input);
 }
 
 static void analysis_reset_schedule(uint64_t origin, uint32_t discontinuity)
@@ -1694,6 +1701,9 @@ static void analysis_publish_lane(analysis_lane_t *lane,
     cpu0_trace_inference_phases_t trace_phases = {0};
     rf_v12_detector_input_t detector_input;
     rf_v12_detector_result_t detector_result;
+    rf_v27_absolute_aux_evidence_t
+        v27_aux[RF_V27_ABSOLUTE_AUX_MAX_PEAKS];
+    size_t v27_aux_count = 0U;
     rf_v12_preprocess_finalize_info_t preprocess_info =
     {
         RF_V12_PREPROCESS_INVALID, 0U, 0U, 0U
@@ -1778,8 +1788,11 @@ static void analysis_publish_lane(analysis_lane_t *lane,
     npu_start_cycles = analysis_cycle_now();
     if (tile_validity == RF_V12_TILE_VALID)
     {
-        inferred = npu_runner_infer(lane->model_input,
-                                    NPU_RUNNER_INPUT_BYTES);
+        inferred = npu_runner_infer_with_absolute_at_frequency(
+            lane->model_input,
+            lane->absolute_model_input,
+            NPU_RUNNER_INPUT_BYTES,
+            g_analysis.center_frequency_hz);
         if (!inferred)
         {
             tile_validity = RF_V12_TILE_INVALID;
@@ -1813,6 +1826,15 @@ static void analysis_publish_lane(analysis_lane_t *lane,
     postprocess_start_cycles = analysis_cycle_now();
     postprocess_dwt_epoch = g_analysis.dwt_epoch;
     rf_v12_detector_decode(&detector_input, &detector_result);
+    if (inferred)
+    {
+        v27_aux_count = rf_v27_absolute_aux_decode(
+            npu_runner_absolute_dji_heatmap(),
+            (uint8_t)g_analysis.center_index,
+            capture_end_time_us,
+            v27_aux,
+            RF_V27_ABSOLUTE_AUX_MAX_PEAKS);
+    }
     postprocess_end_cycles = analysis_cycle_now();
     if (inferred && analysis_dwt_enabled() &&
         (postprocess_dwt_epoch == g_analysis.dwt_epoch))
@@ -1832,11 +1854,13 @@ static void analysis_publish_lane(analysis_lane_t *lane,
         (g_analysis.center_index < RF_V12_CENTER_COUNT) &&
         (g_analysis.result_round_index != 0U))
     {
-        (void)rf_v13_round_builder_submit_processed(
+        (void)rf_v13_round_builder_submit_processed_with_v27_aux(
             &detector_result.tile,
             detector_result.state_confidence_q15,
             detector_result.state_roi_decision,
             detector_result.state_quality_tier,
+            v27_aux,
+            v27_aux_count,
             g_analysis.session_id,
             lane->tile_index);
         g_v13_round_center_mask |= 1UL << g_analysis.center_index;

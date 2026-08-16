@@ -4,6 +4,7 @@
 #include <stdint.h>
 
 #include "../rf_v12_sparse_contract.h"
+#include "../rf_v24_t12_postprocess.h"
 
 #define IQ_NPU_PROOF_START_MAGIC        (0x4E505501UL)
 #define IQ_NPU_PROOF_OPEN_ERROR_MAGIC   (0x4E5055E0UL)
@@ -36,6 +37,11 @@ typedef struct iq_npu_stage_cycles
     uint32_t v3_input_copy_cycles;
     uint32_t v3_invoke_cycles;
     uint32_t v3_output_copy_cycles;
+    uint32_t v27_input_copy_cycles;
+    uint32_t v27_invoke_cycles;
+    uint32_t v27_output_copy_cycles;
+    uint32_t v24_invoke_cycles;
+    uint32_t v24_output_copy_cycles;
     uint32_t timing_valid;
 } iq_npu_stage_cycles_t;
 
@@ -46,8 +52,23 @@ int iq_npu_model_open(void);
 int iq_npu_model_invoke(const int8_t *immutable_features,
                         uint32_t feature_bytes,
                         iq_npu_stage_cycles_t *stage_cycles);
+int iq_npu_model_invoke_with_absolute(
+    const int8_t *immutable_features,
+    const int8_t *absolute_features,
+    uint32_t feature_bytes,
+    iq_npu_stage_cycles_t *stage_cycles);
+int iq_npu_model_invoke_with_absolute_at_frequency(
+    const int8_t *immutable_features,
+    const int8_t *absolute_features,
+    uint32_t feature_bytes,
+    uint64_t capture_center_frequency_hz,
+    iq_npu_stage_cycles_t *stage_cycles);
 int iq_npu_model_run_proof(void);
 int8_t *iq_npu_model_input(void);
 const int8_t *iq_npu_model_heatmap(uint32_t class_id);
+const int8_t *iq_npu_model_absolute_dji_heatmap(void);
+const int8_t *iq_npu_model_t12_specialist_heatmap(void);
+const rf_v24_t12_event_t *iq_npu_model_t12_events(uint32_t *count);
+uint32_t iq_npu_model_t12_specialist_valid(void);
 
 #endif

@@ -220,6 +220,8 @@ typedef struct {
     uint32_t overlay_guard_clip_zero_prefix_submits;
     uint32_t raw_boxes_received;
     uint32_t box_batches_waiting_for_fusion;
+    /* Legacy field name retained for SWD tooling; counts all valid model-box
+     * commits, independent of the device-level activity state. */
     uint32_t history_boxes_committed_working;
     uint32_t history_boxes_dropped_idle;
     uint32_t history_boxes_dropped_uncertain;
@@ -458,7 +460,7 @@ bool rf_ui_update_rf_boxes(uint32_t channel_index,
                            uint32_t session_id,
                            uint32_t window_sequence);
 
-/** Resolve staged boxes using one explicitly identified V25 fusion output. */
+/** Resolve staged boxes using one explicitly identified V27 fusion output. */
 void rf_ui_apply_fusion_round(const rf_ui_fusion_round_t * round);
 
 /** Resolve at most one staged batch inside the existing VSync SDRAM budget. */

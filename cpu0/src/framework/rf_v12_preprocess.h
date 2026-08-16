@@ -48,7 +48,11 @@ typedef struct st_rf_v12_preprocess_tile
     uint64_t pool_weighted_power_sum[RF_V12_FEATURE_FREQUENCY_BINS];
     uint64_t pool_weighted_power_max[RF_V12_FEATURE_FREQUENCY_BINS];
     float c0_db[RF_V12_PREPROCESS_FEATURE_CELLS];
+    /* Retain the unquantized C1 range feature so models with a distinct
+     * input scale (V27 Absolute) remain byte-exact. */
+    float c1_db[RF_V12_PREPROCESS_FEATURE_CELLS];
     int8_t *feature_staging;
+    int8_t *absolute_feature_staging;
     uint32_t raw_frame_index;
     uint16_t time_bin;
     uint8_t pool_frame_count;
@@ -79,6 +83,9 @@ typedef struct st_rf_v12_preprocess_finalize_info
 
 void rf_v12_preprocess_tile_reset(rf_v12_preprocess_tile_t *tile,
                                   int8_t *feature_staging);
+void rf_v12_preprocess_tile_set_absolute_staging(
+    rf_v12_preprocess_tile_t *tile,
+    int8_t *absolute_feature_staging);
 
 /* Build the immutable 1024-to-204 exact-area map once at CPU0 startup. */
 void rf_v12_preprocess_build_rebin_map(

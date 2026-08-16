@@ -28,6 +28,8 @@
 #define RF_V12_HOT_CODE
 #endif
 
+#define RF_V27_ABSOLUTE_INPUT_SCALE (0.13991190493106842F)
+
 _Static_assert((RF_V12_FFT_POINTS * RF_V12_REBIN_RAW_UNITS) ==
                (RF_V12_FEATURE_FREQUENCY_BINS *
                 RF_V12_REBIN_OUTPUT_UNITS),
@@ -74,6 +76,28 @@ static const float g_rf_v12_std[RF_V12_FEATURE_CHANNELS] =
     RF_V12_C1_STD,
     RF_V12_C2_STD,
     RF_V12_C3_STD
+};
+
+/* V27 Absolute keeps the raw dBFS reference instead of subtracting the
+ * per-center Q50 background.  C1 uses the same calibration as V12; C0/C2/C3
+ * have their own frozen statistics from the V27 model package. */
+static const float g_rf_v27_absolute_clip_min[RF_V12_FEATURE_CHANNELS] =
+{
+    -96.0F, 0.0F, -16.0F, -22.0F
+};
+static const float g_rf_v27_absolute_clip_max[RF_V12_FEATURE_CHANNELS] =
+{
+    -18.0F, 12.0F, 16.0F, 22.0F
+};
+static const float g_rf_v27_absolute_mean[RF_V12_FEATURE_CHANNELS] =
+{
+    -78.6581802368164F, 3.079335927963257F,
+    0.0000721708F, -0.0000444028F
+};
+static const float g_rf_v27_absolute_std[RF_V12_FEATURE_CHANNELS] =
+{
+    4.512310981750488F, 0.936720073223114F,
+    0.9873613119125366F, 1.2332690954208374F
 };
 
 int32_t rf_v12_preprocess_round_to_nearest_even(float value)
@@ -248,10 +272,21 @@ void rf_v12_preprocess_tile_reset(rf_v12_preprocess_tile_t *tile,
     memset(tile->pool_weighted_power_max, 0,
            sizeof(tile->pool_weighted_power_max));
     tile->feature_staging = feature_staging;
+    tile->absolute_feature_staging = NULL;
     tile->raw_frame_index = 0U;
     tile->time_bin = 0U;
     tile->pool_frame_count = 0U;
     tile->frame_open = 0U;
+}
+
+void rf_v12_preprocess_tile_set_absolute_staging(
+    rf_v12_preprocess_tile_t *tile,
+    int8_t *absolute_feature_staging)
+{
+    if (tile != NULL)
+    {
+        tile->absolute_feature_staging = absolute_feature_staging;
+    }
 }
 
 void rf_v12_preprocess_build_rebin_map(
@@ -416,6 +451,7 @@ static RF_V12_HOT_CODE inline void rf_v12_finalize_pool_frequency(
         c1 = 0.0F;
     }
     tile->c0_db[cell] = mean_db;
+    tile->c1_db[cell] = c1;
     if (tile->feature_staging != NULL)
     {
         tile->feature_staging[feature + 1U] =
@@ -786,6 +822,105 @@ static void rf_v12_encode_background_relative(
     }
 }
 
+static int8_t rf_v27_absolute_quantize(float value, uint32_t channel)
+{
+    float clipped = value;
+    float normalized;
+    int32_t integer_value;
+
+    if (channel >= RF_V12_FEATURE_CHANNELS)
+    {
+        return (int8_t)RF_V12_INPUT_ZERO_POINT;
+    }
+    if (!(clipped >= g_rf_v27_absolute_clip_min[channel]))
+    {
+        clipped = g_rf_v27_absolute_clip_min[channel];
+    }
+    else if (clipped > g_rf_v27_absolute_clip_max[channel])
+    {
+        clipped = g_rf_v27_absolute_clip_max[channel];
+    }
+    normalized = (clipped - g_rf_v27_absolute_mean[channel]) /
+                 g_rf_v27_absolute_std[channel];
+    integer_value = rf_v12_preprocess_round_to_nearest_even(
+        (normalized / RF_V27_ABSOLUTE_INPUT_SCALE) +
+        (float)RF_V12_INPUT_ZERO_POINT);
+    if (integer_value > INT8_MAX)
+    {
+        integer_value = INT8_MAX;
+    }
+    else if (integer_value < INT8_MIN)
+    {
+        integer_value = INT8_MIN;
+    }
+    return (int8_t)integer_value;
+}
+
+static void rf_v27_encode_absolute(rf_v12_preprocess_tile_t *tile)
+{
+    if ((tile == NULL) || (tile->absolute_feature_staging == NULL))
+    {
+        return;
+    }
+
+    for (uint32_t frequency = 0U;
+         frequency < RF_V12_FEATURE_FREQUENCY_BINS;
+         ++frequency)
+    {
+        for (uint32_t time = 0U;
+             time < RF_V12_FEATURE_TIME_BINS;
+             ++time)
+        {
+            const uint32_t cell =
+                (frequency * RF_V12_FEATURE_TIME_BINS) + time;
+            const uint32_t feature = cell * RF_V12_FEATURE_CHANNELS;
+            float c2;
+            float c3;
+
+            if (frequency == 0U)
+            {
+                c2 = tile->c0_db[cell + RF_V12_FEATURE_TIME_BINS] -
+                     tile->c0_db[cell];
+            }
+            else if (frequency == (RF_V12_FEATURE_FREQUENCY_BINS - 1U))
+            {
+                c2 = tile->c0_db[cell] -
+                     tile->c0_db[cell - RF_V12_FEATURE_TIME_BINS];
+            }
+            else
+            {
+                c2 = 0.5F *
+                     (tile->c0_db[cell + RF_V12_FEATURE_TIME_BINS] -
+                      tile->c0_db[cell - RF_V12_FEATURE_TIME_BINS]);
+            }
+
+            if (time == 0U)
+            {
+                c3 = tile->c0_db[cell + 1U] - tile->c0_db[cell];
+            }
+            else if (time == (RF_V12_FEATURE_TIME_BINS - 1U))
+            {
+                c3 = tile->c0_db[cell] - tile->c0_db[cell - 1U];
+            }
+            else
+            {
+                c3 = 0.5F *
+                     (tile->c0_db[cell + 1U] -
+                      tile->c0_db[cell - 1U]);
+            }
+
+            tile->absolute_feature_staging[feature] =
+                rf_v27_absolute_quantize(tile->c0_db[cell], 0U);
+            tile->absolute_feature_staging[feature + 1U] =
+                rf_v27_absolute_quantize(tile->c1_db[cell], 1U);
+            tile->absolute_feature_staging[feature + 2U] =
+                rf_v27_absolute_quantize(c2, 2U);
+            tile->absolute_feature_staging[feature + 3U] =
+                rf_v27_absolute_quantize(c3, 3U);
+        }
+    }
+}
+
 rf_v12_preprocess_finalize_info_t rf_v12_preprocess_finalize(
     rf_v12_preprocess_tile_t *tile,
     rf_v12_preprocess_background_t *background,
@@ -811,6 +946,7 @@ rf_v12_preprocess_finalize_info_t rf_v12_preprocess_finalize(
 
     if (background->ready == 0U)
     {
+        rf_v27_encode_absolute(tile);
         if (background->calibration_count <
             RF_V12_PREPROCESS_BACKGROUND_WINDOWS)
         {
@@ -830,6 +966,9 @@ rf_v12_preprocess_finalize_info_t rf_v12_preprocess_finalize(
         return info;
     }
 
+    /* Absolute features must be encoded from the raw dBFS tensor before the
+     * Q50 background subtraction below mutates c0_db. */
+    rf_v27_encode_absolute(tile);
     rf_v12_encode_background_relative(tile,
                                       background->calibration[0],
                                       true);
@@ -880,6 +1019,10 @@ bool rf_v12_preprocess_finalize_synthetic(
         background[frequency] =
             values[RF_V12_FEATURE_TIME_BINS / 2U];
     }
+    /* The synthetic proof has no Q50 background, but it still exercises the
+     * same dual-input NPU contract as a real tile.  Encode Absolute before
+     * the relative tensor is produced so its C0 gradients use raw dBFS. */
+    rf_v27_encode_absolute(tile);
     rf_v12_encode_background_relative(tile, background, false);
     return true;
 }

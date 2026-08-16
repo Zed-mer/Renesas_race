@@ -10,6 +10,7 @@
 #include "rf_v17_subbin_calibration.h"
 #include "rf_v18_source_gate.h"
 #include "rf_v20_video_postprocess.h"
+#include "rf_v24_t12_postprocess.h"
 
 #define RF_V12_CANDIDATES_PER_CLASS (RF_V12_PER_CLASS_PEAK_TOP_K)
 #define RF_V12_GLOBAL_CANDIDATES (RF_V12_PREFILTER_GLOBAL_TOP_K)
@@ -414,6 +415,80 @@ static uint32_t rf_v21_decode_nonvideo_class(uint8_t class_id,
         {
             output[output_count++] = top[i];
         }
+    }
+    return output_count;
+}
+
+static uint8_t rf_v24_t12_event_flags_to_v12(uint8_t event_flags)
+{
+    uint8_t flags = 0U;
+    if ((event_flags & (RF_V24_T12_TIME_LEFT_CLIPPED |
+                        RF_V24_T12_TIME_RIGHT_CLIPPED)) != 0U)
+    {
+        flags |= RF_V12_EVENT_TIME_CLIPPED;
+    }
+    if ((event_flags & (RF_V24_T12_FREQUENCY_LOW_CLIPPED |
+                        RF_V24_T12_FREQUENCY_HIGH_CLIPPED)) != 0U)
+    {
+        flags |= RF_V12_EVENT_FREQUENCY_CLIPPED;
+    }
+    return flags;
+}
+
+/* V24 has already fused V21/V24 peaks, calibrated confidence, and fixed T12
+ * geometry.  Do not send those candidates through the older V17 ROI gate: it
+ * was calibrated for V21 proposals and can reject a valid specialist box. */
+static uint32_t rf_v24_t12_decode_specialist(
+    const rf_v12_detector_input_t *input,
+    rf_v12_candidate_t *output,
+    uint32_t output_capacity)
+{
+    const rf_v24_t12_event_t *events;
+    uint32_t event_count = 0U;
+    uint32_t output_count = 0U;
+
+    if ((input == NULL) || (output == NULL) || (output_capacity == 0U) ||
+        ((input->center_frequency_hz != RF_V12_CENTER_2420_HZ) &&
+         (input->center_frequency_hz != RF_V12_CENTER_2464_HZ)) ||
+        (npu_runner_t12_specialist_valid() == 0U))
+    {
+        return 0U;
+    }
+    events = npu_runner_t12_specialist_events(&event_count);
+    if (events == NULL)
+    {
+        return 0U;
+    }
+    if (event_count > RF_V24_T12_MAX_EVENTS)
+    {
+        event_count = RF_V24_T12_MAX_EVENTS;
+    }
+    for (uint32_t i = 0U; (i < event_count) &&
+         (output_count < output_capacity); ++i)
+    {
+        rf_v12_candidate_t candidate;
+        const rf_v24_t12_event_t *event = &events[i];
+        const uint8_t flags = rf_v24_t12_event_flags_to_v12(
+            event->event_flags);
+
+        if (!rf_v12_candidate_from_physical_center(
+                RF_V12_CLASS_T12,
+                event->center_frequency_offset_hz,
+                event->center_sample,
+                event->calibrated_confidence_q15,
+                0,
+                (uint32_t)RF_V24_T12_BANDWIDTH_HZ,
+                flags,
+                &candidate))
+        {
+            continue;
+        }
+        candidate.state_confidence_q15 = event->calibrated_confidence_q15;
+        candidate.state_roi_decision = RF_V13_ROI_PASS;
+        candidate.state_quality_tier =
+            (event->calibrated_confidence_q15 >= 24575U) ?
+            RF_V18_QUALITY_STRONG : RF_V18_QUALITY_NORMAL;
+        output[output_count++] = candidate;
     }
     return output_count;
 }
@@ -900,6 +975,47 @@ static void rf_v12_build_display_mask(uint8_t *mask, uint32_t center_index)
             }
         }
     }
+
+    /* The specialist is valid only at the two 2.4 GHz centers.  Its mask is
+     * additive so that visual model evidence remains visible even before the
+     * CPU1 four-frequency state machine declares WORKING. */
+    if ((center_index < 2U) && (npu_runner_t12_specialist_valid() != 0U))
+    {
+        const int8_t *heatmap = npu_runner_t12_specialist_heatmap();
+        if (heatmap != NULL)
+        {
+            for (uint32_t frequency = 0U;
+                 frequency < RF_V24_T12_HEATMAP_FREQUENCY_BINS;
+                 ++frequency)
+            {
+                for (uint32_t time = 0U;
+                     time < RF_V24_T12_HEATMAP_TIME_BINS;
+                     ++time)
+                {
+                    const uint32_t heatmap_index =
+                        rf_v12_heatmap_index(frequency, time);
+                    if (rf_v24_t12_specialist_score_q15(
+                            heatmap[heatmap_index]) <
+                        RF_V24_T12_EVENT_THRESHOLD_Q15)
+                    {
+                        continue;
+                    }
+                    {
+                        const uint32_t x =
+                            (frequency * RA8P1_DISPLAY_MASK_WIDTH) /
+                            RF_V24_T12_HEATMAP_FREQUENCY_BINS;
+                        const uint32_t y =
+                            (time * RA8P1_DISPLAY_MASK_HEIGHT) /
+                            RF_V24_T12_HEATMAP_TIME_BINS;
+                        const uint32_t index =
+                            y * RA8P1_DISPLAY_MASK_WIDTH + x;
+                        mask[index >> 3U] |=
+                            (uint8_t)(1U << (index & 7U));
+                    }
+                }
+            }
+        }
+    }
 }
 
 void rf_v12_detector_decode(const rf_v12_detector_input_t *input,
@@ -942,12 +1058,23 @@ void rf_v12_detector_decode(const rf_v12_detector_input_t *input,
     memset(candidates, 0, sizeof(candidates));
     for (uint8_t class_id = 0U; class_id < RF_V12_CLASS_COUNT; ++class_id)
     {
-        rf_v12_candidate_t per_class[RF_V12_CANDIDATES_PER_CLASS];
+        rf_v12_candidate_t per_class[RF_V24_T12_MAX_EVENTS];
         uint32_t count;
+        bool specialist_t12 = false;
         if (class_id == RF_V12_CLASS_DJI_VIDEO)
         {
             count = rf_v12_decode_video(input->background_relative_c0,
                                         per_class);
+        }
+        else if ((class_id == RF_V12_CLASS_T12) &&
+                 ((input->center_frequency_hz == RF_V12_CENTER_2420_HZ) ||
+                  (input->center_frequency_hz == RF_V12_CENTER_2464_HZ)) &&
+                 (npu_runner_t12_specialist_valid() != 0U))
+        {
+            specialist_t12 = true;
+            count = rf_v24_t12_decode_specialist(input,
+                                                  per_class,
+                                                  RF_V24_T12_MAX_EVENTS);
         }
         else
         {
@@ -957,7 +1084,8 @@ void rf_v12_detector_decode(const rf_v12_detector_input_t *input,
         }
         for (uint32_t i = 0U; i < count; ++i)
         {
-            if (rf_v21_refine_candidate(input, &per_class[i]))
+            if (specialist_t12 ||
+                rf_v21_refine_candidate(input, &per_class[i]))
             {
                 rf_v12_candidate_insert(candidates, &candidate_count,
                                         RF_V12_GLOBAL_CANDIDATES,

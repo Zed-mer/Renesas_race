@@ -2,9 +2,11 @@
 #define RF_V13_ROUND_BUILDER_H
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #include "rf_v12_sparse_contract.h"
+#include "rf_v27_absolute_aux.h"
 
 typedef struct st_rf_v13_round_builder_stats
 {
@@ -25,6 +27,15 @@ bool rf_v13_round_builder_submit_processed(
     const uint16_t state_confidence_q15[RF_V12_MAX_BOXES_PER_TILE],
     const uint8_t state_roi_decision[RF_V12_MAX_BOXES_PER_TILE],
     const uint8_t state_quality_tier[RF_V12_MAX_BOXES_PER_TILE],
+    uint32_t display_session_id,
+    uint32_t display_window_sequence);
+bool rf_v13_round_builder_submit_processed_with_v27_aux(
+    const rf_v12_tile_payload_t *tile,
+    const uint16_t state_confidence_q15[RF_V12_MAX_BOXES_PER_TILE],
+    const uint8_t state_roi_decision[RF_V12_MAX_BOXES_PER_TILE],
+    const uint8_t state_quality_tier[RF_V12_MAX_BOXES_PER_TILE],
+    const rf_v27_absolute_aux_evidence_t *v27_aux,
+    size_t v27_aux_count,
     uint32_t display_session_id,
     uint32_t display_window_sequence);
 void rf_v13_round_builder_flush(void);

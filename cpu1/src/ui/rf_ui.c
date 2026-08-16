@@ -6799,46 +6799,44 @@ static void rf_box_batch_resolve(
     for(uint32_t index = 0U; index < batch->count; ++index) {
         const rf_ui_rf_box_t * const box = &batch->boxes[index];
         const uint32_t detection = box->detection_index;
-        const uint8_t activity = decision->round.activity_state[detection];
-        if(activity == RF_UI_FUSION_WORKING) {
-            if(observation_generation == 0U) {
-                observation_generation = rf_box_observation_next();
-            }
-            if(visual_dirty && spectrum_next.count < RF_UI_MAX_RF_BOXES) {
-                spectrum_next.boxes[spectrum_next.count] = *box;
-                spectrum_next.observation_generation[spectrum_next.count] =
-                    observation_generation;
-                spectrum_next.anchor_end_columns[spectrum_next.count] =
-                    batch->anchor_end_column;
-                spectrum_next.count++;
-            }
-            if(!rf_box_history_is_retained(
-                   batch->channel, batch->anchor_end_column, box)) {
-                g_rf_ui_channel_switch_diag
-                    .history_boxes_dropped_out_of_history++;
-                continue;
-            }
-            if(waterfall_history_box_raster(
-                   batch->channel, batch->anchor_end_column, box) == 0U) {
-                g_rf_ui_channel_switch_diag
-                    .history_boxes_dropped_out_of_history++;
-                continue;
-            }
-            waterfall_overlay_box_raster_matching_sources(
-                batch->channel, batch->anchor_end_column, box);
-            rf_box_detail_update(
-                batch->channel, box, observation_generation,
-                batch->anchor_end_column, decision->round.round_index);
-            g_rf_ui_channel_switch_diag.history_boxes_committed_working++;
-            committed = true;
-            visual_dirty = true;
-        }
-        else if(activity == RF_UI_FUSION_NO_RF) {
-            g_rf_ui_channel_switch_diag.history_boxes_dropped_idle++;
-        }
-        else {
+        if(detection >= RF_UI_DETECTION_COUNT) {
             g_rf_ui_channel_switch_diag.history_boxes_dropped_uncertain++;
+            continue;
         }
+        /* Activity is a device-level temporal decision, while these boxes are
+         * the model's per-window observations.  Keep the two independent so a
+         * valid box remains visible during NO_RF_OBSERVED as well as WORKING. */
+        if(observation_generation == 0U) {
+            observation_generation = rf_box_observation_next();
+        }
+        if(visual_dirty && spectrum_next.count < RF_UI_MAX_RF_BOXES) {
+            spectrum_next.boxes[spectrum_next.count] = *box;
+            spectrum_next.observation_generation[spectrum_next.count] =
+                observation_generation;
+            spectrum_next.anchor_end_columns[spectrum_next.count] =
+                batch->anchor_end_column;
+            spectrum_next.count++;
+        }
+        if(!rf_box_history_is_retained(
+               batch->channel, batch->anchor_end_column, box)) {
+            g_rf_ui_channel_switch_diag
+                .history_boxes_dropped_out_of_history++;
+            continue;
+        }
+        if(waterfall_history_box_raster(
+               batch->channel, batch->anchor_end_column, box) == 0U) {
+            g_rf_ui_channel_switch_diag
+                .history_boxes_dropped_out_of_history++;
+            continue;
+        }
+        waterfall_overlay_box_raster_matching_sources(
+            batch->channel, batch->anchor_end_column, box);
+        rf_box_detail_update(
+            batch->channel, box, observation_generation,
+            batch->anchor_end_column, decision->round.round_index);
+        g_rf_ui_channel_switch_diag.history_boxes_committed_working++;
+        committed = true;
+        visual_dirty = true;
     }
 
     if(rf_box_window_is_latest(batch)) {

@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <DebugVirtualConsoleSetting version="1.0">
-                                                    
+                                                            
+    
+    
     
     
     
@@ -14,7 +16,9 @@
     
     
     <Config core="">
-                                                                                                        
+                                                                                                                        
+        
+        
         
         
         
@@ -27,7 +31,9 @@
         
         
         <DebugConsole-Enable>false</DebugConsole-Enable>
-                                                                                                        
+                                                                                                                        
+        
+        
         
         
         
@@ -40,7 +46,9 @@
         
         
         <DebugConsole-LogFile/>
-                                                                                                        
+                                                                                                                        
+        
+        
         
         
         
@@ -53,7 +61,9 @@
         
         
         <DebugConsole-IsLogging>false</DebugConsole-IsLogging>
-                                                                                                        
+                                                                                                                        
+        
+        
         
         
         
@@ -66,7 +76,9 @@
         
         
         <DebugConsole-COMport/>
-                                                                                                        
+                                                                                                                        
+        
+        
         
         
         
@@ -79,7 +91,9 @@
         
         
         <DebugConsole-Baudrate>0</DebugConsole-Baudrate>
-                                                                                                        
+                                                                                                                        
+        
+        
         
         
         
@@ -92,7 +106,9 @@
         
         
         <DebugConsole-EchoBack>true</DebugConsole-EchoBack>
-                                                                                                        
+                                                                                                                        
+        
+        
         
         
         
@@ -105,7 +121,9 @@
         
         
         <DebugConsole-ClearBuffer>false</DebugConsole-ClearBuffer>
-                                                                                                    
+                                                                                                                    
+    
+    
     
     
     

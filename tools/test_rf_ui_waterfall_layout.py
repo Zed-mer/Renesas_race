@@ -922,10 +922,11 @@ class WaterfallLayoutRegressionTest(unittest.TestCase):
         self.assertIn("rf_ui_get_selected_channel()", center_frame)
         self.assertIn("ui_center_frame(center)", presence)
         self.assertNotIn("g_center_frames[center]", presence)
-        self.assertIn("rf_v25_activity_service_snapshot", detections)
-        self.assertIn("rf_v25_activity_fusion_get", detections)
-        self.assertIn("RF_V25_ACTIVITY_WORKING", detections)
-        self.assertIn("RF_V25_ACTIVITY_UNCERTAIN", detections)
+        self.assertIn("rf_v27_activity_service_snapshot", detections)
+        self.assertIn("rf_v27_activity_fusion_get", detections)
+        self.assertIn("RF_V27_ACTIVITY_WORKING", detections)
+        self.assertIn(".state = RF_UI_DETECTION_INACTIVE", detections)
+        self.assertNotIn("UNCERTAIN", detections)
         self.assertIn("last_positive_center_slot", detections)
         self.assertNotIn("ui_center_frame(center)", detections)
         self.assertNotIn("presence_q15", detections)
@@ -970,7 +971,7 @@ class WaterfallLayoutRegressionTest(unittest.TestCase):
         self.assertIn("waterfall_rf_boxes", overlay)
         self.assertIn("spectrum_rf_boxes", overlay)
 
-    def test_only_same_round_working_boxes_are_baked_into_history(self) -> None:
+    def test_same_round_model_boxes_are_baked_into_history_for_both_states(self) -> None:
         history_raster = RF_UI_C.split(
             "static uint32_t waterfall_history_box_raster", 1
         )[1].split("static void waterfall_overlay_pixel_set", 1)[0]
@@ -996,7 +997,10 @@ class WaterfallLayoutRegressionTest(unittest.TestCase):
         )
         self.assertIn("g_target_accent_colors[box->detection_index]", history_raster)
         self.assertIn("RF_WATERFALL_CLUT_BOX_FIRST + index", clut_map)
-        self.assertIn("activity == RF_UI_FUSION_WORKING", resolver)
+        self.assertNotIn("decision->round.activity_state", resolver)
+        self.assertNotIn("RF_UI_FUSION_WORKING", resolver)
+        self.assertNotIn("RF_UI_FUSION_NO_RF", resolver)
+        self.assertIn("detection >= RF_UI_DETECTION_COUNT", resolver)
         self.assertIn("waterfall_history_box_raster(", resolver)
         self.assertIn("waterfall_overlay_box_raster_matching_sources(", resolver)
         self.assertNotIn("waterfall_history_box_raster(", box_api)
@@ -1004,7 +1008,7 @@ class WaterfallLayoutRegressionTest(unittest.TestCase):
         self.assertIn("one RF box batch exceeds the SDRAM write budget", RF_UI_C)
         self.assertIn("live_build_cancel(true)", RF_UI_C)
         self.assertLess(
-            resolver.index("activity == RF_UI_FUSION_WORKING"),
+            resolver.index("detection >= RF_UI_DETECTION_COUNT"),
             resolver.index("waterfall_history_box_raster("),
         )
         self.assertIn("g_waterfall_rings[channel].rows", pause)
@@ -1506,8 +1510,9 @@ class WaterfallLayoutRegressionTest(unittest.TestCase):
         self.assertIn("window_sequence", box_api)
         self.assertNotIn("detection_online", box_api)
         self.assertNotIn("waterfall_history_box_raster", box_api)
-        self.assertIn("activity == RF_UI_FUSION_WORKING", resolver)
-        self.assertIn("history_boxes_dropped_idle", resolver)
+        self.assertNotIn("decision->round.activity_state", resolver)
+        self.assertNotIn("activity == RF_UI_FUSION_WORKING", resolver)
+        self.assertNotIn("history_boxes_dropped_idle", resolver)
         self.assertIn("history_boxes_dropped_uncertain", resolver)
         self.assertIn("waterfall_history_box_raster", resolver)
         self.assertIn("waterfall_overlay_box_raster_matching_sources", resolver)
@@ -1557,7 +1562,8 @@ class WaterfallLayoutRegressionTest(unittest.TestCase):
         self.assertIn("detail->anchor_end_columns[destination]", detail_update)
         self.assertIn("g_last_detail_round_index", detail_update)
         self.assertIn("rf_box_detail_update", resolver)
-        self.assertIn("activity == RF_UI_FUSION_WORKING", resolver)
+        self.assertNotIn("decision->round.activity_state", resolver)
+        self.assertNotIn("activity == RF_UI_FUSION_WORKING", resolver)
         self.assertIn("observation_generation", finder)
         self.assertIn("rf_box_generation_newer", finder)
         self.assertIn("find_last_detection_box(index, &ref)", cards)

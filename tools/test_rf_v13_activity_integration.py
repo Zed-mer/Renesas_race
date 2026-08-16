@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-"""Static contract checks for the V25 CPU1 activity integration."""
+"""Static contract checks for the V27 CPU1 activity integration."""
 
 from __future__ import annotations
 
 import ctypes
-import json
 import pathlib
 import re
 import unittest
@@ -14,12 +13,9 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 RESOURCE_HEADER = ROOT / "shared" / "resource_layout.h"
 MAILBOX_HEADER = ROOT / "shared" / "activity_mailbox.h"
 FUSION_HEADER = ROOT / "shared" / "rf_v13_activity_fusion.h"
-CALIBRATION_SOURCE = (
-    ROOT / "cpu1" / "src" / "framework" / "rf_v25_activity_calibration.c"
-)
-V25_SOURCE = ROOT / "cpu1" / "src" / "framework" / "rf_v25_activity_fusion.c"
-V25_CONFIG = ROOT / "tools" / "v25" / "activity_v25_config.json"
-V25_HEADER = ROOT / "cpu1" / "src" / "framework" / "rf_v25_activity_fusion.h"
+V27_SOURCE = ROOT / "cpu1" / "src" / "framework" / "rf_v27_activity_fusion.c"
+V27_CONFIG = ROOT / "cpu1" / "src" / "framework" / "rf_v27_activity_config.c"
+V27_HEADER = ROOT / "cpu1" / "src" / "framework" / "rf_v27_activity_fusion.h"
 SERVICE_HEADER = ROOT / "cpu1" / "src" / "framework" / "activity_service.h"
 SERVICE_SOURCE = ROOT / "cpu1" / "src" / "framework" / "activity_service.c"
 DISPLAY_SOURCE = ROOT / "cpu1" / "src" / "framework" / "display_app.c"
@@ -27,6 +23,12 @@ ROUND_BUILDER_SOURCE = (
     ROOT / "cpu0" / "src" / "framework" / "rf_v13_round_builder.c"
 )
 ANALYSIS_SOURCE = ROOT / "cpu0" / "src" / "framework" / "analysis_pipeline.c"
+PREPROCESS_SOURCE = ROOT / "cpu0" / "src" / "framework" / "rf_v12_preprocess.c"
+PREPROCESS_HEADER = ROOT / "cpu0" / "src" / "framework" / "rf_v12_preprocess.h"
+ABSOLUTE_AUX_SOURCE = ROOT / "cpu0" / "src" / "framework" / "rf_v27_absolute_aux.c"
+ABSOLUTE_AUX_HEADER = ROOT / "cpu0" / "src" / "framework" / "rf_v27_absolute_aux.h"
+NPU_MODEL_SOURCE = ROOT / "cpu0" / "src" / "framework" / "npu_model" / "iq_npu_model.c"
+NPU_MODEL_HEADER = ROOT / "cpu0" / "src" / "framework" / "npu_model" / "rf_v27_model_data.h"
 LVGL_SOURCE = ROOT / "cpu1" / "src" / "lvgl_app.c"
 RF_UI_SOURCE = ROOT / "cpu1" / "src" / "ui" / "rf_ui.c"
 CPU0_IPC_SOURCE = ROOT / "cpu0" / "src" / "framework" / "ipc_bridge.c"
@@ -120,7 +122,7 @@ class V13RoundMessage(ctypes.LittleEndianStructure):
     ]
 
 
-class V25ActivityIntegrationTests(unittest.TestCase):
+class V27ActivityIntegrationTests(unittest.TestCase):
     def test_round_message_carries_named_display_identity_without_growing(self) -> None:
         source = FUSION_HEADER.read_text(encoding="utf-8")
         self.assertIn("RF_V13_ACTIVITY_ABI_MINOR UINT16_C(1)", source)
@@ -136,91 +138,107 @@ class V25ActivityIntegrationTests(unittest.TestCase):
         analysis = ANALYSIS_SOURCE.read_text(encoding="utf-8")
         self.assertIn("rf_v18_round_record_display_identity", builder)
         self.assertIn("display_identity_conflict_mask", builder)
-        submit = analysis.split("rf_v13_round_builder_submit_processed(", 1)[1].split(
+        submit = analysis.split(
+            "rf_v13_round_builder_submit_processed_with_v27_aux(", 1
+        )[1].split(
             ");", 1
         )[0]
+        self.assertIn("v27_aux", submit)
+        self.assertIn("v27_aux_count", submit)
         self.assertIn("g_analysis.session_id", submit)
         self.assertIn("lane->tile_index", submit)
+
+    def test_absolute_model_uses_its_own_quantization_and_auxiliary_output(self) -> None:
+        preprocess = PREPROCESS_SOURCE.read_text(encoding="utf-8")
+        preprocess_header = PREPROCESS_HEADER.read_text(encoding="utf-8")
+        aux = ABSOLUTE_AUX_SOURCE.read_text(encoding="utf-8")
+        aux_header = ABSOLUTE_AUX_HEADER.read_text(encoding="utf-8")
+        model = NPU_MODEL_SOURCE.read_text(encoding="utf-8")
+        model_header = NPU_MODEL_HEADER.read_text(encoding="utf-8")
+
+        self.assertIn("RF_V27_ABSOLUTE_INPUT_SCALE (0.13991190493106842F)", preprocess)
+        self.assertIn("float c1_db[RF_V12_PREPROCESS_FEATURE_CELLS]", preprocess_header)
+        self.assertIn("tile->c1_db[cell] = c1", preprocess)
+        self.assertIn("absolute_feature_staging[feature + 1U]", preprocess)
+        self.assertIn("rf_v27_absolute_aux_decode", aux)
+        self.assertIn("RF_V27_ABSOLUTE_AUX_THRESHOLD_RAW (109)", aux_header)
+        self.assertIn(
+            "RF_V27_ABSOLUTE_OUTPUT_OFFSET_DJI_CONTROL 5920u", model_header
+        )
+        self.assertIn("g_rf_v27_absolute_model", model)
+        self.assertIn("s_iq_npu_absolute_dji_heatmap", model)
+        self.assertIn("iq_npu_model_invoke_with_absolute", model)
+
+    def test_auxiliary_evidence_is_capped_without_invalidating_a_full_round(self) -> None:
+        builder = ROUND_BUILDER_SOURCE.read_text(encoding="utf-8")
+        self.assertIn("message->evidence_count >= RF_V13_MAX_EVIDENCE_PER_ROUND", builder)
+        self.assertIn("rf_v27_merge_absolute_aux", builder)
+        self.assertIn("RF_V27_ABSOLUTE_AUX_MAX_PEAKS", builder)
+        self.assertIn("v27_aux_count", builder)
+        self.assertIn("rf_v27_cpu0_set_model_corroborated", builder)
 
     def test_cpu1_publishes_one_shot_round_decisions_to_the_ui_owner(self) -> None:
         service = SERVICE_SOURCE.read_text(encoding="utf-8")
         display = DISPLAY_SOURCE.read_text(encoding="utf-8")
         lvgl = LVGL_SOURCE.read_text(encoding="utf-8")
         rf_ui = RF_UI_SOURCE.read_text(encoding="utf-8")
-        self.assertIn("rf_v25_activity_service_take_round_decision", service)
-        self.assertIn("RF_V25_ROUND_DECISION_OUTPUT_VALID", service)
+        self.assertIn("rf_v27_activity_service_take_round_decision", service)
+        self.assertIn("RF_V27_ROUND_DECISION_OUTPUT_VALID", service)
         self.assertIn("message.display_session_id", service)
         self.assertIn("lvgl_app_activity_round_update(&activity_decision)", display)
         self.assertIn("rf_ui_apply_fusion_round(&ui_round)", lvgl)
         self.assertIn("rf_box_window_identity_matches", rf_ui)
         self.assertIn("RF_UI_FUSION_ROUND_OUTPUT_VALID", rf_ui)
 
-    def test_v25_configuration_is_used(self) -> None:
-        calibration = CALIBRATION_SOURCE.read_text(encoding="utf-8")
+    def test_v27_configuration_and_canonical_evidence_are_used(self) -> None:
+        config = V27_CONFIG.read_text(encoding="utf-8")
+        fusion = V27_SOURCE.read_text(encoding="utf-8")
         service = SERVICE_SOURCE.read_text(encoding="utf-8")
-        self.assertRegex(
-            calibration,
-            re.compile(
-                r"g_rf_v25_activity_config\s*=\s*\{.*?"
-                r"INT32_C\(12288\)\s*,\s*INT32_C\(2048\)",
-                re.DOTALL,
-            ),
-        )
-        self.assertIn('"rf_v25_activity_calibration.h"', service)
+        self.assertIn("const rf_v27_activity_config_t g_rf_v27_activity_config", config)
+        self.assertIn("3482, -32768, 32768, 16384, 4096, -1024", config)
+        self.assertIn("819, 2048, 1024, 614, 1434", config)
+        self.assertIn('"rf_v27_activity_config.h"', service)
         self.assertRegex(
             service,
             re.compile(
-                r"rf_v25_activity_fusion_apply_round\s*\([^;]*"
-                r"&g_rf_v25_activity_config\s*\)",
+                r"rf_v27_activity_fusion_apply_round\s*\([^;]*"
+                r"&g_rf_v27_activity_config\s*\)",
                 re.DOTALL,
             ),
         )
+        self.assertIn("RF_V27_EVIDENCE_CANONICAL_LLR_Q15", fusion)
+        self.assertIn("RF_V27_EVIDENCE_MODEL_CORROBORATED", fusion)
         self.assertNotIn("rf_v18_activity_fusion_apply_round", service)
         self.assertNotIn("rf_v24_t12_activity_fusion_apply_round", service)
-        self.assertIn("sizeof(rf_v25_activity_fusion_t) == 536u", V25_HEADER.read_text(encoding="utf-8"))
+        self.assertNotIn("rf_v25_activity_fusion_apply_round", service)
+        self.assertIn(
+            "sizeof(rf_v27_activity_fusion_t) == 536u",
+            V27_HEADER.read_text(encoding="utf-8"),
+        )
         service_header = SERVICE_HEADER.read_text(encoding="utf-8")
-        self.assertIn("sizeof(rf_v25_activity_service_proof_t) == 592U", service_header)
-        self.assertIn("g_rf_v25_activity_output_generation", service_header)
-
-    def test_t12_and_dji_2p4_relaxation_preserves_dji_5p8_thresholds(self) -> None:
-        source = V25_SOURCE.read_text(encoding="utf-8")
-        config = json.loads(V25_CONFIG.read_text(encoding="utf-8"))
-        tables = {item["enum_name"]: item for item in config["class_tables"]}
-        overrides = config["band_overrides"]
-
-        self.assertEqual(0.45, tables["T12"]["bins"][0]["minimum_score"])
-        self.assertEqual(0.5, tables["AT9S"]["bins"][0]["minimum_score"])
-        self.assertEqual(0.5, tables["DJI_CONTROL"]["bins"][0]["minimum_score"])
-        self.assertEqual([0, 1], overrides["DJI_2P4_GHZ"]["center_slots"])
-        self.assertEqual(0.7, overrides["DJI_2P4_GHZ"]["support_score"])
-        self.assertEqual([2, 3], overrides["DJI_5P8_GHZ"]["center_slots"])
-        self.assertEqual(0.75, overrides["DJI_5P8_GHZ"]["support_score"])
-        self.assertIn("item->center_slot < 2u", source)
-        self.assertIn("RF_V25_DJI_2P4_SUPPORT_CONFIDENCE_Q15", source)
-        self.assertIn("RF_V25_DJI_SUPPORT_BIN_CONFIDENCE_Q15", source)
-        self.assertIn("round->dji_2p4_support != 0u", source)
-        self.assertIn("single_strong_rounds--", source)
+        self.assertIn("sizeof(rf_v27_activity_service_proof_t) == 592U", service_header)
+        self.assertIn("g_rf_v27_activity_output_generation", service_header)
 
     def test_cpu0_epoch_resets_before_any_new_message_is_applied(self) -> None:
         source = SERVICE_SOURCE.read_text(encoding="utf-8")
         epoch_reset = source.index("if (cpu0_epoch_changed)")
         no_message = source.index("if (!message_ready)", epoch_reset)
-        apply_round = source.index("rf_v25_activity_fusion_apply_round", no_message)
+        apply_round = source.index("rf_v27_activity_fusion_apply_round", no_message)
         self.assertLess(epoch_reset, no_message)
         self.assertLess(no_message, apply_round)
         reset_block = source[epoch_reset:no_message]
-        self.assertIn("rf_v25_activity_fusion_init", reset_block)
+        self.assertIn("rf_v27_activity_fusion_init", reset_block)
         self.assertIn("fusion_reset_count++", reset_block)
 
     def test_display_loop_initializes_and_polls_activity_service(self) -> None:
         source = DISPLAY_SOURCE.read_text(encoding="utf-8")
         self.assertIn('"activity_service.h"', source)
-        self.assertIn("rf_v25_activity_service_init();", source)
-        self.assertIn("rf_v25_activity_service_poll()", source)
-        self.assertIn("activity_output_ready = rf_v25_activity_service_poll();", source)
+        self.assertIn("rf_v27_activity_service_init();", source)
+        self.assertIn("rf_v27_activity_service_poll()", source)
+        self.assertIn("activity_output_ready = rf_v27_activity_service_poll();", source)
         self.assertIn("if (activity_output_ready)", source)
         self.assertIn("lvgl_app_activity_update();", source)
-        self.assertIn("rf_v25_activity_service_take_round_decision", source)
+        self.assertIn("rf_v27_activity_service_take_round_decision", source)
 
     def test_control_owners_are_on_separate_cache_lines(self) -> None:
         self.assertEqual(32, ctypes.sizeof(ActivityCpu0State))

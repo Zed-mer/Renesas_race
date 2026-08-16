@@ -68,7 +68,7 @@ void lvgl_app_step(uint32_t elapsed_ms);
 void lvgl_app_signal_update(const ra8p1_display_frame_t *frame);
 void lvgl_app_activity_update(void);
 void lvgl_app_activity_round_update(
-    const rf_v25_activity_round_decision_t *decision);
+    const rf_v27_activity_round_decision_t *decision);
 /* True only after the matching frame has reached GLCDC through a VSync-safe
  * buffer change. This is panel-presentation evidence, not the SDR ACK gate. */
 bool lvgl_app_frame_presented(const ra8p1_display_frame_t *frame);

@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "rf_v12_sparse_contract.h"
+#include "rf_v24_t12_postprocess.h"
 
 #define NPU_RUNNER_INPUT_BYTES (RF_V12_FEATURE_BYTES)
 #define NPU_RUNNER_CLASS_COUNT (RF_V12_CLASS_COUNT)
@@ -21,6 +22,11 @@ typedef struct st_npu_runner_stats
     uint32_t last_v3_input_copy_cycles;
     uint32_t last_v3_invoke_cycles;
     uint32_t last_v3_output_copy_cycles;
+    uint32_t last_v27_input_copy_cycles;
+    uint32_t last_v27_invoke_cycles;
+    uint32_t last_v27_output_copy_cycles;
+    uint32_t last_v24_invoke_cycles;
+    uint32_t last_v24_output_copy_cycles;
     uint32_t last_stage_timing_valid;
     uint32_t last_class;
     int32_t last_score_q15;
@@ -33,8 +39,20 @@ typedef struct st_npu_runner_stats
 
 void npu_runner_init(void);
 bool npu_runner_infer(const void *features, uint32_t feature_bytes);
+bool npu_runner_infer_with_absolute(const void *features,
+                                    const void *absolute_features,
+                                    uint32_t feature_bytes);
+bool npu_runner_infer_with_absolute_at_frequency(
+    const void *features,
+    const void *absolute_features,
+    uint32_t feature_bytes,
+    uint64_t capture_center_frequency_hz);
 void npu_runner_result_set(uint32_t class_id, uint16_t score_q15);
 void npu_runner_stats_get(npu_runner_stats_t *stats);
 const int8_t *npu_runner_heatmap(uint32_t class_id);
+const int8_t *npu_runner_absolute_dji_heatmap(void);
+const int8_t *npu_runner_t12_specialist_heatmap(void);
+const rf_v24_t12_event_t *npu_runner_t12_specialist_events(uint32_t *count);
+uint32_t npu_runner_t12_specialist_valid(void);
 
 #endif

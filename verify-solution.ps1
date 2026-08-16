@@ -155,9 +155,13 @@ $requiredCpu0 = @(
     'analysis_pipeline_ingest_s16',
     'analysis_pipeline_get_stats',
     'arm_cfft_q15',
-    'npu_runner_infer',
+    'npu_runner_infer_with_absolute',
+    'npu_runner_absolute_dji_heatmap',
     'iq_npu_model_open',
-    'iq_npu_model_invoke',
+    'iq_npu_model_invoke_with_absolute',
+    'iq_npu_model_absolute_dji_heatmap',
+    'rf_v27_absolute_aux_decode',
+    'g_rf_v27_absolute_model',
     'ipc_bridge_cpu0_publish',
     'ipc_bridge_cpu0_display_publish',
     'g_eth_iq_fast_stats',
@@ -178,6 +182,14 @@ $requiredCpu1 = @(
     'cpu1_campaign_result_visible',
     'g_cpu1_campaign_control',
     'g_cpu1_campaign_proof',
+    'rf_v27_activity_service_init',
+    'rf_v27_activity_service_poll',
+    'rf_v27_activity_service_take_round_decision',
+    'rf_v27_activity_fusion_apply_round',
+    'rf_v27_activity_fusion_get',
+    'rf_ui_apply_fusion_round',
+    'g_rf_v27_activity_config',
+    'g_rf_v27_activity_proof',
     'lvgl_app_signal_update',
     'lvgl_app_frame_presented',
     'gt911_touch_init',
@@ -205,6 +217,21 @@ foreach ($symbol in $requiredCpu1)
     {
         throw "CPU1 ELF is missing required symbol: $symbol"
     }
+}
+
+$cpu0SizedSymbols = (& $nmTool -S --defined-only $cpu0Elf) -join "`n"
+$npuArenaMatch = [regex]::Match(
+    $cpu0SizedSymbols,
+    '(?m)^\s*[0-9a-fA-F]+\s+([0-9a-fA-F]+)\s+[bB]\s+s_iq_npu_arena$')
+if (-not $npuArenaMatch.Success)
+{
+    throw 'CPU0 ELF is missing the sized s_iq_npu_arena symbol.'
+}
+$npuArenaBytes = [Convert]::ToUInt64($npuArenaMatch.Groups[1].Value, 16)
+if ($npuArenaBytes -ne [uint64]192176)
+{
+    throw ('CPU0 NPU arena size differs from the V27 contract: {0} bytes' -f
+        $npuArenaBytes)
 }
 
 $cpu1Disassembly = (& $objdumpTool -d $cpu1Elf) -join "`n"
@@ -238,6 +265,7 @@ Assert-Ra8p1SharedAbiUnchanged -Before $sharedBefore -After $sharedAfter -Stage 
     CPU1Size = ($cpu1Size -join ' ')
     RequiredCPU0Symbols = $requiredCpu0.Count
     RequiredCPU1Symbols = $requiredCpu1.Count
+    NpuArenaBytes = $npuArenaBytes
     VerifiedProjectRoots = @($cpu0, $cpu1)
     VerificationSourceScope = 'Current Solution CPU0/CPU1 only'
     RuntimePartitionMacrosVerified = $partitionNames.Count

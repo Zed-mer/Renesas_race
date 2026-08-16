@@ -2651,12 +2651,12 @@ static uint8_t ui_flow_detection_to_object_index(uint32_t detection_index)
 }
 
 static uint8_t ui_flow_fusion_strength_percent(
-    const rf_v25_activity_view_t * state)
+    const rf_v27_activity_view_t * state)
 {
     int32_t energy;
     uint32_t percent;
     if ((state == NULL) ||
-        (state->activity_state == RF_V25_ACTIVITY_NO_RF_OBSERVED))
+        (state->activity_state == RF_V27_ACTIVITY_NO_RF_OBSERVED))
     {
         return 0U;
     }
@@ -2677,8 +2677,8 @@ static uint8_t ui_flow_fusion_strength_percent(
 
 static void ui_flow_update_detections(void)
 {
-    rf_v25_activity_service_proof_t snapshot;
-    rf_v25_activity_service_snapshot(&snapshot);
+    rf_v27_activity_service_proof_t snapshot;
+    rf_v27_activity_service_snapshot(&snapshot);
 
     for (uint32_t detection_index = 0U;
          detection_index < RF_UI_DETECTION_COUNT;
@@ -2686,8 +2686,8 @@ static void ui_flow_update_detections(void)
     {
         const uint8_t object_id =
             ui_flow_detection_to_object_index(detection_index);
-        rf_v25_activity_view_t state;
-        const bool state_ready = rf_v25_activity_fusion_get(
+        rf_v27_activity_view_t state;
+        const bool state_ready = rf_v27_activity_fusion_get(
             &snapshot.fusion,
             (rf_v13_object_id_t)object_id,
             &state) != 0;
@@ -2700,13 +2700,9 @@ static void ui_flow_update_detections(void)
 
         if (state_ready)
         {
-            if (state.activity_state == RF_V25_ACTIVITY_WORKING)
+            if (state.activity_state == RF_V27_ACTIVITY_WORKING)
             {
                 detection.state = RF_UI_DETECTION_ACTIVE;
-            }
-            else if (state.activity_state == RF_V25_ACTIVITY_UNCERTAIN)
-            {
-                detection.state = RF_UI_DETECTION_SUSPECTED;
             }
             detection.confidence_percent =
                 ui_flow_fusion_strength_percent(&state);
@@ -2880,7 +2876,7 @@ void lvgl_app_activity_update(void)
 }
 
 void lvgl_app_activity_round_update(
-    const rf_v25_activity_round_decision_t * decision)
+    const rf_v27_activity_round_decision_t * decision)
 {
     rf_ui_fusion_round_t ui_round;
     if (!UI_SINGLE_FLOW_ENABLED || (decision == NULL))
@@ -2900,15 +2896,15 @@ void lvgl_app_activity_round_update(
     ui_round.identity_mask = decision->display_identity_mask;
     ui_round.identity_conflict_mask =
         decision->display_identity_conflict_mask;
-    if ((decision->flags & RF_V25_ROUND_DECISION_HAS_MESSAGE) != 0U)
+    if ((decision->flags & RF_V27_ROUND_DECISION_HAS_MESSAGE) != 0U)
     {
         ui_round.flags |= RF_UI_FUSION_ROUND_HAS_MESSAGE;
     }
-    if ((decision->flags & RF_V25_ROUND_DECISION_OUTPUT_VALID) != 0U)
+    if ((decision->flags & RF_V27_ROUND_DECISION_OUTPUT_VALID) != 0U)
     {
         ui_round.flags |= RF_UI_FUSION_ROUND_OUTPUT_VALID;
     }
-    if ((decision->flags & RF_V25_ROUND_DECISION_CPU0_EPOCH_RESET) != 0U)
+    if ((decision->flags & RF_V27_ROUND_DECISION_CPU0_EPOCH_RESET) != 0U)
     {
         ui_round.flags |= RF_UI_FUSION_ROUND_CPU0_RESET;
     }
