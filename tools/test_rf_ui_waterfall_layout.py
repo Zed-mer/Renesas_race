@@ -1772,7 +1772,7 @@ class WaterfallLayoutRegressionTest(unittest.TestCase):
         self.assertIn("box->frequency_span_q8 * RF_RELIABLE_BANDWIDTH_MHZ", classifier)
         self.assertIn("RF_UI_RF_BOX_FLAG_FREQUENCY_CLIPPED", classifier)
         self.assertNotIn("RF_UI_RF_BOX_FLAG_VIDEO_20MHZ", finder)
-        self.assertIn("RF_UI_DJI_BANDWIDTH_VIDEO", detail)
+        self.assertIn("dji_video_tracker_format_range", detail)
         self.assertIn("RF_UI_DJI_BANDWIDTH_CONTROL", detail)
 
     def test_target_detail_surface_keeps_fixed_dark_colors(self) -> None:

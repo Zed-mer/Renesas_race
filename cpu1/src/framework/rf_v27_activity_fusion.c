@@ -10,6 +10,7 @@ typedef struct rf_v27_round_object {
     int32_t on_llr_q12;
     uint8_t quality;
     uint8_t source_mask;
+    uint8_t support_source_mask;
     uint8_t center_mask;
     uint8_t accepted_count;
     uint8_t model_corroborated;
@@ -314,6 +315,10 @@ static void rf_v27_collect_round(
                 }
                 value = best[class_id][slot];
                 objects[object_id].source_mask |= (uint8_t)(1u << class_id);
+                if (value >= profile->support_llr_q12) {
+                    objects[object_id].support_source_mask |=
+                        (uint8_t)(1u << class_id);
+                }
                 objects[object_id].center_mask |= (uint8_t)(1u << slot);
                 if (value > maximum) {
                     extras = rf_v27_sat_add(extras, maximum);
@@ -414,19 +419,27 @@ rf_v27_apply_result_t rf_v27_activity_fusion_apply_round(
         uint8_t mask = profile->history_rounds == 8u
                            ? UINT8_C(0xff)
                            : (uint8_t)((1u << profile->history_rounds) - 1u);
-        uint8_t normal = observation->quality >= RF_V27_QUALITY_NORMAL;
-        uint8_t strong = observation->quality == RF_V27_QUALITY_STRONG;
-        uint8_t weak = observation->quality == RF_V27_QUALITY_WEAK;
-        uint8_t support = normal ? 1u : 0u;
-        uint8_t strong_support = strong ? 1u : 0u;
-        uint8_t control = object_id == RF_V13_OBJECT_DJI && support != 0u &&
-                                  (observation->source_mask &
-                                   (1u << RF_V13_CLASS_DJI_CONTROL)) != 0u;
-        uint8_t video = object_id == RF_V13_OBJECT_DJI && support != 0u &&
-                                (observation->source_mask &
-                                 (1u << RF_V13_CLASS_DJI_VIDEO)) != 0u;
-        uint8_t model_agreement =
-            normal != 0u && observation->model_corroborated != 0u;
+        uint8_t raw_normal =
+            observation->quality >= RF_V27_QUALITY_NORMAL;
+        uint8_t raw_strong =
+            observation->quality == RF_V27_QUALITY_STRONG;
+        uint8_t raw_weak = observation->quality == RF_V27_QUALITY_WEAK;
+        uint8_t normal;
+        uint8_t strong;
+        uint8_t weak;
+        uint8_t support;
+        uint8_t strong_support;
+        uint8_t control = object_id == RF_V13_OBJECT_DJI &&
+                          (observation->support_source_mask &
+                           (1u << RF_V13_CLASS_DJI_CONTROL)) != 0u;
+        uint8_t video = object_id == RF_V13_OBJECT_DJI &&
+                        (observation->support_source_mask &
+                         (1u << RF_V13_CLASS_DJI_VIDEO)) != 0u;
+        uint8_t previous_video = state->video_history_bits & UINT8_C(1);
+        uint8_t continuous_video = object_id == RF_V13_OBJECT_DJI &&
+                                   video != 0u && control == 0u &&
+                                   previous_video != 0u;
+        uint8_t model_agreement;
         int32_t on_evidence;
         int32_t off_evidence = state->off_evidence_q12;
         int32_t off_llr = 0;
@@ -436,14 +449,21 @@ rf_v27_apply_result_t rf_v27_activity_fusion_apply_round(
         uint8_t current;
         uint32_t reasons = RF_V27_REASON_ROUND_OUTPUT_READY;
 
-        state->support_history_bits = (uint8_t)(
-            ((state->support_history_bits << 1) | support) & mask);
-        state->strong_history_bits = (uint8_t)(
-            ((state->strong_history_bits << 1) | strong_support) & mask);
         state->control_history_bits = (uint8_t)(
             ((state->control_history_bits << 1) | control) & mask);
         state->video_history_bits = (uint8_t)(
             ((state->video_history_bits << 1) | video) & mask);
+        normal = raw_normal && continuous_video == 0u;
+        strong = raw_strong && continuous_video == 0u;
+        weak = raw_weak && continuous_video == 0u;
+        model_agreement = normal != 0u &&
+                          observation->model_corroborated != 0u;
+        support = normal ? 1u : 0u;
+        strong_support = strong ? 1u : 0u;
+        state->support_history_bits = (uint8_t)(
+            ((state->support_history_bits << 1) | support) & mask);
+        state->strong_history_bits = (uint8_t)(
+            ((state->strong_history_bits << 1) | strong_support) & mask);
         state->model_agreement_history_bits = (uint8_t)(
             ((state->model_agreement_history_bits << 1) |
              model_agreement) & mask);
@@ -453,6 +473,9 @@ rf_v27_apply_result_t rf_v27_activity_fusion_apply_round(
             reasons |= RF_V27_REASON_ON_SUPPORT;
         } else if (weak) {
             reasons |= RF_V27_REASON_ON_WEAK;
+        }
+        if (continuous_video != 0u && raw_normal != 0u) {
+            reasons |= RF_V27_REASON_DJI_CONTINUOUS_VIDEO_REJECTED;
         }
         if (object_id == RF_V13_OBJECT_T12 && support != 0u &&
             state->last_positive_center_mask != 0u &&
@@ -497,11 +520,9 @@ rf_v27_apply_result_t rf_v27_activity_fusion_apply_round(
         {
             uint8_t single =
                 state->support_count >= profile->single_support_rounds &&
-                        state->strong_count >= profile->single_strong_rounds;
+                state->strong_count >= profile->single_strong_rounds;
             uint8_t dual = object_id == RF_V13_OBJECT_DJI &&
-                           ((state->control_history_bits != 0u &&
-                             state->video_history_bits != 0u) ||
-                            state->model_agreement_history_bits != 0u) &&
+                           state->model_agreement_history_bits != 0u &&
                            state->support_count >= profile->dual_support_rounds &&
                            state->strong_count >= profile->dual_strong_rounds;
             int32_t threshold = dual ? profile->on_dual_enter_q12
@@ -588,8 +609,6 @@ rf_v27_apply_result_t rf_v27_activity_fusion_apply_round(
             off_evidence = 0;
             state->support_history_bits = 0u;
             state->strong_history_bits = 0u;
-            state->control_history_bits = 0u;
-            state->video_history_bits = 0u;
             state->model_agreement_history_bits = 0u;
             state->support_count = 0u;
             state->strong_count = 0u;

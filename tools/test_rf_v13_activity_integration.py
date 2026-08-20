@@ -219,6 +219,54 @@ class V27ActivityIntegrationTests(unittest.TestCase):
         self.assertIn("sizeof(rf_v27_activity_service_proof_t) == 592U", service_header)
         self.assertIn("g_rf_v27_activity_output_generation", service_header)
 
+    def test_dji_rejects_only_uninterrupted_video_support(self) -> None:
+        fusion = V27_SOURCE.read_text(encoding="utf-8")
+        header = V27_HEADER.read_text(encoding="utf-8")
+        config = V27_CONFIG.read_text(encoding="utf-8")
+
+        self.assertIn("support_source_mask", fusion)
+        self.assertNotIn("RF_V27_DJI_PAIR", fusion)
+        self.assertNotIn("dji_pair_recent", fusion)
+        self.assertNotIn("RF_V27_REASON_DJI_SOURCE_PAIR_RECENT", header)
+        self.assertNotIn("RF_V27_REASON_DJI_SINGLE_SOURCE_REJECTED", header)
+        self.assertIn(
+            "RF_V27_REASON_DJI_CONTINUOUS_VIDEO_REJECTED", header
+        )
+
+        previous_video = fusion.index(
+            "previous_video = state->video_history_bits & UINT8_C(1)"
+        )
+        update_video = fusion.index("state->video_history_bits =", previous_video)
+        reject_video = fusion.index("continuous_video =", previous_video)
+        self.assertLess(previous_video, update_video)
+        self.assertLess(reject_video, update_video)
+        self.assertIn("video != 0u && control == 0u", fusion)
+        self.assertIn("previous_video != 0u", fusion)
+        self.assertIn("normal = raw_normal && continuous_video == 0u;", fusion)
+        self.assertIn("strong = raw_strong && continuous_video == 0u;", fusion)
+
+        entry = fusion.split("uint8_t single =", 1)[1].split(
+            "phase = previous_phase", 1
+        )[0]
+        self.assertNotIn("object_id != RF_V13_OBJECT_DJI", entry)
+        self.assertIn("object_id == RF_V13_OBJECT_DJI", entry)
+        self.assertIn("model_agreement_history_bits != 0u", entry)
+        self.assertNotIn("control_history_bits", entry)
+        self.assertNotIn("video_history_bits", entry)
+
+        self.assertIn(
+            "1434, 1434, 6759, 9012, 8, 3, 1, 2, 0, 6, 4, 2, 3, 4",
+            config,
+        )
+        self.assertIn(
+            "1434, 1434, 29493, 29493, 8, 2, 0, 2, 0, 6, 4, 2, 9, 9",
+            config,
+        )
+        self.assertIn(
+            "1434, 1434, 27648, 27648, 8, 2, 0, 2, 0, 6, 4, 2, 9, 9",
+            config,
+        )
+
     def test_cpu0_epoch_resets_before_any_new_message_is_applied(self) -> None:
         source = SERVICE_SOURCE.read_text(encoding="utf-8")
         epoch_reset = source.index("if (cpu0_epoch_changed)")

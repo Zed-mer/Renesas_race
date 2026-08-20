@@ -1,0 +1,69 @@
+{
+    "schema":  1,
+    "version":  "Z7",
+    "snapshot_utc":  "2026-08-20T17:51:34.2717883Z",
+    "configuration":  "Debug",
+    "repository":  {
+                       "root":  "D:\\Renesas_race\\RA8P1_DRONE_DETECT_Zt813\\RA8P1_DRONE_DETECT_Zt_Z4",
+                       "head_before_version_commit":  "55ab8fda93d4fbcf97137a751b205383bb960c3a",
+                       "branch":  "Z4",
+                       "dirty_paths_before_snapshot":  [
+                                                           " M cpu0/.api_xml",
+                                                           " M cpu0/.secure_azone",
+                                                           " M cpu0/.secure_rzone",
+                                                           " M cpu0/.settings/DebugVirtualConsoleSetting.xml",
+                                                           " M cpu0/.settings/language.settings.xml",
+                                                           " M cpu1/.api_xml",
+                                                           " M cpu1/.secure_azone",
+                                                           " M cpu1/.secure_rzone",
+                                                           " M cpu1/.settings/language.settings.xml",
+                                                           " M cpu1/src/framework/rf_v27_activity_config.c",
+                                                           " M cpu1/src/framework/rf_v27_activity_fusion.c",
+                                                           " M cpu1/src/framework/rf_v27_activity_fusion.h",
+                                                           " M tools/test_rf_ui_waterfall_layout.py",
+                                                           " M tools/test_rf_v13_activity_integration.py"
+                                                       ]
+                   },
+    "firmware":  [
+                     {
+                         "core":  "CPU0",
+                         "artifact":  "cpu0/rtthread.elf",
+                         "source":  "cpu0/Debug/rtthread.elf",
+                         "bytes":  4185352,
+                         "sha256":  "7AAC2357EE50C99D240E7B70178E9CA542BB20E9554B45CE87A2B8B7B3ABEF5E",
+                         "build_utc":  "2026-08-20T16:45:52.9845124Z"
+                     },
+                     {
+                         "core":  "CPU0",
+                         "artifact":  "cpu0/rtthread.map",
+                         "source":  "cpu0/Debug/rtthread.map",
+                         "bytes":  2608393,
+                         "sha256":  "B4EC4247000F2C829D8409AC6BFE61864C37916145451612BF504CAA275D2CCB",
+                         "build_utc":  "2026-08-20T16:45:53.0068768Z"
+                     },
+                     {
+                         "core":  "CPU0",
+                         "artifact":  "cpu0/rtthread.hex",
+                         "source":  "cpu0/Debug/rtthread.hex",
+                         "bytes":  1384565,
+                         "sha256":  "FF57124A93204703EE1D62DA70DDE200DFBD5A7349DA764DFC2FF6A56A2E1AB9",
+                         "build_utc":  "2026-08-20T16:45:53.5490876Z"
+                     },
+                     {
+                         "core":  "CPU1",
+                         "artifact":  "cpu1/ra8p1_sdr_ai_display_solution_20260718_CPU1.elf",
+                         "source":  "cpu1/Debug/ra8p1_sdr_ai_display_solution_20260718_CPU1.elf",
+                         "bytes":  3961880,
+                         "sha256":  "EF779E6E14E20F7BCD6FADC3AA25CCC872132FC450CFEF248AF395B4FAE1B5A4",
+                         "build_utc":  "2026-08-20T17:40:02.8089639Z"
+                     },
+                     {
+                         "core":  "CPU1",
+                         "artifact":  "cpu1/ra8p1_sdr_ai_display_solution_20260718_CPU1.map",
+                         "source":  "cpu1/Debug/ra8p1_sdr_ai_display_solution_20260718_CPU1.map",
+                         "bytes":  1194073,
+                         "sha256":  "FEF8CA29EBC62FEE7B84DAF456BDA38BA27A5BE17B0F7C80BDE93C8B2B1D3F08",
+                         "build_utc":  "2026-08-20T17:40:02.8173257Z"
+                     }
+                 ]
+}

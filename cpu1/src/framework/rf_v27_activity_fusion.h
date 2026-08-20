@@ -67,7 +67,8 @@ enum rf_v27_reason_flags {
     RF_V27_REASON_EXITED_WORKING = 1u << 9,
     RF_V27_REASON_ROUND_OUTPUT_READY = 1u << 10,
     RF_V27_REASON_INVALID_ROUND_FROZEN = 1u << 11,
-    RF_V27_REASON_DUPLICATES_CAPPED = 1u << 12
+    RF_V27_REASON_DUPLICATES_CAPPED = 1u << 12,
+    RF_V27_REASON_DJI_CONTINUOUS_VIDEO_REJECTED = 1u << 13
 };
 
 /* All scalar evidence values use signed Q20.12, as in V13/V25. */
