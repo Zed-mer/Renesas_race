@@ -1,4 +1,4 @@
-# EASE Python mutation for the J201-3 (P401) active-low alarm buzzer.
+# EASE Python mutation for the J202-1 (P515) active-low alarm buzzer.
 loadModule("/FSP/Configuration")
 loadModule("/FSP/Resources")
 
@@ -13,15 +13,15 @@ pin_model.selectPinConfig(target_model)
 target_model.setSymbol("g_bsp_pin_cfg")
 
 pin_cfg = configuration.getPinConfiguration("RA8P1_CPKHMI.pincfg")
-buzzer = pin_cfg.getComponent("p401")
-mode = buzzer.getConfig("p401.gpio_mode")
+buzzer = pin_cfg.getComponent("p515")
+mode = buzzer.getConfig("p515.gpio_mode")
 options = list(mode.getOptions())
-selected = "p401.gpio_mode.gpio_mode_out.high"
-print("P401_GPIO_OPTIONS=" + str(options))
+selected = "p515.gpio_mode.gpio_mode_out.high"
+print("P515_GPIO_OPTIONS=" + str(options))
 if selected not in options:
-    raise RuntimeError("P401 output-high option is unavailable: " + str(options))
+    raise RuntimeError("P515 output-high option is unavailable: " + str(options))
 mode.setValue(selected)
-buzzer.getProperty("p401.symbolic_name").setValue("ALARM_BUZZER")
+buzzer.getProperty("p515.symbolic_name").setValue("ALARM_BUZZER")
 
 problems = list(configuration.getProblems())
 for problem in problems:
@@ -31,4 +31,4 @@ if problems:
 
 configuration.save()
 configuration.generateProjectContent(None)
-print("RA8P1_ALARM_P401_MUTATION_OK")
+print("RA8P1_ALARM_P515_MUTATION_OK")

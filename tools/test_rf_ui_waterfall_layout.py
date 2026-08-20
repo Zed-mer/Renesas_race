@@ -22,6 +22,9 @@ RF_GLYPHS = (ROOT / "cpu1/src/ui/rf_ui_glyphs.txt").read_text(
 RF_FONT_C = (ROOT / "cpu1/src/ui/rf_ui_font_zh_14.c").read_text(
     encoding="utf-8"
 )
+RF_FONT_16_C = (ROOT / "cpu1/src/ui/rf_ui_font_zh_16.c").read_text(
+    encoding="utf-8"
+)
 LVGL_APP_C = (ROOT / "cpu1/src/lvgl_app.c").read_text(encoding="utf-8")
 LV_REFR_C = (ROOT / "cpu1/ra/lvgl/lvgl/src/core/lv_refr.c").read_text(
     encoding="utf-8"
@@ -270,14 +273,13 @@ class WaterfallLayoutRegressionTest(unittest.TestCase):
         timeline_x = integer_define(RF_UI_C, "RF_HISTORY_TIMELINE_X")
         timeline_width = integer_define(RF_UI_C, "RF_HISTORY_TIMELINE_WIDTH")
         newer_x = integer_define(RF_UI_C, "RF_HISTORY_NEWER_X")
-        source_x = integer_define(RF_UI_C, "RF_SOURCE_BADGE_X")
-        source_width = integer_define(RF_UI_C, "RF_SOURCE_BADGE_WIDTH")
         header_height = integer_define(RF_UI_C, "RF_HEADER_HEIGHT")
         touch_target = integer_define(RF_UI_C, "RF_TOUCH_TARGET")
 
         self.assertGreaterEqual(mode_height, touch_target)
         self.assertGreaterEqual(transport_height, touch_target)
         self.assertGreaterEqual(live_button_width, touch_target)
+        self.assertGreaterEqual(history_width, touch_target)
         self.assertGreaterEqual(touch_target, 44)
         self.assertLessEqual(mode_y + mode_height, header_height)
         self.assertLessEqual(transport_y + transport_height, header_height)
@@ -286,8 +288,13 @@ class WaterfallLayoutRegressionTest(unittest.TestCase):
         self.assertEqual(live_button_x + live_button_width, older_x)
         self.assertEqual(older_x + history_width, timeline_x)
         self.assertEqual(timeline_x + timeline_width, newer_x)
-        self.assertEqual(newer_x + history_width, source_x)
-        self.assertEqual(source_x + source_width, transport_width)
+        self.assertEqual(newer_x + history_width, transport_width)
+        self.assertEqual(
+            (history_width, timeline_x, timeline_width, newer_x),
+            (44, 92, 428, 520),
+        )
+        self.assertNotIn("RF_SOURCE_BADGE_X", RF_UI_C)
+        self.assertNotIn("LV_SYMBOL_WIFI", RF_UI_C)
         self.assertIn('"全频扫描", "重点锁定"', RF_UI_C)
 
     def test_decorative_boxes_do_not_swallow_parent_button_hits(self) -> None:
@@ -325,8 +332,33 @@ class WaterfallLayoutRegressionTest(unittest.TestCase):
             owner.index("lvgl_touch_poll_step();"),
             owner.index("if (UI_SINGLE_FLOW_ENABLED)"),
         )
+        single_flow_start = owner.index("if (UI_SINGLE_FLOW_ENABLED)")
+        catch_up_poll = owner.index("lvgl_touch_poll_step();", single_flow_start)
+        self.assertLess(catch_up_poll, owner.index("(void) lv_timer_handler();"))
+        self.assertGreaterEqual(owner.count("lvgl_touch_poll_step();"), 2)
         self.assertIn("g_lvgl_app_input_diag", LVGL_APP_C)
         self.assertIn("g_rf_ui_input_diag", RF_UI_C)
+
+    def test_discrete_controls_fire_once_on_press(self) -> None:
+        self.assertIn("#define RF_BUTTON_EVENT LV_EVENT_PRESSED", RF_UI_C)
+        handlers = (
+            "history_button_event",
+            "live_button_event",
+            "target_click_event",
+            "compare_target_click_event",
+            "compare_button_event",
+            "compare_close_event",
+            "selector_click_event",
+            "acquisition_mode_click_event",
+        )
+        for index, handler in enumerate(handlers):
+            start = RF_UI_C.index(f"static void {handler}")
+            end = RF_UI_C.find("\nstatic void ", start + 1)
+            if end < 0:
+                end = len(RF_UI_C)
+            block = RF_UI_C[start:end]
+            self.assertIn("code != RF_BUTTON_EVENT", block, handler)
+        self.assertNotIn("LV_EVENT_CLICKED", RF_UI_C)
 
     def test_b2_left_plot_and_right_status_columns_are_pinned(self) -> None:
         panel_width = integer_define(RF_UI_C, "RF_PANEL_WIDTH")
@@ -337,12 +369,13 @@ class WaterfallLayoutRegressionTest(unittest.TestCase):
         spectrum_width = integer_define(RF_UI_C, "RF_SPECTRUM_DISPLAY_WIDTH")
         spectrum_height = integer_define(RF_UI_C, "RF_SPECTRUM_DISPLAY_HEIGHT")
         plot_x = integer_define(RF_UI_C, "RF_PLOT_X")
+        waterfall_plot_x = integer_define(RF_UI_C, "RF_WATERFALL_PLOT_X")
 
         self.assertEqual((panel_width, sidebar_x, sidebar_width), (864, 864, 160))
         self.assertEqual(panel_width + sidebar_width, 1024)
-        self.assertEqual((waterfall_width, waterfall_height), (800, 252))
+        self.assertEqual((waterfall_width, waterfall_height), (780, 252))
         self.assertEqual((spectrum_width, spectrum_height), (800, 66))
-        self.assertLessEqual(plot_x + waterfall_width, panel_width)
+        self.assertEqual(waterfall_plot_x + waterfall_width, panel_width)
         self.assertLessEqual(plot_x + spectrum_width, panel_width)
         self.assertIn("static void create_sidebar(void)", RF_UI_C)
         self.assertIn('"当前目标"', RF_UI_C)
@@ -357,16 +390,53 @@ class WaterfallLayoutRegressionTest(unittest.TestCase):
         spectrum = RF_UI_C.split("static void create_spectrum_panel", 1)[
             1
         ].split("static void create_waterfall_panel", 1)[0]
+        energy_scale = RF_UI_C.split(
+            "static void create_waterfall_energy_scale", 1
+        )[1].split("static void create_waterfall_panel", 1)[0]
         waterfall = RF_UI_C.split("static void create_waterfall_panel", 1)[
             1
         ].split("static void create_compare_overlay", 1)[0]
 
         self.assertIn("lv_obj_set_pos(g_ui.spectrum_image, RF_PLOT_X, 20)", spectrum)
         self.assertIn('"-30", "-45", "-60", "-75", "-90"', spectrum)
-        self.assertIn('"-98 ms", "-74 ms", "-49 ms", "-25 ms", "当前"', waterfall)
+        self.assertIn('"-80 ms", "-60 ms", "-40 ms", "-20 ms", "当前"', waterfall)
+        self.assertIn("create_waterfall_energy_scale(panel)", waterfall)
         self.assertIn("g_ui.spectrum_frequency_labels[index]", spectrum)
         self.assertIn("g_ui.waterfall_frequency_labels[index]", waterfall)
         self.assertIn("g_ui.waterfall_time_labels[index]", waterfall)
+        scale_x = integer_define(RF_UI_C, "RF_WATERFALL_SCALE_X")
+        scale_width = integer_define(RF_UI_C, "RF_WATERFALL_SCALE_WIDTH")
+        scale_label_x = integer_define(RF_UI_C, "RF_WATERFALL_SCALE_LABEL_X")
+        scale_label_width = integer_define(
+            RF_UI_C, "RF_WATERFALL_SCALE_LABEL_WIDTH"
+        )
+        frequency_label_x = integer_define(
+            RF_UI_C, "RF_WATERFALL_FREQUENCY_LABEL_X"
+        )
+        frequency_label_width = integer_define(
+            RF_UI_C, "RF_WATERFALL_FREQUENCY_LABEL_WIDTH"
+        )
+        waterfall_plot_x = integer_define(RF_UI_C, "RF_WATERFALL_PLOT_X")
+        self.assertEqual(
+            (
+                scale_x,
+                scale_width,
+                scale_label_x,
+                scale_label_width,
+                frequency_label_x,
+                frequency_label_width,
+            ),
+            (6, 12, 20, 27, 48, 34),
+        )
+        self.assertLessEqual(scale_x + scale_width, scale_label_x)
+        self.assertLessEqual(
+            scale_label_x + scale_label_width, frequency_label_x
+        )
+        self.assertLessEqual(
+            frequency_label_x + frequency_label_width, waterfall_plot_x
+        )
+        self.assertIn("RF_WATERFALL_SCALE_LABEL_X", energy_scale)
+        self.assertIn("RF_WATERFALL_FREQUENCY_LABEL_X", waterfall)
         self.assertEqual(integer_define(RF_UI_C, "RF_CHANNEL_DECK_WIDTH"), 864)
         self.assertEqual(integer_define(RF_UI_C, "RF_CHANNEL_CARD_WIDTH"), 216)
 
@@ -452,7 +522,7 @@ class WaterfallLayoutRegressionTest(unittest.TestCase):
 
     def test_dual_mapped_ring_dimensions_are_pinned(self) -> None:
         self.assertEqual(integer_define(RF_UI_H, "RF_UI_WATERFALL_FREQ_BINS"), 192)
-        self.assertEqual(integer_define(RF_UI_H, "RF_UI_WATERFALL_COLS"), 160)
+        self.assertEqual(integer_define(RF_UI_H, "RF_UI_WATERFALL_COLS"), 130)
         self.assertEqual(
             integer_define(RF_UI_H, "RF_UI_WATERFALL_HISTORY_COLS"), 256
         )
@@ -466,9 +536,9 @@ class WaterfallLayoutRegressionTest(unittest.TestCase):
         )
         self.assertIn("sizeof(g_waterfall_rings) == 0xC0000u", RF_UI_C)
         self.assertIn("sizeof(g_waterfall_pause_snapshot) == 0x18000u", RF_UI_C)
-        self.assertIn("sizeof(g_waterfall_render_rings[0]) == 0xC5440u", RF_UI_C)
-        self.assertIn("sizeof(g_waterfall_render_rings) == 0x18A880u", RF_UI_C)
-        self.assertIn("== 0xCD640u", RF_UI_C)
+        self.assertIn("sizeof(g_waterfall_render_rings[0]) == 0xC1B40u", RF_UI_C)
+        self.assertIn("sizeof(g_waterfall_render_rings) == 0x183680u", RF_UI_C)
+        self.assertIn("== 0xC9D40u", RF_UI_C)
         self.assertNotIn("memmove(", RF_UI_C)
 
     def test_each_real_partial_tile_row_generates_one_time_column(self) -> None:
@@ -484,7 +554,7 @@ class WaterfallLayoutRegressionTest(unittest.TestCase):
         self.assertNotIn("peak", append)
         self.assertNotIn("if (level >", append)
 
-    def test_rf_timebase_is_about_98_ms_not_transport_arrival_time(self) -> None:
+    def test_rf_timebase_is_about_80_ms_not_transport_arrival_time(self) -> None:
         window_samples = integer_define(
             RF_UI_C, "RF_WATERFALL_RF_WINDOW_SAMPLES"
         )
@@ -508,14 +578,14 @@ class WaterfallLayoutRegressionTest(unittest.TestCase):
         history_ms = history_columns * column_ms
         self.assertAlmostEqual(column_ms, 0.6149333333, places=9)
         retained_ms = retained_columns * column_ms
-        self.assertAlmostEqual(history_ms, 98.3893333333, places=9)
+        self.assertAlmostEqual(history_ms, 79.9413333333, places=9)
         self.assertAlmostEqual(retained_ms, 157.4229333333, places=9)
-        self.assertGreaterEqual(history_ms, 98.0)
-        self.assertLessEqual(history_ms, 99.0)
-        self.assertIn('"-98 ms"', RF_UI_C)
-        self.assertIn('"-49 ms"', RF_UI_C)
+        self.assertGreaterEqual(history_ms, 79.9)
+        self.assertLessEqual(history_ms, 80.0)
+        self.assertIn('"-80 ms"', RF_UI_C)
+        self.assertIn('"-40 ms"', RF_UI_C)
         self.assertIn('"当前"', RF_UI_C)
-        self.assertIn("98.39 ms", RF_UI_C)
+        self.assertIn("79.94 ms", RF_UI_C)
 
     def test_frequency_axis_is_high_to_low_and_time_columns_fill_native_width(self) -> None:
         self.assertIn(
@@ -523,7 +593,7 @@ class WaterfallLayoutRegressionTest(unittest.TestCase):
         )
         display_width = integer_define(RF_UI_C, "RF_WATERFALL_DISPLAY_WIDTH")
         history_columns = integer_define(RF_UI_H, "RF_UI_WATERFALL_COLS")
-        self.assertEqual(display_width, 800)
+        self.assertEqual(display_width, 780)
         boundaries = [
             column * display_width // history_columns
             for column in range(history_columns + 1)
@@ -531,7 +601,7 @@ class WaterfallLayoutRegressionTest(unittest.TestCase):
         widths = [right - left for left, right in zip(boundaries, boundaries[1:])]
         self.assertEqual((boundaries[0], boundaries[-1]), (0, display_width))
         self.assertEqual(sum(widths), display_width)
-        self.assertEqual(set(widths), {5})
+        self.assertEqual(set(widths), {6})
 
         lookup = RF_UI_C.split("static void prepare_waterfall_lookup_tables", 1)[
             1
@@ -556,12 +626,14 @@ class WaterfallLayoutRegressionTest(unittest.TestCase):
         )
         self.assertIn("descriptor->header.w = RF_WATERFALL_DISPLAY_WIDTH", RF_UI_C)
 
-        # The source pointer may start at the final expanded column.  The
-        # dual-mapped row must still contain a complete 800-pixel read span.
-        storage_width = display_width * 2
+        # The source pointer may start at the final expanded column. The
+        # padded dual-map must retain a complete 780-pixel read span.
+        storage_width = ((display_width * 2 + 31) // 32) * 32
         maximum_head = boundaries[-2]
         self.assertLess(maximum_head + display_width, storage_width)
-        self.assertIn("readable_tail[RF_WATERFALL_DISPLAY_WIDTH]", RF_UI_C)
+        self.assertIn(
+            "readable_tail[RF_WATERFALL_RENDER_STORAGE_WIDTH]", RF_UI_C
+        )
 
         fill = RF_UI_C.split("static void fill_row", 1)[1].split(
             "static void spectrum_put_pixel", 1
@@ -971,13 +1043,19 @@ class WaterfallLayoutRegressionTest(unittest.TestCase):
         self.assertIn("waterfall_rf_boxes", overlay)
         self.assertIn("spectrum_rf_boxes", overlay)
 
-    def test_same_round_model_boxes_are_baked_into_history_for_both_states(self) -> None:
-        history_raster = RF_UI_C.split(
-            "static uint32_t waterfall_history_box_raster", 1
-        )[1].split("static void waterfall_overlay_pixel_set", 1)[0]
+    def test_same_round_model_boxes_are_decoupled_from_raw_history(self) -> None:
         clut_map = RF_UI_C.split(
             "static void prepare_waterfall_lookup_tables", 1
         )[1].split("static void waterfall_overlay_history_pixel_write", 1)[0]
+        restore = RF_UI_C.split(
+            "static void waterfall_overlay_raw_pixel_restore", 1
+        )[1].split("static void waterfall_overlay_box_raster_matching_sources", 1)[0]
+        retained = RF_UI_C.split(
+            "static bool waterfall_overlay_retained_boxes_render_step", 1
+        )[1].split("static void waterfall_overlay_boxes_refresh", 1)[0]
+        refresh = RF_UI_C.split(
+            "static void waterfall_overlay_boxes_refresh", 1
+        )[1].split("static void waterfall_image_head_set", 1)[0]
         resolver = RF_UI_C.split("static void rf_box_batch_resolve", 1)[1].split(
             "static rf_ui_fusion_decision_cache_t", 1
         )[0]
@@ -988,30 +1066,60 @@ class WaterfallLayoutRegressionTest(unittest.TestCase):
             1
         ].split("static void waterfall_render_rebuild_paused", 1)[0]
 
-        self.assertIn("waterfall_box_history_bounds", history_raster)
-        self.assertIn("waterfall_box_border_cell", history_raster)
-        self.assertIn("g_waterfall_rings[channel].rows", history_raster)
-        self.assertIn(
-            "history_column + RF_UI_WATERFALL_HISTORY_COLS",
-            history_raster,
-        )
-        self.assertIn("g_target_accent_colors[box->detection_index]", history_raster)
         self.assertIn("RF_WATERFALL_CLUT_BOX_FIRST + index", clut_map)
         self.assertNotIn("decision->round.activity_state", resolver)
         self.assertNotIn("RF_UI_FUSION_WORKING", resolver)
         self.assertNotIn("RF_UI_FUSION_NO_RF", resolver)
         self.assertIn("detection >= RF_UI_DETECTION_COUNT", resolver)
-        self.assertIn("waterfall_history_box_raster(", resolver)
+        self.assertIn("waterfall_retained_box_add(", resolver)
         self.assertIn("waterfall_overlay_box_raster_matching_sources(", resolver)
+        self.assertNotIn("waterfall_history_box_raster", RF_UI_C)
+        self.assertNotIn("g_waterfall_rings", resolver)
+        self.assertIn("g_waterfall_rings[channel].rows", restore)
+        self.assertIn("waterfall_overlay_box_restore", retained)
+        self.assertIn("waterfall_overlay_retained_boxes_render", refresh)
+        self.assertIn("g_ui.running", refresh)
+        self.assertIn("if(!g_ui.running)", RF_UI_C)
         self.assertNotIn("waterfall_history_box_raster(", box_api)
+        self.assertIn("RF_UI_RETAINED_BOX_CAPACITY", RF_UI_C)
         self.assertIn("g_pending_box_batches", RF_UI_C)
         self.assertIn("one RF box batch exceeds the SDRAM write budget", RF_UI_C)
         self.assertIn("live_build_cancel(true)", RF_UI_C)
         self.assertLess(
             resolver.index("detection >= RF_UI_DETECTION_COUNT"),
-            resolver.index("waterfall_history_box_raster("),
+            resolver.index("waterfall_retained_box_add("),
         )
         self.assertIn("g_waterfall_rings[channel].rows", pause)
+
+    def test_retained_box_refresh_is_progressive_and_vsync_bounded(self) -> None:
+        budget = RF_UI_C.split(
+            "static bool waterfall_overlay_box_budget_reserve", 1
+        )[1].split("static void waterfall_overlay_box_raster_matching_sources", 1)[0]
+        retained = RF_UI_C.split(
+            "static bool waterfall_overlay_retained_boxes_render_step", 1
+        )[1].split("static void waterfall_overlay_boxes_refresh", 1)[0]
+        refresh = RF_UI_C.split(
+            "static void waterfall_overlay_boxes_refresh", 1
+        )[1].split("static void waterfall_image_head_set", 1)[0]
+        paused_present = RF_UI_C.split(
+            "static void waterfall_paused_view_present", 1
+        )[1].split("static void waterfall_pan_by", 1)[0]
+
+        self.assertIn("RF_WATERFALL_BOX_REFRESH_SLOTS_PER_VSYNC", RF_UI_C)
+        self.assertIn("retained RF box refresh exceeds the VSync write budget", RF_UI_C)
+        self.assertIn("g_display_diag.glcdc_line_events", budget)
+        self.assertIn("box_budget_slots", budget)
+        self.assertIn("box_refresh_cursor[source]", retained)
+        self.assertIn("waterfall_overlay_box_budget_reserve()", retained)
+        self.assertIn("return false;", retained)
+        self.assertIn("if(!complete) return;", refresh)
+        self.assertNotIn("waterfall_overlay_boxes_invalidate", paused_present)
+        self.assertLess(
+            RF_UI_C.index(
+                "static void waterfall_retained_boxes_clear(uint32_t channel);"
+            ),
+            RF_UI_C.index("static void waterfall_clear_channel"),
+        )
 
     def test_spectrum_boxes_use_only_the_current_complete_window(self) -> None:
         overlay = RF_UI_C.split("static void refresh_rf_box_overlays", 1)[1].split(
@@ -1083,7 +1191,7 @@ class WaterfallLayoutRegressionTest(unittest.TestCase):
         confidence_value = sidebar.split(
             "g_ui.alert_idle_label = create_label", 1
         )[1].split(";", 1)[0]
-        self.assertIn("&rf_font_zh_14", confidence_value)
+        self.assertIn("&rf_font_zh_16", confidence_value)
 
     def test_idle_targets_hide_frequency_ranges(self) -> None:
         cards = RF_UI_C.split("static void refresh_target_cards", 1)[1].split(
@@ -1101,10 +1209,11 @@ class WaterfallLayoutRegressionTest(unittest.TestCase):
             'lv_label_set_text(g_ui.target_channel_labels[index], "")',
             cards,
         )
-        self.assertIn(
-            "working && find_last_detection_box(target, &last_ref)", detail
-        )
-        self.assertIn("if(working && !range_present)", detail)
+        self.assertIn("if(working && target == 0U)", detail)
+        self.assertIn("find_last_detection_box_filtered", detail)
+        self.assertIn("else if(working)", detail)
+        self.assertIn("if(working && target != 0U && !range_present[0])", detail)
+        self.assertIn('index == 0U ? "图传" : "遥控"', detail)
         self.assertIn(
             "set_visible(g_ui.detail_range_name_labels[0], false)",
             empty_detail,
@@ -1151,11 +1260,17 @@ class WaterfallLayoutRegressionTest(unittest.TestCase):
         push = RF_UI_C.split("static void push_waterfall_column", 1)[1].split(
             "static void push_waterfall_gap_column", 1
         )[0]
+        pause = RF_UI_C.split("static void waterfall_pause_snapshot_capture", 1)[
+            1
+        ].split("static void waterfall_render_rebuild_paused", 1)[0]
 
         self.assertIn("waterfall_pause_snapshot_capture", setter)
         self.assertIn("waterfall_render_rebuild_paused", setter)
         self.assertIn("waterfall_render_bootstrap_live", setter)
         self.assertIn("g_ui.waterfall_pan_columns = 0U", setter)
+        self.assertIn("g_waterfall_presented_columns[channel]", pause)
+        self.assertIn("lag_columns", pause)
+        self.assertIn("g_waterfall_pause_total_columns = presented_columns", pause)
         self.assertIn("!g_ui.running", spectrum_present)
         self.assertIn("!g_ui.running", waterfall_present)
         self.assertIn("g_waterfall_write_head[channel]", push)
@@ -1195,7 +1310,7 @@ class WaterfallLayoutRegressionTest(unittest.TestCase):
         visible = integer_define(RF_UI_H, "RF_UI_WATERFALL_COLS")
         retained = integer_define(RF_UI_H, "RF_UI_WATERFALL_HISTORY_COLS")
 
-        self.assertEqual(retained - visible, 96)
+        self.assertEqual(retained - visible, 126)
         self.assertIn("LV_EVENT_PRESSING", pan)
         self.assertIn("g_ui.running", pan)
         self.assertIn(
@@ -1502,8 +1617,8 @@ class WaterfallLayoutRegressionTest(unittest.TestCase):
         self.assertNotIn('"跟踪中"', state_text)
         self.assertIn('return "空闲"', state_text)
         self.assertNotIn("rf_box_is_working", raster)
-        self.assertNotIn("restore", raster)
-        self.assertIn("RF boxes live in the RGB565 history itself", refresh)
+        self.assertIn("waterfall_overlay_box_restore", raster)
+        self.assertIn("Keep the raw RF history separate", refresh)
         self.assertNotIn("stamped_boxes", refresh)
         self.assertNotIn("g_ui.rf_boxes_dirty", update)
         self.assertIn("session_id", box_api)
@@ -1514,7 +1629,8 @@ class WaterfallLayoutRegressionTest(unittest.TestCase):
         self.assertNotIn("activity == RF_UI_FUSION_WORKING", resolver)
         self.assertNotIn("history_boxes_dropped_idle", resolver)
         self.assertIn("history_boxes_dropped_uncertain", resolver)
-        self.assertIn("waterfall_history_box_raster", resolver)
+        self.assertNotIn("waterfall_history_box_raster", resolver)
+        self.assertIn("waterfall_retained_box_add", resolver)
         self.assertIn("waterfall_overlay_box_raster_matching_sources", resolver)
         self.assertIn("RF_UI_FUSION_ROUND_OUTPUT_VALID", round_apply)
         self.assertIn("rf_box_pending_drop_stale", round_apply)
@@ -1522,6 +1638,41 @@ class WaterfallLayoutRegressionTest(unittest.TestCase):
             signal_update.index("ui_flow_update_detections();"),
             signal_update.index("ui_flow_prepare_rf_boxes(frame);")
         )
+
+    def test_pause_freezes_existing_box_pixels_and_rejects_live_overlay_refresh(self) -> None:
+        overlay = RF_UI_C.split("static void refresh_rf_box_overlays", 1)[1].split(
+            "static uint16_t rgb565", 1
+        )[0]
+        freeze = RF_UI_C.split("static void waterfall_overlay_boxes_freeze", 1)[1].split(
+            "static bool waterfall_overlay_box_budget_reserve", 1
+        )[0]
+        refresh = RF_UI_C.split(
+            "static void waterfall_overlay_boxes_refresh", 1
+        )[1].split("static void waterfall_image_head_set", 1)[0]
+        setter = RF_UI_C.split("void rf_ui_set_running", 1)[1].split(
+            "int rf_ui_is_running", 1
+        )[0]
+        prepare = RF_UI_C.split(
+            "bool rf_ui_waterfall_overlay_prepare_frame", 1
+        )[1].split("void rf_ui_waterfall_overlay_frame_submitted", 1)[0]
+        raster_matching = RF_UI_C.split(
+            "static void waterfall_overlay_box_raster_matching_sources", 1
+        )[1].split("static bool waterfall_overlay_retained_boxes_render_step", 1)[0]
+
+        self.assertIn("g_rf_box_pause_snapshot", overlay)
+        self.assertIn("g_spectrum_rf_box_pause_snapshot", overlay)
+        self.assertIn("g_waterfall_overlay.boxes_dirty[source] = false", freeze)
+        self.assertIn("if(!g_ui.running)", refresh)
+        self.assertIn("waterfall_overlay_boxes_freeze(source)", refresh)
+        self.assertIn("waterfall_overlay_boxes_freeze(g_waterfall_active_source)", setter)
+        self.assertNotIn(
+            "waterfall_overlay_boxes_invalidate(g_waterfall_active_source)", setter.split(
+                "if(!next)", 1
+            )[1].split("else", 1)[0]
+        )
+        self.assertIn("if(g_ui.running)", prepare)
+        self.assertIn("waterfall_overlay_boxes_freeze(source)", prepare)
+        self.assertIn("!g_ui.running", raster_matching)
 
     def test_fusion_box_commits_use_one_existing_vsync_work_slot(self) -> None:
         step = RF_UI_C.split("bool rf_ui_box_fusion_step", 1)[1].split(
@@ -1547,9 +1698,9 @@ class WaterfallLayoutRegressionTest(unittest.TestCase):
         resolver = RF_UI_C.split("static void rf_box_batch_resolve", 1)[1].split(
             "static rf_ui_fusion_decision_cache_t", 1
         )[0]
-        finder = RF_UI_C.split("static bool find_last_detection_box", 1)[
-            1
-        ].split("static void format_box_frequency_range", 1)[0]
+        finder = RF_UI_C.split(
+            "static bool find_last_detection_box_filtered", 1
+        )[1].split("static void format_box_frequency_range", 1)[0]
         cards = RF_UI_C.split("static void refresh_target_cards", 1)[1].split(
             "static void refresh_compare_overlay", 1
         )[0]
@@ -1567,9 +1718,11 @@ class WaterfallLayoutRegressionTest(unittest.TestCase):
         self.assertIn("observation_generation", finder)
         self.assertIn("rf_box_generation_newer", finder)
         self.assertIn("find_last_detection_box(index, &ref)", cards)
-        self.assertIn("find_last_detection_box(target, &last_ref)", detail)
-        self.assertIn("index == 0U && range_present", detail)
-        self.assertNotIn("refs[2]", detail)
+        self.assertIn("find_last_detection_box_filtered", detail)
+        self.assertIn("find_last_detection_box(", detail)
+        self.assertIn("range_refs[2]", detail)
+        self.assertIn("range_present[2]", detail)
+        self.assertIn('index == 0U ? "图传" : "遥控"', detail)
         self.assertNotIn("range_count", detail)
 
     def test_target_detail_surface_keeps_fixed_dark_colors(self) -> None:
@@ -1606,10 +1759,10 @@ class WaterfallLayoutRegressionTest(unittest.TestCase):
             1
         ].split("static void hide_rf_box_overlays", 1)[0]
         waterfall_raster = RF_UI_C.split(
-            "static void waterfall_overlay_box_raster", 1
+            "static void waterfall_overlay_box_render", 1
         )[1].split("static void waterfall_overlay_boxes_refresh", 1)[0]
 
-        colors = ("42A5F5", "B8BEC4", "FF7A59", "5DD39E")
+        colors = ("FF2AA8", "FFF000", "36A3FF", "FFFFFF")
         for index, value in enumerate(colors, 1):
             self.assertIn(f"RF_COLOR_TARGET_{index} 0x{value}u", RF_UI_C)
         self.assertIn("g_target_accent_colors[box->detection_index]", spectrum_style)
@@ -1617,6 +1770,15 @@ class WaterfallLayoutRegressionTest(unittest.TestCase):
             "RF_WATERFALL_CLUT_BOX_FIRST + box->detection_index",
             waterfall_raster,
         )
+        self.assertIn(
+            "contrast_clut_index = RF_WATERFALL_CLUT_HEAT_FIRST",
+            waterfall_raster,
+        )
+        self.assertIn(
+            "contrast_clut_index : box_clut_index", waterfall_raster
+        )
+        self.assertIn("lv_obj_set_style_outline_color", spectrum_style)
+        self.assertIn("lv_obj_set_style_outline_width(object, 1, 0)", spectrum_style)
 
     def test_staged_image_sources_rebind_without_full_invalidation(self) -> None:
         rebind = LV_IMAGE_C.split("lv_result_t lv_image_rebind_src", 1)[1].split(
@@ -1749,16 +1911,17 @@ class WaterfallLayoutRegressionTest(unittest.TestCase):
             RF_UI_C, "RF_WATERFALL_OVERLAY_CATCHUP_MAX_ROWS_PER_TICK"
         )
 
-        rgb_base_row_bytes = display_width * 2 * 2
+        render_storage_width = ((display_width * 2 + 31) // 32) * 32
+        rgb_base_row_bytes = render_storage_width * 2
         clut_column_bytes = ((pixels_per_column + 1) // 2) * 2 * 2
         clut_base_row_bytes = (
             history_columns * ((pixels_per_column + 1) // 2)
             + history_columns * pixels_per_column // 2
         ) * 2
-        self.assertEqual((rgb_base_rows, clut_base_rows, render_rows), (10, 11, 20))
-        self.assertEqual(rgb_base_rows * rgb_base_row_bytes, 32_000)
-        self.assertEqual(clut_base_rows * clut_base_row_bytes, 30_976)
-        self.assertEqual(render_rows * display_width * 2, 32_000)
+        self.assertEqual((rgb_base_rows, clut_base_rows, render_rows), (10, 10, 20))
+        self.assertEqual(rgb_base_rows * rgb_base_row_bytes, 31_360)
+        self.assertEqual(clut_base_rows * clut_base_row_bytes, 30_720)
+        self.assertEqual(render_rows * display_width * 2, 31_200)
 
         self.assertEqual(catchup_cap, 64)
         for columns in range(1, history_columns + 1):
@@ -1836,15 +1999,19 @@ class WaterfallLayoutRegressionTest(unittest.TestCase):
     def test_visible_chinese_labels_use_the_simhei_mixed_font(self) -> None:
         compact = re.sub(r"\s+", " ", RF_UI_C)
         expected = (
-            'timeline, 52, 3, 274, 16, "CH1 | 2420 MHz | 0 目标", '
+            'timeline, 58, 3, RF_HISTORY_TIMELINE_WIDTH - 146, 16, '
+            '"CH1 | 2420 MHz | 0 目标", '
             '&rf_font_zh_14',
             'panel, RF_PLOT_X + 8, 1, 100, 16, "功率频谱", '
             '&rf_font_zh_14',
             'panel, 520, 7, 336, 18, '
-            '"160 RF ROW | 0.615 ms/COL | 98.39 ms", &rf_font_zh_14',
+            '"130 RF ROW | 0.615 ms/COL | 79.94 ms", &rf_font_zh_14',
+            'title, 8, 7, 104, 20, "当前目标", &rf_font_zh_16',
         )
         for declaration in expected:
             self.assertIn(declaration, compact)
+        self.assertIn("Size: 16 px", RF_FONT_16_C)
+        self.assertIn("rf_ui_font_zh_16", RF_FONT_16_C)
 
     def test_switch_stream_updates_are_coalesced_after_atomic_commit(self) -> None:
         metrics = RF_UI_C.split("bool rf_ui_update_channel_metrics", 1)[1].split(
@@ -2017,6 +2184,7 @@ class WaterfallLayoutRegressionTest(unittest.TestCase):
 
     def test_clut4_overlay_reuses_the_rgb565_source_allocation(self) -> None:
         self.assertEqual(integer_define(RF_UI_C, "RF_PLOT_X"), 64)
+        self.assertEqual(integer_define(RF_UI_C, "RF_WATERFALL_PLOT_X"), 84)
         self.assertIn(
             "RF_UI_WATERFALL_HISTORY_COLS * RF_WATERFALL_CLUT_PIXELS_PER_COLUMN",
             RF_UI_C,
@@ -2033,7 +2201,7 @@ class WaterfallLayoutRegressionTest(unittest.TestCase):
         self.assertIn("RF_WATERFALL_CLUT_ALIGNMENT_PIXELS == 128u", RF_UI_C)
         self.assertIn("[aligned_head >> 1]", RF_UI_C)
         self.assertIn("RF_WATERFALL_CLUT_PHASE_COUNT 2u", RF_UI_C)
-        self.assertIn("RF_WATERFALL_OVERLAY_BUILD_ROWS_PER_TICK 11u", RF_UI_C)
+        self.assertIn("RF_WATERFALL_OVERLAY_BUILD_ROWS_PER_TICK 10u", RF_UI_C)
         self.assertIn("RF_CHANNEL_SWITCH_MAX_WRITE_BYTES", RF_UI_C)
         self.assertIn(
             "&g_waterfall_render_rings[source].rgb565.rows[0][0]", RF_UI_C
@@ -2189,8 +2357,9 @@ class WaterfallLayoutRegressionTest(unittest.TestCase):
         self.assertIn("g_target_accent_colors[index]", RF_UI_C)
         self.assertIn("256u + RF_UI_DETECTION_COUNT + 2u", RF_UI_C)
         self.assertIn("waterfall_overlay_box_raster", RF_UI_C)
-        self.assertIn("waterfall_history_box_raster", RF_UI_C)
-        self.assertNotIn("waterfall_overlay_pixel_restore", RF_UI_C)
+        self.assertNotIn("waterfall_history_box_raster", RF_UI_C)
+        self.assertIn("waterfall_overlay_raw_pixel_restore", RF_UI_C)
+        self.assertIn("waterfall_overlay_box_restore", RF_UI_C)
 
     def test_overlay_failure_returns_to_the_bounded_v26_builder(self) -> None:
         self.assertIn("rf_ui_waterfall_overlay_fail", RF_UI_C)

@@ -4702,6 +4702,9 @@ void lvgl_app_step(uint32_t elapsed_ms)
         {
             ui_fps_update(NULL);
         }
+        /* Catch a touch sample that became due during bounded SDRAM work.
+         * The period guard makes this a no-op on normal short owner steps. */
+        lvgl_touch_poll_step();
         if (!resync_completed_this_step)
         {
             const uint32_t refresh_context =

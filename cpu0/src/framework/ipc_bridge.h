@@ -29,6 +29,8 @@ void ipc_bridge_cpu0_display_session_set(uint32_t session_id);
 bool ipc_bridge_cpu0_command_get(ra8p1_ui_command_t *command);
 bool ipc_bridge_cpu0_activity_publish(
     const rf_v13_cpu0_round_message_t *message);
+bool ipc_bridge_cpu0_activity_report_read(uint32_t *generation,
+                                          uint32_t *working_mask);
 
 /* CPU0 latency evidence is kept separate from the display payload so a
  * 60-Msample burst never copies raw IQ or enlarges the RPMsg region. */

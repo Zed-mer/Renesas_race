@@ -95,6 +95,31 @@ static void display_app_panel_presentation_service(
 static void display_app_panel_presentation_arm(
     const ra8p1_display_frame_t *frame);
 
+static void display_app_publish_activity_report(
+    const rf_v27_activity_round_decision_t *decision)
+{
+    uint32_t working_mask = 0U;
+
+    if ((decision == NULL) ||
+        (((decision->flags & RF_V27_ROUND_DECISION_OUTPUT_VALID) == 0U) &&
+         ((decision->flags & RF_V27_ROUND_DECISION_CPU0_EPOCH_RESET) == 0U)))
+    {
+        return;
+    }
+    if ((decision->flags & RF_V27_ROUND_DECISION_CPU0_EPOCH_RESET) == 0U)
+    {
+        for (uint32_t object = 0U; object < RF_V13_OBJECT_COUNT; ++object)
+        {
+            if (decision->object_activity_state[object] ==
+                RF_V27_ACTIVITY_WORKING)
+            {
+                working_mask |= 1UL << object;
+            }
+        }
+    }
+    ipc_bridge_cpu1_activity_report_publish(working_mask);
+}
+
 static bool display_app_frame_semantically_valid(const ra8p1_display_frame_t *frame)
 {
     uint64_t center_hz;
@@ -197,6 +222,7 @@ void display_app_step(void)
     if (rf_v27_activity_service_take_round_decision(&activity_decision))
     {
         alarm_buzzer_apply_round(&activity_decision, alarm_now_ms);
+        display_app_publish_activity_report(&activity_decision);
         lvgl_app_activity_round_update(&activity_decision);
     }
     alarm_buzzer_step(alarm_now_ms);

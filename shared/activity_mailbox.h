@@ -8,12 +8,14 @@
 #include "rf_v13_activity_fusion.h"
 
 #define RA8P1_ACTIVITY_CONTROL_MAGIC   (0x56544341UL) /* ACTV */
-#define RA8P1_ACTIVITY_CONTROL_VERSION (1U)
+#define RA8P1_ACTIVITY_CONTROL_VERSION (2U)
 #define RA8P1_ACTIVITY_CACHE_LINE_BYTES (32U)
 #define RA8P1_ACTIVITY_CPU0_FLAG_READY (1UL << 0)
 #define RA8P1_ACTIVITY_CPU0_FLAG_PANEL_SHUTDOWN_REQUEST (1UL << 1)
 #define RA8P1_ACTIVITY_CPU1_FLAG_ONLINE (1UL << 0)
 #define RA8P1_ACTIVITY_CPU1_FLAG_PANEL_SHUTDOWN_ACK (1UL << 1)
+#define RA8P1_ACTIVITY_REPORT_MASK_BITS (4U)
+#define RA8P1_ACTIVITY_REPORT_MASK (0x0FUL)
 
 /* Each core owns one cache-line-sized half.  A core only cleans its own half,
  * so an ACK can never write back stale producer state (or vice versa). */
@@ -40,7 +42,9 @@ typedef struct st_ra8p1_activity_cpu1_state
     volatile uint32_t acknowledged_message_sequence;
     volatile uint32_t protocol_errors;
     volatile uint32_t flags;
-    uint32_t reserved;
+    /* Low bits carry the working-object mask; high bits are a monotonic
+     * generation published after each valid CPU1 activity decision. */
+    volatile uint32_t report_word;
 } ra8p1_activity_cpu1_state_t;
 
 typedef struct st_ra8p1_activity_control

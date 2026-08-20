@@ -11,6 +11,7 @@
 #include "sdr_iiod_perf.h"
 #include "framework/rf_pipeline.h"
 #include "framework/activity_mailbox.h"
+#include "framework/esp_report.h"
 
 #define PANEL_SHUTDOWN_ACK_TIMEOUT_MS (1000U)
 
@@ -40,6 +41,7 @@ void hal_entry(void)
     eth_test_start();
     eth_perf_start();
     rf_pipeline_start();
+    esp_report_start();
 #if !SDR_IIOD_PERF_BOOT_ENABLE
     /* Keep the zeroed result ABI available to the read-only network sampler
      * even when --gc-sections removes the diagnostic thread. These volatile

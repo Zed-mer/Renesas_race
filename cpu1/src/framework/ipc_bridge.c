@@ -30,6 +30,7 @@ static uint32_t g_visible_pending_sequence;
 static uint32_t g_visible_pending_window;
 static uint32_t g_activity_sequence;
 static uint32_t g_activity_cpu0_epoch;
+static uint32_t g_activity_report_generation;
 static bool g_panel_shutdown_ack;
 
 #define CPU1_COMMAND_RETRY_SERVICE_CALLS (50U)
@@ -268,6 +269,7 @@ void ipc_bridge_cpu1_init(void)
     g_visible_pending_window = 0U;
     g_activity_sequence = 0U;
     g_activity_cpu0_epoch = 0U;
+    g_activity_report_generation = 0U;
     g_panel_shutdown_ack = false;
     state->published_command_sequence = 0U;
     state->published_mailbox_sequence = 0U;
@@ -278,7 +280,7 @@ void ipc_bridge_cpu1_init(void)
         activity->observed_cpu0_epoch = 0U;
         activity->acknowledged_message_sequence = 0U;
         activity->protocol_errors = 0U;
-        activity->reserved = 0U;
+        activity->report_word = 0U;
         ipc_cpu1_activity_state_publish();
     }
 }
@@ -323,9 +325,11 @@ bool ipc_bridge_cpu1_activity_poll(
     {
         g_activity_cpu0_epoch = first.boot_epoch;
         g_activity_sequence = 0U;
+        g_activity_report_generation = 0U;
         g_panel_shutdown_ack = false;
         ack->observed_cpu0_epoch = first.boot_epoch;
         ack->acknowledged_message_sequence = 0U;
+        ack->report_word = 0U;
         ipc_barrier();
         ipc_cpu1_activity_state_publish();
         if (cpu0_epoch_changed != NULL)
@@ -771,6 +775,27 @@ void ipc_bridge_cpu1_panel_shutdown_ack(void)
 {
     g_panel_shutdown_ack = true;
     ipc_cpu1_activity_state_publish();
+}
+
+void ipc_bridge_cpu1_activity_report_publish(uint32_t working_mask)
+{
+    volatile ra8p1_activity_cpu1_state_t * const state =
+        &RA8P1_ACTIVITY_CONTROL->cpu1;
+    uint32_t generation = g_activity_report_generation + 1U;
+    const uint32_t generation_mask =
+        UINT32_MAX >> RA8P1_ACTIVITY_REPORT_MASK_BITS;
+
+    generation &= generation_mask;
+    if (generation == 0U)
+    {
+        generation = 1U;
+    }
+    g_activity_report_generation = generation;
+    state->report_word =
+        (generation << RA8P1_ACTIVITY_REPORT_MASK_BITS) |
+        (working_mask & RA8P1_ACTIVITY_REPORT_MASK);
+    ipc_barrier();
+    ipc_cpu1_activity_state_clean();
 }
 
 void ipc_bridge_cpu1_runtime_update(uint32_t heartbeat,

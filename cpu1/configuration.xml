@@ -886,8 +886,8 @@
   </raModuleConfiguration>
   <raPinConfiguration>
     <symbolicName propertyId="p110.symbolic_name" value="USER_LED"/>
-    <symbolicName propertyId="p401.symbolic_name" value="ALARM_BUZZER"/>
     <symbolicName propertyId="p411.symbolic_name" value="PANEL_RESET"/>
+    <symbolicName propertyId="p515.symbolic_name" value="ALARM_BUZZER"/>
     <pincfg active="false" name="RA8T2_CPKNET.pincfg" selected="false" symbol="">
       <configSetting altId="cgc.extal.p212" configurationId="cgc.extal"/>
       <configSetting altId="cgc.mode.custom.free" configurationId="cgc.mode"/>
@@ -1368,8 +1368,6 @@
       <configSetting altId="p303.gpio_irq.gpio_irq_enabled" configurationId="p303.gpio_irq"/>
       <configSetting altId="p303.gpio_mode.gpio_mode_irq" configurationId="p303.gpio_mode"/>
       <configSetting altId="p303.gpio_pupd.gpio_pupd_ip_up" configurationId="p303.gpio_pupd"/>
-      <configSetting altId="p401.output.high" configurationId="p401"/>
-      <configSetting altId="p401.gpio_mode.gpio_mode_out.high" configurationId="p401.gpio_mode"/>
       <configSetting altId="p407.usbhs.usbhs_vbusen" configurationId="p407"/>
       <configSetting altId="p407.gpio_mode.gpio_mode_peripheral" configurationId="p407.gpio_mode"/>
       <configSetting altId="p408.usbhs.usbhs_vbus" configurationId="p408"/>
@@ -1412,6 +1410,8 @@
       <configSetting altId="p510.sdram.a13" configurationId="p510"/>
       <configSetting altId="p510.gpio_speed.gpio_speed_h" configurationId="p510.gpio_drivecapacity"/>
       <configSetting altId="p510.gpio_mode.gpio_mode_peripheral" configurationId="p510.gpio_mode"/>
+      <configSetting altId="p515.output.high" configurationId="p515"/>
+      <configSetting altId="p515.gpio_mode.gpio_mode_out.high" configurationId="p515.gpio_mode"/>
       <configSetting altId="p606.output.low" configurationId="p606"/>
       <configSetting altId="p606.gpio_speed.gpio_speed_m" configurationId="p606.gpio_drivecapacity"/>
       <configSetting altId="p606.gpio_mode.gpio_mode_out.low" configurationId="p606.gpio_mode"/>

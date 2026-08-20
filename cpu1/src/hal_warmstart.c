@@ -46,7 +46,7 @@ void R_BSP_WarmStart (bsp_warm_start_event_t event)
         R_BSP_PinAccessEnable();
         R_BSP_PinWrite(DISPLAY_STARTUP_BACKLIGHT_PIN, BSP_IO_LEVEL_LOW);
         R_BSP_PinWrite(DISPLAY_STARTUP_PANEL_RESET_PIN, BSP_IO_LEVEL_LOW);
-        /* J201-3/P401 drives the active-low buzzer.  Preload the output
+        /* J202-1/P515 drives the active-low buzzer.  Preload the output
          * latch high before the IOPORT driver opens so reset cannot chirp. */
         R_BSP_PinWrite(ALARM_BUZZER, BSP_IO_LEVEL_HIGH);
         R_BSP_PinAccessDisable();

@@ -97,6 +97,23 @@ static bool ipc_cpu0_activity_cpu1_state_read(
            ((state->flags & RA8P1_ACTIVITY_CPU1_FLAG_ONLINE) != 0U);
 }
 
+bool ipc_bridge_cpu0_activity_report_read(uint32_t *generation,
+                                          uint32_t *working_mask)
+{
+    ra8p1_activity_cpu1_state_t state;
+    uint32_t report_word;
+
+    if ((generation == NULL) || (working_mask == NULL) ||
+        !ipc_cpu0_activity_cpu1_state_read(&state))
+    {
+        return false;
+    }
+    report_word = state.report_word;
+    *generation = report_word >> RA8P1_ACTIVITY_REPORT_MASK_BITS;
+    *working_mask = report_word & RA8P1_ACTIVITY_REPORT_MASK;
+    return *generation != 0U;
+}
+
 static void ipc_cpu0_activity_init(void)
 {
     volatile ra8p1_activity_cpu0_state_t *state =

@@ -41,12 +41,10 @@
 #define RF_LIVE_BUTTON_X 0
 #define RF_LIVE_BUTTON_WIDTH 48
 #define RF_HISTORY_OLDER_X 48
-#define RF_HISTORY_BUTTON_WIDTH 36
-#define RF_HISTORY_TIMELINE_X 84
-#define RF_HISTORY_TIMELINE_WIDTH 392
-#define RF_HISTORY_NEWER_X 476
-#define RF_SOURCE_BADGE_X 512
-#define RF_SOURCE_BADGE_WIDTH 52
+#define RF_HISTORY_BUTTON_WIDTH 44
+#define RF_HISTORY_TIMELINE_X 92
+#define RF_HISTORY_TIMELINE_WIDTH 428
+#define RF_HISTORY_NEWER_X 520
 #define RF_WATERFALL_Y 112
 #define RF_WATERFALL_HEIGHT 312
 #define RF_SPECTRUM_Y 424
@@ -65,7 +63,15 @@
 #define RF_SIDEBAR_WIDTH 160
 #define RF_SIDEBAR_HEIGHT 464
 #define RF_PLOT_X 64
+#define RF_WATERFALL_PLOT_X 84
+#define RF_WATERFALL_SCALE_X 6
+#define RF_WATERFALL_SCALE_WIDTH 12
+#define RF_WATERFALL_SCALE_LABEL_X 20
+#define RF_WATERFALL_SCALE_LABEL_WIDTH 27
+#define RF_WATERFALL_FREQUENCY_LABEL_X 48
+#define RF_WATERFALL_FREQUENCY_LABEL_WIDTH 34
 #define RF_TOUCH_TARGET 44
+#define RF_BUTTON_EVENT LV_EVENT_PRESSED
 
 #define RF_SPECTRUM_TEXTURE_WIDTH 400u
 #define RF_SPECTRUM_TEXTURE_HEIGHT 40u
@@ -83,10 +89,10 @@
 #define RF_SPECTRUM_DISPLAY_WIDTH 800
 #define RF_SPECTRUM_DISPLAY_HEIGHT 66
 
-#define RF_WATERFALL_DISPLAY_WIDTH 800
+#define RF_WATERFALL_DISPLAY_WIDTH 780
 #define RF_WATERFALL_DISPLAY_HEIGHT 252
 #define RF_WATERFALL_RENDER_STORAGE_WIDTH \
-    (RF_WATERFALL_DISPLAY_WIDTH * 2u)
+    ((((RF_WATERFALL_DISPLAY_WIDTH * 2u) + 31u) / 32u) * 32u)
 #define RF_WATERFALL_RENDER_STRIDE_BYTES \
     (RF_WATERFALL_RENDER_STORAGE_WIDTH * sizeof(uint16_t))
 #define RF_WATERFALL_VISIBLE_ROW_BYTES \
@@ -114,7 +120,7 @@
 #define RF_WATERFALL_OVERLAY_DEFAULT_RATE_X10 65u
 #define RF_WATERFALL_OVERLAY_RATE_DENOMINATOR 10000u
 #define RF_WATERFALL_OVERLAY_CATCHUP_TARGET_PIXELS 160u
-#define RF_WATERFALL_OVERLAY_BUILD_ROWS_PER_TICK 11u
+#define RF_WATERFALL_OVERLAY_BUILD_ROWS_PER_TICK 10u
 #define RF_WATERFALL_OVERLAY_CATCHUP_MAX_ROWS_PER_TICK 64u
 #define RF_WATERFALL_CLUT_HEAT_FIRST 1u
 #define RF_WATERFALL_CLUT_HEAT_LAST 9u
@@ -128,10 +134,6 @@
 #define RF_WATERFALL_FAST_FREQ_BINS 192u
 #define RF_WATERFALL_PAN_PRESENT_PERIOD_MS 33u
 #define RF_WATERFALL_HISTORY_STEP_COLS 24u
-#define RF_WATERFALL_BOX_HISTORY_MAX_WRITE_BYTES \
-    (((2u * RF_UI_WATERFALL_FREQ_BINS) + \
-      (4u * RF_WATERFALL_RF_ROWS_PER_WINDOW)) * \
-     2u * sizeof(uint16_t))
 #define RF_WATERFALL_BOX_CLUT_MAX_WRITE_BYTES \
     (((4u * RF_WATERFALL_RF_ROWS_PER_WINDOW * \
        RF_WATERFALL_CLUT_PIXELS_PER_COLUMN) + \
@@ -146,9 +148,15 @@
 #define RF_CHANNEL_SWITCH_METADATA_STAGE_COUNT 4u
 #define RF_CHANNEL_SWITCH_CATCHUP_MAX_BYTES (32u * 1024u)
 #define RF_CHANNEL_SWITCH_MAX_WRITE_BYTES (32u * 1024u)
+#define RF_WATERFALL_BOX_REFRESH_SLOTS_PER_VSYNC \
+    (RF_CHANNEL_SWITCH_MAX_WRITE_BYTES / \
+     RF_WATERFALL_BOX_CLUT_MAX_WRITE_BYTES)
 #define RF_UI_PENDING_BOX_BATCH_CAPACITY (RF_UI_CHANNEL_COUNT * 2u)
 #define RF_UI_FUSION_DECISION_CACHE_CAPACITY (RF_UI_CHANNEL_COUNT * 2u)
 #define RF_UI_WINDOW_ANCHOR_CAPACITY (RF_UI_CHANNEL_COUNT * 2u)
+#define RF_UI_RETAINED_BOX_CAPACITY \
+    ((RF_UI_WATERFALL_HISTORY_COLS / RF_WATERFALL_RF_ROWS_PER_WINDOW) * \
+     RF_UI_MAX_RF_BOXES)
 
 #define RF_COLOR_SCREEN 0x050708u
 #define RF_COLOR_HEADER 0x0B0F11u
@@ -173,10 +181,10 @@
 #define RF_COLOR_AMBER_SOFT 0x302411u
 #define RF_COLOR_ORANGE_SOFT 0x321D14u
 #define RF_COLOR_ON_PRIMARY 0x031311u
-#define RF_COLOR_TARGET_1 0x42A5F5u
-#define RF_COLOR_TARGET_2 0xB8BEC4u
-#define RF_COLOR_TARGET_3 0xFF7A59u
-#define RF_COLOR_TARGET_4 0x5DD39Eu
+#define RF_COLOR_TARGET_1 0xFF2AA8u
+#define RF_COLOR_TARGET_2 0xFFF000u
+#define RF_COLOR_TARGET_3 0x36A3FFu
+#define RF_COLOR_TARGET_4 0xFFFFFFu
 
 static const uint32_t g_target_accent_colors[RF_UI_DETECTION_COUNT] = {
     RF_COLOR_TARGET_1,
@@ -262,7 +270,8 @@ typedef struct {
     lv_obj_t * screen;
     lv_obj_t * live_button;
     lv_obj_t * transport;
-    lv_obj_t * live_icon;
+    lv_obj_t * live_play_icon;
+    lv_obj_t * live_pause_bars[2];
     lv_obj_t * live_dot;
     lv_obj_t * live_label;
     lv_obj_t * transport_meta_label;
@@ -435,6 +444,13 @@ typedef struct {
     uint64_t waterfall_end_column;
 } rf_ui_window_anchor_t;
 
+typedef struct {
+    bool valid;
+    uint8_t reserved[7];
+    uint64_t anchor_end_column;
+    rf_ui_rf_box_t box;
+} rf_ui_retained_box_t;
+
 static rf_ui_rf_box_batch_t g_rf_box_batches[RF_UI_CHANNEL_COUNT];
 static rf_ui_rf_box_batch_t g_rf_box_pause_snapshot;
 static rf_ui_rf_box_batch_t g_spectrum_rf_box_batches[RF_UI_CHANNEL_COUNT];
@@ -445,6 +461,9 @@ static rf_ui_fusion_decision_cache_t
     g_fusion_decision_cache[RF_UI_FUSION_DECISION_CACHE_CAPACITY];
 static rf_ui_window_anchor_t
     g_window_anchors[RF_UI_WINDOW_ANCHOR_CAPACITY];
+static rf_ui_retained_box_t
+    g_retained_boxes[RF_UI_CHANNEL_COUNT][RF_UI_RETAINED_BOX_CAPACITY];
+static uint32_t g_retained_box_write_index[RF_UI_CHANNEL_COUNT];
 static uint32_t g_window_anchor_write_index;
 static uint32_t g_fusion_decision_generation;
 static bool g_latest_box_window_valid[RF_UI_CHANNEL_COUNT];
@@ -532,8 +551,9 @@ static rf_ui_waterfall_ring_t g_waterfall_rings[RF_DEMO_CHANNEL_COUNT]
 typedef struct {
     uint16_t rows[RF_WATERFALL_DISPLAY_HEIGHT]
                  [RF_WATERFALL_RENDER_STORAGE_WIDTH];
-    /* LVGL validates data_size from the offset data pointer. */
-    uint16_t readable_tail[RF_WATERFALL_DISPLAY_WIDTH];
+    /* LVGL validates data_size from the offset data pointer. Keep one padded
+     * stride readable after the last row and preserve 64-byte array spacing. */
+    uint16_t readable_tail[RF_WATERFALL_RENDER_STORAGE_WIDTH];
 } rf_ui_waterfall_rgb565_ring_t;
 
 typedef struct {
@@ -593,11 +613,16 @@ typedef struct {
     bool fallback_rebuilding;
     bool fallback_disable_ready;
     bool boxes_dirty[RF_CHANNEL_SOURCE_COUNT];
+    bool box_refresh_draw[RF_CHANNEL_SOURCE_COUNT];
+    bool box_budget_valid;
     uint8_t display_source;
     uint8_t display_phase;
     uint8_t prepared_source;
     uint8_t prepared_phase;
+    uint8_t box_budget_slots;
     uint16_t prepared_pixels;
+    uint16_t box_refresh_cursor[RF_CHANNEL_SOURCE_COUNT];
+    uint32_t box_budget_line_event;
     uint64_t presented_end_pixels;
     uint64_t prepared_end_pixels;
     uint64_t pace_accumulator;
@@ -735,6 +760,7 @@ static void channel_switch_soak_step(void);
 static bool waterfall_overlay_sync_start(uint32_t channel);
 static bool waterfall_overlay_sync_step(void);
 static void waterfall_overlay_sync_cancel(void);
+static void waterfall_retained_boxes_clear(uint32_t channel);
 
 _Static_assert(sizeof(g_spectrum_pixels[0]) == 0x8200u,
                "single-band spectrum texture size changed");
@@ -756,13 +782,13 @@ _Static_assert(sizeof(g_waterfall_rings) == 0xC0000u,
                "four-channel dual-mapped waterfall texture size changed");
 _Static_assert(sizeof(g_waterfall_pause_snapshot) == 0x18000u,
                "paused waterfall snapshot size changed");
-_Static_assert(sizeof(g_waterfall_render_rings[0]) == 0xC5440u,
+_Static_assert(sizeof(g_waterfall_render_rings[0]) == 0xC1B40u,
                "RGB565/CLUT4 source union size changed");
-_Static_assert(sizeof(g_waterfall_render_rings) == 0x18A880u,
+_Static_assert(sizeof(g_waterfall_render_rings) == 0x183680u,
                "dual-source waterfall render ring size changed");
 _Static_assert(sizeof(g_spectrum_pixels[1]) +
-               sizeof(g_waterfall_render_rings[1]) == 0xCD640u,
-               "channel-switch SDRAM increment must remain 841280 bytes");
+               sizeof(g_waterfall_render_rings[1]) == 0xC9D40u,
+               "channel-switch SDRAM increment changed");
 _Static_assert(RF_UI_WATERFALL_HISTORY_COLS >= RF_UI_WATERFALL_COLS,
                "waterfall history must cover the visible viewport");
 _Static_assert((RF_SPECTRUM_TEXTURE_STRIDE_BYTES & 63u) == 0u,
@@ -771,9 +797,9 @@ _Static_assert(((RF_UI_WATERFALL_STORAGE_COLS * sizeof(uint16_t)) & 63u) == 0u,
                "waterfall rows must remain 64-byte aligned");
 _Static_assert((RF_WATERFALL_RENDER_STRIDE_BYTES & 63u) == 0u,
                "waterfall render rows must remain 64-byte aligned");
-_Static_assert(sizeof(rf_ui_waterfall_clut4_phase_t) == 0x4EC00u,
+_Static_assert(sizeof(rf_ui_waterfall_clut4_phase_t) == 0x5E800u,
                "single CLUT4 phase size changed");
-_Static_assert(sizeof(rf_ui_waterfall_clut4_ring_t) == 0x9D800u,
+_Static_assert(sizeof(rf_ui_waterfall_clut4_ring_t) == 0xBD000u,
                "CLUT4 history ring size changed");
 _Static_assert(sizeof(rf_ui_waterfall_clut4_ring_t) <=
                sizeof(rf_ui_waterfall_rgb565_ring_t),
@@ -799,14 +825,19 @@ _Static_assert((RF_WATERFALL_OVERLAY_BUILD_ROWS_PER_TICK *
                RF_CHANNEL_SWITCH_MAX_WRITE_BYTES,
                "one CLUT4 build chunk exceeds the SDRAM write budget");
 _Static_assert(RF_UI_MAX_RF_BOXES *
-               (RF_WATERFALL_BOX_HISTORY_MAX_WRITE_BYTES +
-                RF_WATERFALL_BOX_CLUT_MAX_WRITE_BYTES) <=
+               RF_WATERFALL_BOX_CLUT_MAX_WRITE_BYTES <=
                RF_CHANNEL_SWITCH_MAX_WRITE_BYTES,
                "one RF box batch exceeds the SDRAM write budget");
+_Static_assert(RF_WATERFALL_BOX_REFRESH_SLOTS_PER_VSYNC > 0U,
+               "one retained RF box must fit the SDRAM write budget");
+_Static_assert(RF_WATERFALL_BOX_REFRESH_SLOTS_PER_VSYNC *
+               RF_WATERFALL_BOX_CLUT_MAX_WRITE_BYTES <=
+               RF_CHANNEL_SWITCH_MAX_WRITE_BYTES,
+               "retained RF box refresh exceeds the VSync write budget");
 _Static_assert((RF_WATERFALL_DISPLAY_WIDTH & 1u) == 0u,
                "CLUT4 viewport width must be even");
-_Static_assert((RF_WATERFALL_DISPLAY_WIDTH & 31u) == 0u,
-               "dual-mapped waterfall width must preserve a 64-byte RGB565 stride");
+_Static_assert((RF_WATERFALL_RENDER_STORAGE_WIDTH & 31u) == 0u,
+               "dual-mapped waterfall stride must remain 64-byte aligned");
 _Static_assert((RF_CHANNEL_SWITCH_WATERFALL_SOURCE_ROWS_PER_TICK *
                 RF_WATERFALL_RENDER_STRIDE_BYTES) <=
                RF_CHANNEL_SWITCH_MAX_WRITE_BYTES,
@@ -846,9 +877,10 @@ _Static_assert(RF_UI_WATERFALL_COLS <= RF_WATERFALL_DISPLAY_WIDTH,
 _Static_assert((RF_WATERFALL_RF_WINDOW_SAMPLES %
                 RF_WATERFALL_RF_ROWS_PER_WINDOW) == 0u,
                "waterfall RF rows must contain an integer sample count");
-_Static_assert(RF_UI_WATERFALL_COLS ==
-               (10u * RF_WATERFALL_RF_ROWS_PER_WINDOW),
-               "waterfall view must cover ten complete RF windows");
+_Static_assert(RF_UI_WATERFALL_COLS == 130u,
+               "waterfall viewport must remain close to 80 ms");
+_Static_assert(RF_WATERFALL_CLUT_PIXELS_PER_COLUMN == 6u,
+               "waterfall columns must map to stable integer pixels");
 _Static_assert((RF_MODE_X +
                 (RF_ACQUISITION_MODE_COUNT * RF_MODE_WIDTH) +
                 ((RF_ACQUISITION_MODE_COUNT - 1u) * RF_MODE_GAP)) <=
@@ -866,11 +898,10 @@ _Static_assert((RF_HISTORY_TIMELINE_X + RF_HISTORY_TIMELINE_WIDTH) ==
                RF_HISTORY_NEWER_X,
                "timeline and newer button must be adjacent");
 _Static_assert((RF_HISTORY_NEWER_X + RF_HISTORY_BUTTON_WIDTH) ==
-               RF_SOURCE_BADGE_X,
-               "newer button and source badge must be adjacent");
-_Static_assert((RF_SOURCE_BADGE_X + RF_SOURCE_BADGE_WIDTH) ==
                RF_TRANSPORT_WIDTH,
                "transport children must fill the transport");
+_Static_assert(RF_HISTORY_BUTTON_WIDTH >= RF_TOUCH_TARGET,
+               "history buttons must meet the minimum touch target");
 _Static_assert((RF_TARGET_CARD_WIDTH * RF_UI_DETECTION_COUNT) == RF_SCREEN_WIDTH,
                "four target cards must fill the target strip");
 _Static_assert((RF_CHANNEL_CARD_WIDTH * RF_UI_CHANNEL_COUNT) ==
@@ -892,8 +923,20 @@ _Static_assert((RF_METRICS_Y + RF_METRICS_HEIGHT) == RF_SCREEN_HEIGHT,
                "daylight vertical geometry must fill the screen");
 _Static_assert((RF_SIDEBAR_Y + RF_SIDEBAR_HEIGHT) == RF_METRICS_Y,
                "daylight detail column must end at the footer");
-_Static_assert((RF_PLOT_X + RF_WATERFALL_DISPLAY_WIDTH) <= RF_PANEL_WIDTH,
+_Static_assert((RF_WATERFALL_PLOT_X + RF_WATERFALL_DISPLAY_WIDTH) <=
+               RF_PANEL_WIDTH,
                "daylight waterfall plot exceeds the analysis column");
+_Static_assert((RF_WATERFALL_SCALE_X + RF_WATERFALL_SCALE_WIDTH) <=
+               RF_WATERFALL_SCALE_LABEL_X,
+               "waterfall energy scale overlaps its labels");
+_Static_assert((RF_WATERFALL_SCALE_LABEL_X +
+                RF_WATERFALL_SCALE_LABEL_WIDTH) <=
+               RF_WATERFALL_FREQUENCY_LABEL_X,
+               "waterfall energy labels overlap frequency labels");
+_Static_assert((RF_WATERFALL_FREQUENCY_LABEL_X +
+                RF_WATERFALL_FREQUENCY_LABEL_WIDTH) <=
+               RF_WATERFALL_PLOT_X,
+               "waterfall frequency labels overlap the plot");
 _Static_assert((RF_PLOT_X + RF_SPECTRUM_DISPLAY_WIDTH) <= RF_PANEL_WIDTH,
                "daylight spectrum plot exceeds the analysis column");
 #if LV_DRAW_BUF_STRIDE_ALIGN != 1
@@ -993,6 +1036,10 @@ static void style_rf_box_overlay(lv_obj_t * object,
 
     lv_obj_set_style_border_color(object, color(rgb), 0);
     lv_obj_set_style_border_opa(object, border_opa, 0);
+    lv_obj_set_style_outline_color(object, color(RF_COLOR_PLOT), 0);
+    lv_obj_set_style_outline_width(object, 1, 0);
+    lv_obj_set_style_outline_pad(object, 0, 0);
+    lv_obj_set_style_outline_opa(object, LV_OPA_COVER, 0);
     lv_obj_set_style_bg_color(object, color(rgb), 0);
     lv_obj_set_style_bg_opa(object, fill_opa, 0);
 }
@@ -1016,6 +1063,10 @@ static bool rf_box_batch_has_anchor_after(
 
 static void refresh_rf_box_overlays(void)
 {
+    /* Pause/review uses the snapshots captured at the live edge.  Do not
+     * discard the visible evidence here: the waterfall CLUT layer is frozen
+     * in place, while the fallback LVGL overlays use the same snapshot and
+     * history anchor as the frozen energy image. */
     const bool layer2_waterfall =
         g_waterfall_overlay.requested && !g_waterfall_overlay.failed;
     const rf_ui_rf_box_batch_t * waterfall_batch = g_ui.running ?
@@ -1156,7 +1207,7 @@ static void refresh_rf_box_overlays(void)
         }
 
         lv_obj_set_pos(g_ui.waterfall_rf_boxes[index],
-                       RF_PLOT_X + (int32_t)waterfall_left,
+                       RF_WATERFALL_PLOT_X + (int32_t)waterfall_left,
                        36 + (int32_t)waterfall_top);
         lv_obj_set_size(g_ui.waterfall_rf_boxes[index],
                         (int32_t)(waterfall_right - waterfall_left),
@@ -1771,51 +1822,6 @@ static bool waterfall_box_history_bounds(
     return true;
 }
 
-static bool waterfall_box_border_cell(
-    const rf_ui_waterfall_box_bounds_t * bounds,
-    uint32_t source_row,
-    uint64_t absolute_column)
-{
-    const uint32_t row_count = bounds->bottom_row - bounds->top_row;
-    const uint32_t horizontal_border = row_count >= 4U ? 2U : 1U;
-    return source_row < bounds->top_row + horizontal_border ||
-           source_row + horizontal_border >= bounds->bottom_row ||
-           absolute_column == bounds->start_column ||
-           absolute_column + 1U == bounds->end_column;
-}
-
-static uint32_t waterfall_history_box_raster(
-    uint32_t channel,
-    uint64_t anchor_end_column,
-    const rf_ui_rf_box_t * box)
-{
-    rf_ui_waterfall_box_bounds_t bounds;
-    if(channel >= RF_UI_CHANNEL_COUNT ||
-       !waterfall_box_history_bounds(anchor_end_column, box, &bounds)) {
-        return 0U;
-    }
-
-    const uint16_t pixel =
-        rgb565(g_target_accent_colors[box->detection_index]);
-    uint32_t bytes_written = 0U;
-    for(uint32_t source_row = bounds.top_row;
-        source_row < bounds.bottom_row; ++source_row) {
-        for(uint64_t absolute_column = bounds.start_column;
-            absolute_column < bounds.end_column; ++absolute_column) {
-            if(!waterfall_box_border_cell(
-                   &bounds, source_row, absolute_column)) continue;
-            const uint32_t history_column = (uint32_t)(
-                absolute_column % RF_UI_WATERFALL_HISTORY_COLS);
-            g_waterfall_rings[channel].rows[source_row][history_column] =
-                pixel;
-            g_waterfall_rings[channel].rows[source_row]
-                [history_column + RF_UI_WATERFALL_HISTORY_COLS] = pixel;
-            bytes_written += 2U * sizeof(pixel);
-        }
-    }
-    return bytes_written;
-}
-
 static void waterfall_overlay_pixel_set(uint8_t source,
                                         uint32_t render_y,
                                         uint64_t absolute_pixel,
@@ -1837,10 +1843,50 @@ static void waterfall_overlay_pixel_set(uint8_t source,
     }
 }
 
-static void waterfall_overlay_box_raster(uint8_t source,
-                                         uint64_t anchor_end_column,
-                                         const rf_ui_rf_box_t * box)
+static void waterfall_overlay_raw_pixel_restore(uint8_t source,
+                                                uint32_t channel,
+                                                uint32_t render_y,
+                                                uint64_t absolute_pixel)
 {
+    if(source >= RF_CHANNEL_SOURCE_COUNT ||
+       channel >= RF_UI_CHANNEL_COUNT ||
+       render_y >= RF_WATERFALL_DISPLAY_HEIGHT) return;
+    /* Keep the modulo in 64-bit space.  The absolute pixel cursor is
+     * intentionally monotonic and can outgrow uint32_t during a long run. */
+    const uint32_t history_column = (uint32_t)(
+        (absolute_pixel / RF_WATERFALL_CLUT_PIXELS_PER_COLUMN) %
+        RF_UI_WATERFALL_HISTORY_COLS);
+    const uint32_t source_row = g_waterfall_render_source_row[render_y];
+    const uint8_t clut_index = waterfall_clut_from_rgb565(
+        g_waterfall_rings[channel].rows[source_row][history_column]);
+    waterfall_overlay_pixel_set(source, render_y, absolute_pixel,
+                                clut_index);
+}
+
+static void waterfall_overlay_box_pixel_write(uint8_t source,
+                                              uint32_t channel,
+                                              uint32_t render_y,
+                                              uint64_t absolute_pixel,
+                                              uint8_t clut_index,
+                                              bool draw_box)
+{
+    if(draw_box) {
+        waterfall_overlay_pixel_set(source, render_y, absolute_pixel,
+                                    clut_index);
+    }
+    else {
+        waterfall_overlay_raw_pixel_restore(source, channel, render_y,
+                                            absolute_pixel);
+    }
+}
+
+static void waterfall_overlay_box_render(uint8_t source,
+                                         uint32_t channel,
+                                         uint64_t anchor_end_column,
+                                         const rf_ui_rf_box_t * box,
+                                         bool draw_box)
+{
+    if(channel >= RF_UI_CHANNEL_COUNT || box == NULL) return;
     uint32_t frequency_end = (uint32_t)box->frequency_start_q8 +
                              box->frequency_span_q8;
     uint32_t time_end = (uint32_t)box->time_start_q8 + box->time_span_q8;
@@ -1885,29 +1931,91 @@ static void waterfall_overlay_box_raster(uint8_t source,
     if(bottom > RF_WATERFALL_DISPLAY_HEIGHT) {
         bottom = RF_WATERFALL_DISPLAY_HEIGHT;
     }
-    const uint8_t clut_index = (uint8_t)(
+    const uint8_t box_clut_index = (uint8_t)(
         RF_WATERFALL_CLUT_BOX_FIRST + box->detection_index);
+    const uint8_t contrast_clut_index = RF_WATERFALL_CLUT_HEAT_FIRST;
 
     for(uint64_t pixel = start_pixel; pixel < end_pixel; ++pixel) {
         for(uint32_t border = 0U; border < 2U; ++border) {
+            const uint8_t edge_clut_index = border == 0U ?
+                contrast_clut_index : box_clut_index;
             if((top + border) < bottom) {
-                waterfall_overlay_pixel_set(
-                    source, top + border, pixel, clut_index);
+                waterfall_overlay_box_pixel_write(
+                    source, channel, top + border, pixel, edge_clut_index,
+                    draw_box);
             }
             if(bottom > border + top) {
                 const uint32_t y = bottom - 1U - border;
-                waterfall_overlay_pixel_set(source, y, pixel, clut_index);
+                waterfall_overlay_box_pixel_write(
+                    source, channel, y, pixel, edge_clut_index, draw_box);
             }
         }
     }
     for(uint32_t y = top; y < bottom; ++y) {
         for(uint32_t border = 0U; border < 2U; ++border) {
+            const uint8_t edge_clut_index = border == 0U ?
+                contrast_clut_index : box_clut_index;
             const uint64_t left = start_pixel + border;
             const uint64_t right = end_pixel - 1U - border;
-            waterfall_overlay_pixel_set(source, y, left, clut_index);
-            waterfall_overlay_pixel_set(source, y, right, clut_index);
+            waterfall_overlay_box_pixel_write(
+                source, channel, y, left, edge_clut_index, draw_box);
+            waterfall_overlay_box_pixel_write(
+                source, channel, y, right, edge_clut_index, draw_box);
         }
     }
+}
+
+static void waterfall_overlay_box_raster(uint8_t source,
+                                         uint32_t channel,
+                                         uint64_t anchor_end_column,
+                                         const rf_ui_rf_box_t * box)
+{
+    waterfall_overlay_box_render(source, channel, anchor_end_column,
+                                 box, true);
+}
+
+static void waterfall_overlay_box_restore(uint8_t source,
+                                          uint32_t channel,
+                                          uint64_t anchor_end_column,
+                                          const rf_ui_rf_box_t * box)
+{
+    waterfall_overlay_box_render(source, channel, anchor_end_column,
+                                 box, false);
+}
+
+static void waterfall_overlay_boxes_invalidate(uint8_t source)
+{
+    if(source >= RF_CHANNEL_SOURCE_COUNT) return;
+    g_waterfall_overlay.boxes_dirty[source] = true;
+    g_waterfall_overlay.box_refresh_draw[source] = g_ui.running;
+    g_waterfall_overlay.box_refresh_cursor[source] = 0U;
+}
+
+/* Freeze the already-presented CLUT pixels.  A pause is a visual snapshot;
+ * clearing boxes or rebuilding from the advancing live ring would make the
+ * retained evidence disagree with the energy columns under it. */
+static void waterfall_overlay_boxes_freeze(uint8_t source)
+{
+    if(source >= RF_CHANNEL_SOURCE_COUNT) return;
+    g_waterfall_overlay.boxes_dirty[source] = false;
+    g_waterfall_overlay.box_refresh_cursor[source] = 0U;
+}
+
+static bool waterfall_overlay_box_budget_reserve(void)
+{
+    const uint32_t line_event = g_display_diag.glcdc_line_events;
+    if(!g_waterfall_overlay.box_budget_valid ||
+       line_event != g_waterfall_overlay.box_budget_line_event) {
+        g_waterfall_overlay.box_budget_valid = true;
+        g_waterfall_overlay.box_budget_line_event = line_event;
+        g_waterfall_overlay.box_budget_slots = 0U;
+    }
+    if(g_waterfall_overlay.box_budget_slots >=
+       RF_WATERFALL_BOX_REFRESH_SLOTS_PER_VSYNC) {
+        return false;
+    }
+    g_waterfall_overlay.box_budget_slots++;
+    return true;
 }
 
 static void waterfall_overlay_box_raster_matching_sources(
@@ -1916,7 +2024,8 @@ static void waterfall_overlay_box_raster_matching_sources(
     const rf_ui_rf_box_t * box)
 {
     if(channel >= RF_UI_CHANNEL_COUNT ||
-       !g_waterfall_overlay.requested || g_waterfall_overlay.failed) return;
+       !g_ui.running || !g_waterfall_overlay.requested ||
+       g_waterfall_overlay.failed) return;
 
     int32_t selected_source = -1;
     if(g_waterfall_active_source < RF_CHANNEL_SOURCE_COUNT &&
@@ -1963,22 +2072,83 @@ static void waterfall_overlay_box_raster_matching_sources(
     }
     if(selected_source < 0) return;
 
+    if(!waterfall_overlay_box_budget_reserve()) {
+        waterfall_overlay_boxes_invalidate((uint8_t)selected_source);
+        return;
+    }
     waterfall_overlay_box_raster(
-        (uint8_t)selected_source, anchor_end_column, box);
+        (uint8_t)selected_source, channel, anchor_end_column, box);
     if((uint32_t)selected_source == g_waterfall_active_source ||
        (uint32_t)selected_source == g_waterfall_overlay.display_source) {
         g_waterfall_overlay.visual_dirty = true;
     }
 }
 
-static void waterfall_overlay_boxes_refresh(uint8_t source)
+static bool waterfall_overlay_retained_boxes_render_step(uint8_t source,
+                                                         bool draw_boxes)
 {
     if(source >= RF_CHANNEL_SOURCE_COUNT ||
-       !g_waterfall_source_state[source].valid) return;
-    /* RF boxes live in the RGB565 history itself. Base and catch-up builders
-     * reproduce every retained box, so an older stamp must never be erased. */
-    g_waterfall_overlay.boxes_dirty[source] = false;
+       !g_waterfall_source_state[source].valid) return true;
+    const uint32_t channel = g_waterfall_source_state[source].channel;
+    const uint64_t total_columns =
+        g_waterfall_source_state[source].total_columns;
+    const uint64_t oldest_column =
+        total_columns > RF_UI_WATERFALL_HISTORY_COLS ?
+        total_columns - RF_UI_WATERFALL_HISTORY_COLS : 0U;
+
+    uint16_t * const cursor =
+        &g_waterfall_overlay.box_refresh_cursor[source];
+    while(*cursor < RF_UI_RETAINED_BOX_CAPACITY) {
+        const uint32_t index = *cursor;
+        const rf_ui_retained_box_t * const retained =
+            &g_retained_boxes[channel][index];
+        rf_ui_waterfall_box_bounds_t bounds;
+        if(!retained->valid ||
+           !waterfall_box_history_bounds(retained->anchor_end_column,
+                                         &retained->box, &bounds) ||
+           bounds.end_column <= oldest_column ||
+           bounds.start_column >= total_columns) {
+            (*cursor)++;
+            continue;
+        }
+        if(!waterfall_overlay_box_budget_reserve()) return false;
+        if(draw_boxes) {
+            waterfall_overlay_box_raster(
+                source, channel, retained->anchor_end_column,
+                &retained->box);
+        }
+        else {
+            waterfall_overlay_box_restore(
+                source, channel, retained->anchor_end_column,
+                &retained->box);
+        }
+        (*cursor)++;
+    }
+    *cursor = 0U;
+    return true;
+}
+
+static void waterfall_overlay_boxes_refresh(uint8_t source)
+{
+    if(source >= RF_CHANNEL_SOURCE_COUNT) return;
+    if(!g_ui.running) {
+        waterfall_overlay_boxes_freeze(source);
+        return;
+    }
+    if(!g_waterfall_source_state[source].valid) {
+        g_waterfall_overlay.boxes_dirty[source] = false;
+        g_waterfall_overlay.box_refresh_cursor[source] = 0U;
+        return;
+    }
+    g_waterfall_overlay.box_refresh_draw[source] = true;
+    /* Keep the raw RF history separate from the CLUT evidence layer.  Live
+     * sources rebuild retained geometry; paused sources never enter this
+     * path, so their already-presented pixels remain untouched. */
+    const bool complete = waterfall_overlay_retained_boxes_render_step(
+        source, true);
     g_waterfall_overlay.visual_dirty = true;
+    if(!complete) return;
+    g_waterfall_overlay.boxes_dirty[source] = false;
     g_rf_ui_channel_switch_diag.overlay_box_refreshes++;
 }
 
@@ -2161,20 +2331,39 @@ static void waterfall_overlay_source_bootstrap(uint8_t source,
     waterfall_source_state_commit(
         source, channel, g_waterfall_total_columns[channel],
         g_waterfall_write_head[channel], 0U);
-    g_waterfall_overlay.boxes_dirty[source] = true;
+    waterfall_overlay_boxes_invalidate(source);
     waterfall_overlay_boxes_refresh(source);
 }
 
 static void waterfall_pause_snapshot_capture(uint32_t channel)
 {
-    const uint32_t logical_head = g_waterfall_write_head[channel];
+    const uint64_t total_columns = g_waterfall_total_columns[channel];
+    uint64_t presented_columns = g_waterfall_presented_columns[channel];
+    uint64_t lag_columns;
+    uint32_t logical_head;
+
+    /* Copy the last image that was actually presented, not the newest ring
+     * head.  Acquisition continues while paused, so using write_head here
+     * would pair an older box batch with newer energy columns in the RGB565
+     * fallback path. */
+    if(presented_columns > total_columns) presented_columns = total_columns;
+    lag_columns = total_columns - presented_columns;
+    if(lag_columns > RF_UI_WATERFALL_HISTORY_COLS) {
+        presented_columns = total_columns > RF_UI_WATERFALL_HISTORY_COLS ?
+            total_columns - RF_UI_WATERFALL_HISTORY_COLS : 0U;
+        lag_columns = total_columns - presented_columns;
+    }
+    logical_head = (uint32_t)(
+        (g_waterfall_write_head[channel] + RF_UI_WATERFALL_HISTORY_COLS -
+         (lag_columns % RF_UI_WATERFALL_HISTORY_COLS)) %
+        RF_UI_WATERFALL_HISTORY_COLS);
     for(uint32_t row = 0U; row < RF_UI_WATERFALL_FREQ_BINS; ++row) {
         memcpy(g_waterfall_pause_snapshot[row],
                &g_waterfall_rings[channel].rows[row][logical_head],
                RF_UI_WATERFALL_HISTORY_COLS * sizeof(uint16_t));
     }
     g_rf_box_pause_snapshot = g_rf_box_batches[channel];
-    g_waterfall_pause_total_columns = g_waterfall_total_columns[channel];
+    g_waterfall_pause_total_columns = presented_columns;
 }
 
 static void waterfall_render_rebuild_paused(void)
@@ -2213,6 +2402,7 @@ static void waterfall_clear_channel(uint32_t channel)
     const uint16_t background = waterfall_pixel(0U);
     waterfall_source_state_invalidate_channel(channel);
     rf_box_window_anchors_clear_channel(channel);
+    waterfall_retained_boxes_clear(channel);
     for(uint32_t frequency_row = 0; frequency_row < RF_UI_WATERFALL_FREQ_BINS;
         ++frequency_row) {
         fill_row(g_waterfall_rings[channel].rows[frequency_row], background,
@@ -2345,8 +2535,7 @@ static void format_render_max(char * buffer, size_t buffer_size, uint32_t render
 static void refresh_scan_rate(void)
 {
     if(g_ui.scan_rate_label == NULL) return;
-    lv_label_set_text_fmt(g_ui.scan_rate_label, "%s %u.%u Hz",
-                           g_ui.focus_mode ? "Focus" : "Scan",
+    lv_label_set_text_fmt(g_ui.scan_rate_label, "Scan %u.%u Hz",
                            (unsigned) (g_scan_rate_x10 / 10u),
                            (unsigned) (g_scan_rate_x10 % 10u));
 }
@@ -2355,9 +2544,9 @@ static void refresh_waterfall_timing(void)
 {
     if(g_ui.waterfall_history_label == NULL) return;
 
-    /* Time is RF acquisition time, not wall-clock tile arrival time.  One
+    /* Time is RF acquisition time, not wall-clock tile arrival time. One
      * pooled row contains 590336 / 16 samples at 60 MS/s (614.93 us), so the
-     * 160-column viewport spans 98.3893 ms regardless of transport timing. */
+     * 130-column viewport spans 79.9413 ms regardless of transport timing. */
     const uint32_t samples_per_column = RF_WATERFALL_RF_WINDOW_SAMPLES /
                                         RF_WATERFALL_RF_ROWS_PER_WINDOW;
     const uint32_t column_thousandths_ms = (uint32_t)
@@ -2479,9 +2668,18 @@ static void refresh_live_state(void)
     if(g_ui.live_dot != NULL) {
         lv_obj_set_style_bg_color(g_ui.live_dot, color(state_color), 0);
     }
-    lv_label_set_text(g_ui.live_icon,
-                      g_ui.running ? LV_SYMBOL_PAUSE : LV_SYMBOL_PLAY);
-    lv_obj_set_style_text_color(g_ui.live_icon, color(state_color), 0);
+    set_visible(g_ui.live_play_icon, !g_ui.running);
+    if(g_ui.live_play_icon != NULL) {
+        lv_obj_set_style_text_color(g_ui.live_play_icon,
+                                    color(state_color), 0);
+    }
+    for(uint32_t index = 0U; index < 2U; ++index) {
+        set_visible(g_ui.live_pause_bars[index], g_ui.running);
+        if(g_ui.live_pause_bars[index] != NULL) {
+            lv_obj_set_style_bg_color(g_ui.live_pause_bars[index],
+                                      color(state_color), 0);
+        }
+    }
     lv_obj_set_style_text_color(g_ui.live_label, color(state_color), 0);
     lv_obj_set_style_bg_color(g_ui.live_button,
                               color(g_ui.running ? RF_COLOR_GREEN_SOFT :
@@ -2500,7 +2698,6 @@ static void waterfall_paused_view_present(void)
 {
     if(g_waterfall_overlay.requested && !g_waterfall_overlay.failed) {
         g_waterfall_overlay.visual_dirty = true;
-        g_waterfall_overlay.boxes_dirty[g_waterfall_active_source] = true;
     }
     else {
         waterfall_render_rebuild_paused();
@@ -2579,7 +2776,8 @@ static void history_slider_event(lv_event_t * event)
 
 static void history_button_event(lv_event_t * event)
 {
-    if(lv_event_get_code(event) != LV_EVENT_CLICKED) return;
+    const lv_event_code_t code = lv_event_get_code(event);
+    if(code != RF_BUTTON_EVENT) return;
     const uint32_t action = (uint32_t)(uintptr_t)lv_event_get_user_data(event);
     if(action == RF_HISTORY_LIVE) {
         rf_ui_toggle_running();
@@ -2592,20 +2790,19 @@ static void history_button_event(lv_event_t * event)
     }
     else {
         input_diag_record(RF_UI_INPUT_CONTROL_HISTORY_BUTTON, action,
-                          LV_EVENT_CLICKED, false);
+                          code, false);
         return;
     }
     input_diag_record(RF_UI_INPUT_CONTROL_HISTORY_BUTTON, action,
-                      LV_EVENT_CLICKED, true);
+                      code, true);
 }
 
 static void live_button_event(lv_event_t * event)
 {
-    if(lv_event_get_code(event) == LV_EVENT_CLICKED) {
-        input_diag_record(RF_UI_INPUT_CONTROL_LIVE, 0U,
-                          LV_EVENT_CLICKED, true);
-        rf_ui_toggle_running();
-    }
+    const lv_event_code_t code = lv_event_get_code(event);
+    if(code != RF_BUTTON_EVENT) return;
+    input_diag_record(RF_UI_INPUT_CONTROL_LIVE, 0U, code, true);
+    rf_ui_toggle_running();
 }
 
 static void waterfall_pan_event(lv_event_t * event)
@@ -2676,8 +2873,9 @@ static bool rf_box_generation_newer(uint32_t candidate, uint32_t current)
     return (int32_t)(candidate - current) > 0;
 }
 
-static bool find_last_detection_box(uint32_t detection_index,
-                                    rf_ui_box_ref_t * ref)
+static bool find_last_detection_box_filtered(uint32_t detection_index,
+                                             int32_t video_filter,
+                                             rf_ui_box_ref_t * ref)
 {
     if(detection_index >= RF_UI_DETECTION_COUNT || ref == NULL) return false;
 
@@ -2695,6 +2893,9 @@ static bool find_last_detection_box(uint32_t detection_index,
                box->frequency_span_q8 == 0U) {
                 continue;
             }
+            const bool video =
+                (box->flags & RF_UI_RF_BOX_FLAG_VIDEO_20MHZ) != 0U;
+            if(video_filter >= 0 && video != (video_filter != 0)) continue;
             if(!found || generation == ref->observation_generation ||
                rf_box_generation_newer(
                    generation, ref->observation_generation)) {
@@ -2706,6 +2907,12 @@ static bool find_last_detection_box(uint32_t detection_index,
         }
     }
     return found;
+}
+
+static bool find_last_detection_box(uint32_t detection_index,
+                                    rf_ui_box_ref_t * ref)
+{
+    return find_last_detection_box_filtered(detection_index, -1, ref);
 }
 
 static void format_box_frequency_range(char * buffer,
@@ -2725,25 +2932,9 @@ static void format_box_frequency_range(char * buffer,
          RF_UI_RF_COORD_SCALE);
     const uint32_t end_tenths = base_tenths +
         ((end_q8 * 560U + 128U) / RF_UI_RF_COORD_SCALE);
-    snprintf(buffer, buffer_size, "%u.%u-%u.%u MHz",
-             (unsigned)(start_tenths / 10U),
-             (unsigned)(start_tenths % 10U),
-             (unsigned)(end_tenths / 10U),
-             (unsigned)(end_tenths % 10U));
-}
-
-static const char * box_signal_name(uint32_t detection_index,
-                                    const rf_ui_rf_box_t * box)
-{
-    if(box != NULL &&
-       (box->flags & RF_UI_RF_BOX_FLAG_VIDEO_20MHZ) != 0U) {
-        return detection_index == 3U ? "跳频遥控图传" : "图传信号";
-    }
-    static const char * const names[RF_UI_DETECTION_COUNT] = {
-        "遥控信号", "跳频遥控", "扩频跳频遥控", "跳频遥控图传"
-    };
-    return detection_index < RF_UI_DETECTION_COUNT ?
-           names[detection_index] : "射频信号";
+    snprintf(buffer, buffer_size, "%u-%u MHz",
+             (unsigned)((start_tenths + 5U) / 10U),
+             (unsigned)((end_tenths + 5U) / 10U));
 }
 
 static bool detection_online(uint32_t index)
@@ -2804,7 +2995,10 @@ static void refresh_header_status(void)
 
 static void refresh_source_badge(void)
 {
-    if(g_ui.source_badge == NULL) return;
+    if(g_ui.source_badge == NULL) {
+        refresh_header_status();
+        return;
+    }
     const uint32_t badge_color = g_ui.external_spectrum_mode ?
                                  RF_COLOR_PRIMARY : RF_COLOR_ORANGE;
     lv_obj_set_style_bg_color(g_ui.source_badge,
@@ -3168,7 +3362,8 @@ static void refresh_target_detail(void)
     const bool selection_present = selected >= 0;
     const bool working = selection_present &&
         detection_online((uint32_t)selected);
-    const uint32_t accent = working ? RF_COLOR_PRIMARY : RF_COLOR_MUTED;
+    const uint32_t accent = selection_present ?
+        g_target_accent_colors[(uint32_t)selected] : RF_COLOR_MUTED;
     refresh_target_detail_surface();
 
     if(!selection_present) {
@@ -3187,41 +3382,57 @@ static void refresh_target_detail(void)
     else {
         const uint32_t target = (uint32_t)selected;
         const rf_ui_detection_t * const detection = &g_detections[target];
-        rf_ui_box_ref_t last_ref = {0};
-        const bool range_present =
-            working && find_last_detection_box(target, &last_ref);
+        rf_ui_box_ref_t range_refs[2] = {0};
+        bool range_present[2] = {false, false};
+        if(working && target == 0U) {
+            range_present[0] = find_last_detection_box_filtered(
+                target, 1, &range_refs[0]);
+            range_present[1] = find_last_detection_box_filtered(
+                target, 0, &range_refs[1]);
+        }
+        else if(working) {
+            range_present[0] = find_last_detection_box(
+                target, &range_refs[0]);
+        }
         lv_label_set_text(g_ui.alert_drone_label,
-                          working ? g_target_display_names[target] : "空闲");
+                          g_target_display_names[target]);
         lv_label_set_text_fmt(g_ui.side_channel_label, "%02u",
                               (unsigned)target + 1U);
         for(uint32_t index = 0U; index < 2U; ++index) {
-            const bool present = index == 0U && range_present;
+            const bool present = working &&
+                (target == 0U || (index == 0U && range_present[0]));
             set_visible(g_ui.detail_range_name_labels[index], present);
             set_visible(g_ui.detail_range_value_labels[index], present);
             if(!present) continue;
-            char range[32];
-            format_box_frequency_range(range, sizeof(range), &last_ref);
-            lv_label_set_text(g_ui.detail_range_name_labels[index],
-                              box_signal_name(target, last_ref.box));
-            lv_label_set_text(g_ui.detail_range_value_labels[index], range);
+            char range[32] = "--";
+            char line[48];
+            if(range_present[index]) {
+                format_box_frequency_range(
+                    range, sizeof(range), &range_refs[index]);
+            }
+            if(target == 0U) {
+                snprintf(line, sizeof(line), "%s %s",
+                         index == 0U ? "图传" : "遥控", range);
+            }
+            else {
+                snprintf(line, sizeof(line), "%s", range);
+            }
+            lv_label_set_text(g_ui.detail_range_name_labels[index], line);
             lv_obj_set_style_text_color(
                 g_ui.detail_range_name_labels[index], color(accent), 0);
-            lv_obj_set_style_text_color(
-                g_ui.detail_range_value_labels[index], color(accent), 0);
         }
-        if(working && !range_present) {
+        if(working && target != 0U && !range_present[0]) {
             set_visible(g_ui.detail_range_name_labels[0], true);
-            set_visible(g_ui.detail_range_value_labels[0], true);
-            lv_label_set_text(g_ui.detail_range_name_labels[0],
-                              rf_demo_channels[detection->channel_index].id);
-            lv_label_set_text_fmt(g_ui.detail_range_value_labels[0],
-                                  "%u MHz",
-                                  (unsigned)rf_demo_channels[
-                                      detection->channel_index].center_mhz);
+            const uint32_t center =
+                rf_demo_channels[detection->channel_index].center_mhz;
+            lv_label_set_text_fmt(g_ui.detail_range_name_labels[0],
+                                  "%u-%u MHz",
+                                  (unsigned)(center -
+                                      RF_CHANNEL_HALF_BANDWIDTH_MHZ),
+                                  (unsigned)(center +
+                                      RF_CHANNEL_HALF_BANDWIDTH_MHZ));
         }
         lv_obj_set_style_text_color(g_ui.detail_range_name_labels[0],
-                                    color(accent), 0);
-        lv_obj_set_style_text_color(g_ui.detail_range_value_labels[0],
                                     color(accent), 0);
         if(working) {
             lv_label_set_text_fmt(g_ui.alert_idle_label, "%u%%",
@@ -3326,23 +3537,24 @@ static void select_target_index(uint32_t index)
 
 static void target_click_event(lv_event_t * event)
 {
-    if(lv_event_get_code(event) != LV_EVENT_CLICKED) return;
+    const lv_event_code_t code = lv_event_get_code(event);
+    if(code != RF_BUTTON_EVENT) return;
     const uint32_t index =
         (uint32_t)(uintptr_t)lv_event_get_user_data(event);
     const bool handled = g_ui.running && index < RF_DEMO_CLASS_COUNT;
-    input_diag_record(RF_UI_INPUT_CONTROL_TARGET, index,
-                      LV_EVENT_CLICKED, handled);
+    input_diag_record(RF_UI_INPUT_CONTROL_TARGET, index, code, handled);
     if(!handled) return;
     select_target_index(index);
 }
 
 static void compare_target_click_event(lv_event_t * event)
 {
-    if(lv_event_get_code(event) != LV_EVENT_CLICKED) return;
+    const lv_event_code_t code = lv_event_get_code(event);
+    if(code != RF_BUTTON_EVENT) return;
     const uint32_t index =
         (uint32_t)(uintptr_t)lv_event_get_user_data(event);
     input_diag_record(RF_UI_INPUT_CONTROL_COMPARE_TARGET, index,
-                      LV_EVENT_CLICKED, g_ui.running);
+                      code, g_ui.running);
     if(!g_ui.running) return;
     select_target_index(index);
     set_visible(g_ui.compare_overlay, false);
@@ -3350,9 +3562,9 @@ static void compare_target_click_event(lv_event_t * event)
 
 static void compare_button_event(lv_event_t * event)
 {
-    if(lv_event_get_code(event) != LV_EVENT_CLICKED) return;
-    input_diag_record(RF_UI_INPUT_CONTROL_COMPARE_OPEN, 0U,
-                      LV_EVENT_CLICKED, true);
+    const lv_event_code_t code = lv_event_get_code(event);
+    if(code != RF_BUTTON_EVENT) return;
+    input_diag_record(RF_UI_INPUT_CONTROL_COMPARE_OPEN, 0U, code, true);
     refresh_compare_overlay();
     set_visible(g_ui.compare_overlay, true);
     lv_obj_move_foreground(g_ui.compare_overlay);
@@ -3360,30 +3572,31 @@ static void compare_button_event(lv_event_t * event)
 
 static void compare_close_event(lv_event_t * event)
 {
-    if(lv_event_get_code(event) == LV_EVENT_CLICKED) {
-        input_diag_record(RF_UI_INPUT_CONTROL_COMPARE_CLOSE, 0U,
-                          LV_EVENT_CLICKED, true);
-        set_visible(g_ui.compare_overlay, false);
-    }
+    const lv_event_code_t code = lv_event_get_code(event);
+    if(code != RF_BUTTON_EVENT) return;
+    input_diag_record(RF_UI_INPUT_CONTROL_COMPARE_CLOSE, 0U, code, true);
+    set_visible(g_ui.compare_overlay, false);
 }
 
 static void selector_click_event(lv_event_t * event)
 {
+    const lv_event_code_t code = lv_event_get_code(event);
+    if(code != RF_BUTTON_EVENT) return;
     const uint32_t channel = (uint32_t) (uintptr_t) lv_event_get_user_data(event);
     if(!g_ui.running) {
         input_diag_record(RF_UI_INPUT_CONTROL_CHANNEL, channel,
-                          LV_EVENT_CLICKED, false);
+                          code, false);
         return;
     }
     if(channel == g_ui.committed_channel &&
        g_ui.pending_channel == g_ui.committed_channel) {
         input_diag_record(RF_UI_INPUT_CONTROL_CHANNEL, channel,
-                          LV_EVENT_CLICKED, false);
+                          code, false);
         return;
     }
     const bool accepted = rf_ui_set_selected_channel(channel);
     input_diag_record(RF_UI_INPUT_CONTROL_CHANNEL, channel,
-                      LV_EVENT_CLICKED, accepted);
+                      code, accepted);
     if(accepted && g_ui.focus_mode) {
         (void) display_app_request_focus(channel);
     }
@@ -3391,6 +3604,8 @@ static void selector_click_event(lv_event_t * event)
 
 static void acquisition_mode_click_event(lv_event_t * event)
 {
+    const lv_event_code_t code = lv_event_get_code(event);
+    if(code != RF_BUTTON_EVENT) return;
     const uint32_t mode = (uint32_t) (uintptr_t) lv_event_get_user_data(event);
     bool accepted = false;
 
@@ -3403,8 +3618,7 @@ static void acquisition_mode_click_event(lv_event_t * event)
         }
     }
 
-    input_diag_record(RF_UI_INPUT_CONTROL_ACQUISITION, mode,
-                      LV_EVENT_CLICKED, accepted);
+    input_diag_record(RF_UI_INPUT_CONTROL_ACQUISITION, mode, code, accepted);
     if(accepted) rf_ui_set_focus_mode(mode == RF_ACQUISITION_FOCUS);
 }
 
@@ -3428,7 +3642,7 @@ static void create_acquisition_modes(lv_obj_t * header)
                                   LV_STATE_PRESSED);
         lv_obj_add_flag(button, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_add_event_cb(button, acquisition_mode_click_event,
-                            LV_EVENT_CLICKED, (void *)(uintptr_t)index);
+                            RF_BUTTON_EVENT, (void *)(uintptr_t)index);
         g_ui.acquisition_labels[index] = create_label(
             button, 0, 13, RF_MODE_WIDTH, 18, labels[index], &rf_font_zh_14,
             RF_COLOR_TEXT, LV_TEXT_ALIGN_CENTER);
@@ -3475,11 +3689,18 @@ static void create_header(void)
                               LV_STATE_PRESSED);
     lv_obj_add_flag(g_ui.live_button, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(g_ui.live_button, live_button_event,
-                        LV_EVENT_CLICKED, NULL);
-    g_ui.live_icon = create_label(g_ui.live_button, 0, 13,
-                                  RF_LIVE_BUTTON_WIDTH, 18,
-                                  LV_SYMBOL_PAUSE, &lv_font_montserrat_14,
-                                  RF_COLOR_GREEN, LV_TEXT_ALIGN_CENTER);
+                        RF_BUTTON_EVENT, NULL);
+    g_ui.live_play_icon = create_label(
+        g_ui.live_button, 0, 11, RF_LIVE_BUTTON_WIDTH, 22,
+        LV_SYMBOL_PLAY, &lv_font_montserrat_20,
+        RF_COLOR_GREEN, LV_TEXT_ALIGN_CENTER);
+    set_visible(g_ui.live_play_icon, false);
+    for(uint32_t index = 0U; index < 2U; ++index) {
+        g_ui.live_pause_bars[index] = create_box(
+            g_ui.live_button, 18 + (int32_t)index * 8, 14,
+            4, 16, RF_COLOR_GREEN, LV_OPA_COVER);
+        lv_obj_set_style_radius(g_ui.live_pause_bars[index], 1, 0);
+    }
 
     static const uint32_t actions[2] = {
         RF_HISTORY_OLDER, RF_HISTORY_NEWER
@@ -3501,7 +3722,7 @@ static void create_header(void)
         lv_obj_set_style_bg_color(button, color(RF_COLOR_PRESSED),
                                   LV_STATE_PRESSED);
         lv_obj_add_flag(button, LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_add_event_cb(button, history_button_event, LV_EVENT_CLICKED,
+        lv_obj_add_event_cb(button, history_button_event, RF_BUTTON_EVENT,
                             (void *)(uintptr_t)action);
         g_ui.history_labels[action] = create_label(
             button, 0, 13, RF_HISTORY_BUTTON_WIDTH, 18, symbols[index],
@@ -3512,22 +3733,25 @@ static void create_header(void)
         transport, RF_HISTORY_TIMELINE_X, 0,
         RF_HISTORY_TIMELINE_WIDTH, RF_TRANSPORT_HEIGHT,
         RF_COLOR_PANEL, LV_OPA_COVER);
-    g_ui.live_label = create_label(timeline, 8, 3, 42, 16, "实时",
+    g_ui.live_label = create_label(timeline, 8, 3, 48, 16, "实时",
                                    &rf_font_zh_14, RF_COLOR_GREEN,
                                    LV_TEXT_ALIGN_LEFT);
     g_ui.transport_meta_label = create_label(
-        timeline, 52, 3, 274, 16, "CH1 | 2420 MHz | 0 目标",
+        timeline, 58, 3, RF_HISTORY_TIMELINE_WIDTH - 146, 16,
+        "CH1 | 2420 MHz | 0 目标",
         &rf_font_zh_14, RF_COLOR_MUTED, LV_TEXT_ALIGN_LEFT);
     g_ui.header_status_label = g_ui.transport_meta_label;
     g_ui.transport_time_label = create_label(
-        timeline, 326, 3, 58, 16, "LIVE", &rf_font_10,
+        timeline, RF_HISTORY_TIMELINE_WIDTH - 78, 3, 68, 16,
+        "LIVE", &rf_font_10,
         RF_COLOR_GREEN, LV_TEXT_ALIGN_RIGHT);
 
     g_ui.history_slider = lv_slider_create(timeline);
     reset_object(g_ui.history_slider);
     lv_obj_add_flag(g_ui.history_slider, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_set_pos(g_ui.history_slider, 10, 22);
-    lv_obj_set_size(g_ui.history_slider, 372, 18);
+    lv_obj_set_size(g_ui.history_slider,
+                    RF_HISTORY_TIMELINE_WIDTH - 20, 18);
     lv_slider_set_range(g_ui.history_slider, 0,
                         RF_UI_WATERFALL_HISTORY_COLS - RF_UI_WATERFALL_COLS);
     lv_slider_set_value(g_ui.history_slider,
@@ -3537,34 +3761,25 @@ static void create_header(void)
                               LV_PART_MAIN);
     lv_obj_set_style_bg_opa(g_ui.history_slider, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_pad_ver(g_ui.history_slider, 7, LV_PART_MAIN);
-    lv_obj_set_style_radius(g_ui.history_slider, 0, LV_PART_MAIN);
+    lv_obj_set_style_radius(g_ui.history_slider, 2, LV_PART_MAIN);
     lv_obj_set_style_bg_color(g_ui.history_slider, color(RF_COLOR_PRIMARY),
                               LV_PART_INDICATOR);
     lv_obj_set_style_bg_opa(g_ui.history_slider, LV_OPA_COVER,
                             LV_PART_INDICATOR);
-    lv_obj_set_style_radius(g_ui.history_slider, 0, LV_PART_INDICATOR);
+    lv_obj_set_style_radius(g_ui.history_slider, 2, LV_PART_INDICATOR);
     lv_obj_set_style_bg_color(g_ui.history_slider, color(RF_COLOR_PRIMARY),
                               LV_PART_KNOB);
     lv_obj_set_style_bg_opa(g_ui.history_slider, LV_OPA_COVER, LV_PART_KNOB);
-    lv_obj_set_style_width(g_ui.history_slider, 8, LV_PART_KNOB);
-    lv_obj_set_style_height(g_ui.history_slider, 12, LV_PART_KNOB);
-    lv_obj_set_style_radius(g_ui.history_slider, 0, LV_PART_KNOB);
+    lv_obj_set_style_width(g_ui.history_slider, 16, LV_PART_KNOB);
+    lv_obj_set_style_height(g_ui.history_slider, 16, LV_PART_KNOB);
+    lv_obj_set_style_radius(g_ui.history_slider, LV_RADIUS_CIRCLE,
+                            LV_PART_KNOB);
+    lv_obj_set_style_border_width(g_ui.history_slider, 2, LV_PART_KNOB);
+    lv_obj_set_style_border_color(g_ui.history_slider,
+                                  color(RF_COLOR_TEXT), LV_PART_KNOB);
     lv_obj_add_event_cb(g_ui.history_slider, history_slider_event,
                         LV_EVENT_VALUE_CHANGED, NULL);
 
-    g_ui.source_badge = create_box(
-        transport, RF_SOURCE_BADGE_X, 0,
-        RF_SOURCE_BADGE_WIDTH, RF_TRANSPORT_HEIGHT,
-        RF_COLOR_PRIMARY_SOFT, LV_OPA_COVER);
-    lv_obj_set_style_border_width(g_ui.source_badge, 1, 0);
-    lv_obj_set_style_border_color(g_ui.source_badge, color(RF_COLOR_DIVIDER), 0);
-    lv_obj_set_style_border_side(g_ui.source_badge, LV_BORDER_SIDE_LEFT, 0);
-    create_label(g_ui.source_badge, 5, 14, 16, 16, LV_SYMBOL_WIFI,
-                 &lv_font_montserrat_14, RF_COLOR_PRIMARY,
-                 LV_TEXT_ALIGN_CENTER);
-    g_ui.source_badge_label = create_label(
-        g_ui.source_badge, 24, 14, 24, 16, "IQ", &rf_font_10,
-        RF_COLOR_PRIMARY, LV_TEXT_ALIGN_LEFT);
 }
 
 static void create_metrics_footer(void)
@@ -3575,35 +3790,21 @@ static void create_metrics_footer(void)
     lv_obj_set_style_border_color(footer, color(RF_COLOR_BORDER), 0);
     lv_obj_set_style_border_side(footer, LV_BORDER_SIDE_TOP, 0);
 
-    g_ui.scan_rate_label = create_label(footer, 10, 4, 136, 16, "扫描 --.- Hz",
-                                        &rf_font_zh_14, RF_COLOR_PRIMARY,
+    g_ui.scan_rate_label = create_label(footer, 16, 3, 260, 18, "Scan --.- Hz",
+                                        &rf_font_14, RF_COLOR_PRIMARY,
                                         LV_TEXT_ALIGN_LEFT);
-    char panel[24];
     char presented[24];
-    char render_max[24];
     char underflows[24];
-    format_millihz(panel, sizeof(panel), "Panel", g_render_metrics.panel_millihz);
     format_millihz(presented, sizeof(presented), "FPS", g_render_metrics.presented_millihz);
-    format_render_max(render_max, sizeof(render_max), g_render_metrics.render_max_us);
     snprintf(underflows, sizeof(underflows), "UF %u", (unsigned) g_render_metrics.underflow_count);
 
-    g_ui.performance_labels[RF_METRIC_PANEL] = create_label(
-        footer, 154, 4, 124, 16, panel, &rf_font_12,
-        RF_COLOR_PRIMARY, LV_TEXT_ALIGN_LEFT);
     g_ui.performance_labels[RF_METRIC_PRESENTED] = create_label(
-        footer, 286, 4, 124, 16, presented, &rf_font_12,
-        RF_COLOR_GREEN, LV_TEXT_ALIGN_LEFT);
-    g_ui.performance_labels[RF_METRIC_RENDER_MAX] = create_label(
-        footer, 418, 4, 140, 16, render_max, &rf_font_12,
-        RF_COLOR_MUTED, LV_TEXT_ALIGN_LEFT);
+        footer, 382, 3, 260, 18, presented, &rf_font_14,
+        RF_COLOR_GREEN, LV_TEXT_ALIGN_CENTER);
     g_ui.performance_labels[RF_METRIC_UNDERFLOW] = create_label(
-        footer, 566, 4, 100, 16, underflows, &rf_font_12,
+        footer, 748, 3, 260, 18, underflows, &rf_font_14,
         g_render_metrics.underflow_count == 0u ? RF_COLOR_MUTED : RF_COLOR_RED,
-        LV_TEXT_ALIGN_LEFT);
-    create_label(footer, 674, 4, 156, 16, "SP 256 | WF 192x160",
-                 &rf_font_12, RF_COLOR_MUTED, LV_TEXT_ALIGN_LEFT);
-    create_label(footer, 838, 4, 176, 16, "数据链路正常",
-                 &rf_font_zh_14, RF_COLOR_GREEN, LV_TEXT_ALIGN_RIGHT);
+        LV_TEXT_ALIGN_RIGHT);
 }
 
 static void create_target_strip(void)
@@ -3629,7 +3830,7 @@ static void create_target_strip(void)
         lv_obj_set_style_bg_color(button, color(RF_COLOR_PRESSED),
                                   LV_STATE_PRESSED);
         lv_obj_add_flag(button, LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_add_event_cb(button, target_click_event, LV_EVENT_CLICKED,
+        lv_obj_add_event_cb(button, target_click_event, RF_BUTTON_EVENT,
                             (void *) (uintptr_t) index);
 
         const uint32_t accent = g_target_accent_colors[index];
@@ -3694,7 +3895,7 @@ static void create_selectors(void)
         lv_obj_set_style_bg_color(button, color(RF_COLOR_PRESSED),
                                   LV_STATE_PRESSED);
         lv_obj_add_flag(button, LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_add_event_cb(button, selector_click_event, LV_EVENT_CLICKED,
+        lv_obj_add_event_cb(button, selector_click_event, RF_BUTTON_EVENT,
                             (void *)(uintptr_t)index);
 
         g_ui.selector_titles[index] = create_label(
@@ -3729,81 +3930,71 @@ static void create_sidebar(void)
     lv_obj_set_style_border_color(sidebar, color(RF_COLOR_BORDER), 0);
     lv_obj_set_style_radius(sidebar, 0, 0);
 
-    lv_obj_t * title = create_box(sidebar, 0, 0, RF_SIDEBAR_WIDTH, 48,
+    lv_obj_t * title = create_box(sidebar, 0, 0, RF_SIDEBAR_WIDTH, 64,
                                   RF_COLOR_HEADER, LV_OPA_COVER);
     g_ui.detail_title_panel = title;
     lv_obj_set_style_border_width(title, 1, 0);
     lv_obj_set_style_border_color(title, color(RF_COLOR_DIVIDER), 0);
     lv_obj_set_style_border_side(title, LV_BORDER_SIDE_BOTTOM, 0);
-    g_ui.alert_prefix = create_box(title, 0, 0, 4, 48,
+    g_ui.alert_prefix = create_box(title, 0, 0, 4, 64,
                                    RF_COLOR_MUTED, LV_OPA_COVER);
-    create_label(title, 8, 4, 92, 16, "当前目标", &rf_font_zh_14,
+    create_label(title, 8, 7, 104, 20, "当前目标", &rf_font_zh_16,
                  RF_COLOR_MUTED, LV_TEXT_ALIGN_LEFT);
-    g_ui.alert_drone_label = create_label(title, 8, 24, 144, 20,
-                                          "空闲", &rf_font_zh_14,
+    g_ui.alert_drone_label = create_label(title, 8, 32, 144, 24,
+                                          "空闲", &rf_font_zh_16,
                                           RF_COLOR_TEXT, LV_TEXT_ALIGN_LEFT);
 
-    g_ui.side_channel_label = create_label(title, 122, 4, 30, 16, "--",
-                                            &rf_font_12, RF_COLOR_MUTED,
+    g_ui.side_channel_label = create_label(title, 122, 8, 30, 18, "--",
+                                            &rf_font_14, RF_COLOR_MUTED,
                                             LV_TEXT_ALIGN_RIGHT);
 
-    lv_obj_t * ranges = create_box(sidebar, 0, 48, RF_SIDEBAR_WIDTH, 62,
+    lv_obj_t * ranges = create_box(sidebar, 0, 64, RF_SIDEBAR_WIDTH, 96,
                                    RF_COLOR_PANEL, LV_OPA_COVER);
     g_ui.detail_ranges_panel = ranges;
     lv_obj_set_style_border_width(ranges, 1, 0);
     lv_obj_set_style_border_color(ranges, color(RF_COLOR_DIVIDER), 0);
     lv_obj_set_style_border_side(ranges, LV_BORDER_SIDE_BOTTOM, 0);
     for(uint32_t index = 0U; index < 2U; ++index) {
-        const int32_t y = 3 + (int32_t)index * 29;
+        const int32_t y = 8 + (int32_t)index * 48;
         g_ui.detail_range_name_labels[index] = create_label(
-            ranges, 8, y, 144, 14, "--", &rf_font_zh_14,
-            RF_COLOR_MUTED, LV_TEXT_ALIGN_LEFT);
-        g_ui.detail_range_value_labels[index] = create_label(
-            ranges, 8, y + 14, 144, 13, "", &rf_font_10,
+            ranges, 4, y, 152, 28, "--", &rf_font_zh_16,
             RF_COLOR_MUTED, LV_TEXT_ALIGN_LEFT);
     }
 
-    static const char * metric_names[3] = {
-        "信号峰值", "噪声底", "信道占用"
-    };
-    for(uint32_t row = 0; row < 3U; ++row) {
-        lv_obj_t * metric = create_box(sidebar, 0, 110 + (int32_t)row * 44,
-                                       RF_SIDEBAR_WIDTH, 44,
-                                       RF_COLOR_PANEL, LV_OPA_COVER);
-        g_ui.detail_metric_panels[row] = metric;
-        lv_obj_set_style_border_width(metric, 1, 0);
-        lv_obj_set_style_border_color(metric, color(RF_COLOR_DIVIDER), 0);
-        lv_obj_set_style_border_side(metric, LV_BORDER_SIDE_BOTTOM, 0);
-        create_label(metric, 8, 13, 70, 18, metric_names[row],
-                     &rf_font_zh_14, RF_COLOR_MUTED, LV_TEXT_ALIGN_LEFT);
-        lv_obj_t * value = create_label(metric, 76, 13, 76, 18, "--",
-                                         &rf_font_12, RF_COLOR_TEXT,
-                                         LV_TEXT_ALIGN_RIGHT);
-        g_ui.side_metric_labels[row] = value;
-    }
+    lv_obj_t * metric = create_box(sidebar, 0, 160, RF_SIDEBAR_WIDTH, 52,
+                                   RF_COLOR_PANEL, LV_OPA_COVER);
+    g_ui.detail_metric_panels[RF_CHANNEL_METRIC_OCCUPANCY] = metric;
+    lv_obj_set_style_border_width(metric, 1, 0);
+    lv_obj_set_style_border_color(metric, color(RF_COLOR_DIVIDER), 0);
+    lv_obj_set_style_border_side(metric, LV_BORDER_SIDE_BOTTOM, 0);
+    create_label(metric, 8, 15, 78, 22, "信道占用",
+                 &rf_font_zh_16, RF_COLOR_MUTED, LV_TEXT_ALIGN_LEFT);
+    g_ui.side_metric_labels[RF_CHANNEL_METRIC_OCCUPANCY] = create_label(
+        metric, 88, 13, 64, 24, "--", &rf_font_14,
+        RF_COLOR_TEXT, LV_TEXT_ALIGN_RIGHT);
 
-    lv_obj_t * confidence = create_box(sidebar, 0, 242, RF_SIDEBAR_WIDTH, 58,
+    lv_obj_t * confidence = create_box(sidebar, 0, 212, RF_SIDEBAR_WIDTH, 62,
                                        RF_COLOR_PANEL, LV_OPA_COVER);
     g_ui.detail_confidence_panel = confidence;
     lv_obj_set_style_border_width(confidence, 1, 0);
     lv_obj_set_style_border_color(confidence, color(RF_COLOR_DIVIDER), 0);
     lv_obj_set_style_border_side(confidence, LV_BORDER_SIDE_BOTTOM, 0);
-    g_ui.alert_details = create_label(confidence, 8, 8, 88, 18,
-                                      "识别置信度", &rf_font_zh_14,
+    g_ui.alert_details = create_label(confidence, 8, 8, 96, 22,
+                                      "识别置信度", &rf_font_zh_16,
                                       RF_COLOR_MUTED, LV_TEXT_ALIGN_LEFT);
-    g_ui.alert_idle_label = create_label(confidence, 100, 8, 52, 18, "--",
-                                         &rf_font_zh_14, RF_COLOR_MUTED,
+    g_ui.alert_idle_label = create_label(confidence, 104, 7, 48, 24, "--",
+                                         &rf_font_zh_16, RF_COLOR_MUTED,
                                          LV_TEXT_ALIGN_RIGHT);
-    g_ui.alert_badge = create_box(confidence, 10, 40, 140, 5,
+    g_ui.alert_badge = create_box(confidence, 10, 45, 140, 5,
                                   RF_COLOR_BORDER, LV_OPA_COVER);
     g_ui.alert_confidence_fill = create_box(g_ui.alert_badge, 0, 0, 0, 5,
                                             RF_COLOR_PRIMARY, LV_OPA_COVER);
 
-    lv_obj_t * preview = create_box(sidebar, 0, 300,
-                                    RF_SIDEBAR_WIDTH, 164,
+    lv_obj_t * preview = create_box(sidebar, 0, 274,
+                                    RF_SIDEBAR_WIDTH, 130,
                                     RF_COLOR_PANEL_ALT, LV_OPA_COVER);
     g_ui.detail_preview_panel = preview;
-    lv_obj_t * image_frame = create_box(preview, 16, 26, 128, 112,
+    lv_obj_t * image_frame = create_box(preview, 16, 9, 128, 112,
                                         0x343A3Eu, LV_OPA_COVER);
     g_ui.detail_image_frame = image_frame;
     lv_obj_set_style_border_width(image_frame, 1, 0);
@@ -3816,8 +4007,45 @@ static void create_sidebar(void)
     lv_image_set_antialias(g_ui.detail_image, false);
     set_visible(g_ui.detail_image, false);
     g_ui.detail_empty_label = create_label(
-        preview, 0, 73, RF_SIDEBAR_WIDTH, 18, "空闲", &rf_font_zh_14,
+        preview, 0, 55, RF_SIDEBAR_WIDTH, 22, "空闲", &rf_font_zh_16,
         RF_COLOR_MUTED, LV_TEXT_ALIGN_CENTER);
+
+    static const char * const legend_names[RF_UI_DETECTION_COUNT] = {
+        "DJI", "小霸王", "AT9S", "云卓"
+    };
+    for(uint32_t index = 0U; index < RF_UI_DETECTION_COUNT; ++index) {
+        const int32_t column = (int32_t)(index & 1U);
+        const int32_t row = (int32_t)(index >> 1U);
+        const int32_t x = 8 + column * 78;
+        const int32_t y = 410 + row * 25;
+        create_box(sidebar, x, y + 3, 4, 15,
+                   g_target_accent_colors[index], LV_OPA_COVER);
+        create_label(sidebar, x + 9, y, 61, 20, legend_names[index],
+                     &rf_font_zh_14, RF_COLOR_TEXT, LV_TEXT_ALIGN_LEFT);
+    }
+}
+
+static void waterfall_retained_boxes_clear(uint32_t channel)
+{
+    if(channel >= RF_UI_CHANNEL_COUNT) return;
+    memset(g_retained_boxes[channel], 0,
+           sizeof(g_retained_boxes[channel]));
+    g_retained_box_write_index[channel] = 0U;
+}
+
+static void waterfall_retained_box_add(uint32_t channel,
+                                       uint64_t anchor_end_column,
+                                       const rf_ui_rf_box_t * box)
+{
+    if(channel >= RF_UI_CHANNEL_COUNT || box == NULL) return;
+    const uint32_t slot = g_retained_box_write_index[channel] %
+                          RF_UI_RETAINED_BOX_CAPACITY;
+    g_retained_box_write_index[channel]++;
+    g_retained_boxes[channel][slot] = (rf_ui_retained_box_t) {
+        .valid = true,
+        .anchor_end_column = anchor_end_column,
+        .box = *box,
+    };
 }
 
 static void create_spectrum_panel(void)
@@ -3862,6 +4090,37 @@ static void create_spectrum_panel(void)
     }
 }
 
+static void create_waterfall_energy_scale(lv_obj_t * panel)
+{
+    const uint32_t segment_count = 8U;
+    lv_obj_t * outline = create_box(
+        panel, RF_WATERFALL_SCALE_X - 1, 35,
+        RF_WATERFALL_SCALE_WIDTH + 2, RF_WATERFALL_DISPLAY_HEIGHT + 2,
+        RF_COLOR_BORDER, LV_OPA_COVER);
+    lv_obj_set_style_radius(outline, 0, 0);
+
+    for(uint32_t index = 0U; index < segment_count; ++index) {
+        const int32_t y0 = 36 + (int32_t)(
+            (index * RF_WATERFALL_DISPLAY_HEIGHT) / segment_count);
+        const int32_t y1 = 36 + (int32_t)(
+            ((index + 1U) * RF_WATERFALL_DISPLAY_HEIGHT) / segment_count);
+        const uint8_t intensity = (uint8_t)(
+            255U - ((index * 255U) / (segment_count - 1U)));
+        create_box(panel, RF_WATERFALL_SCALE_X, y0,
+                   RF_WATERFALL_SCALE_WIDTH, y1 - y0,
+                   interpolate_waterfall_color(intensity), LV_OPA_COVER);
+    }
+    create_label(panel, RF_WATERFALL_SCALE_LABEL_X, 34,
+                 RF_WATERFALL_SCALE_LABEL_WIDTH, 14, "255", &rf_font_10,
+                 RF_COLOR_AXIS, LV_TEXT_ALIGN_RIGHT);
+    create_label(panel, RF_WATERFALL_SCALE_LABEL_X, 154,
+                 RF_WATERFALL_SCALE_LABEL_WIDTH, 14, "128", &rf_font_10,
+                 RF_COLOR_AXIS, LV_TEXT_ALIGN_RIGHT);
+    create_label(panel, RF_WATERFALL_SCALE_LABEL_X, 274,
+                 RF_WATERFALL_SCALE_LABEL_WIDTH, 14, "0", &rf_font_10,
+                 RF_COLOR_AXIS, LV_TEXT_ALIGN_RIGHT);
+}
+
 static void create_waterfall_panel(void)
 {
     lv_obj_t * panel = create_panel(RF_WATERFALL_Y, RF_WATERFALL_HEIGHT);
@@ -3871,13 +4130,15 @@ static void create_waterfall_panel(void)
                                                  &rf_font_12, RF_COLOR_PRIMARY,
                                                  LV_TEXT_ALIGN_LEFT);
     g_ui.waterfall_history_label = create_label(
-        panel, 520, 7, 336, 18, "160 RF ROW | 0.615 ms/COL | 98.39 ms",
+        panel, 520, 7, 336, 18, "130 RF ROW | 0.615 ms/COL | 79.94 ms",
         &rf_font_zh_14,
         RF_COLOR_MUTED, LV_TEXT_ALIGN_RIGHT);
 
+    create_waterfall_energy_scale(panel);
+
     g_ui.waterfall_image = lv_image_create(panel);
     reset_object(g_ui.waterfall_image);
-    lv_obj_set_pos(g_ui.waterfall_image, RF_PLOT_X, 36);
+    lv_obj_set_pos(g_ui.waterfall_image, RF_WATERFALL_PLOT_X, 36);
     lv_image_set_src(g_ui.waterfall_image,
                      &g_waterfall_image_dsc[g_waterfall_active_source]);
     lv_image_set_pivot(g_ui.waterfall_image, 0, 0);
@@ -3904,14 +4165,15 @@ static void create_waterfall_panel(void)
 
     static const int32_t y_positions[5] = {29, 92, 155, 218, 281};
     static const int32_t x_positions[5] = {
-        RF_PLOT_X, 246, 428, 610, 792
+        RF_WATERFALL_PLOT_X, 243, 438, 633, 792
     };
     static const char * const time_labels[5] = {
-        "-98 ms", "-74 ms", "-49 ms", "-25 ms", "当前"
+        "-80 ms", "-60 ms", "-40 ms", "-20 ms", "当前"
     };
     for(uint32_t index = 0U; index < 5U; ++index) {
         g_ui.waterfall_frequency_labels[index] = create_label(
-            panel, 22, y_positions[index], 36, 14, "", &rf_font_12,
+            panel, RF_WATERFALL_FREQUENCY_LABEL_X, y_positions[index],
+            RF_WATERFALL_FREQUENCY_LABEL_WIDTH, 14, "", &rf_font_12,
             RF_COLOR_AXIS, LV_TEXT_ALIGN_RIGHT);
         const lv_text_align_t alignment = index == 0U ? LV_TEXT_ALIGN_LEFT :
             (index == 4U ? LV_TEXT_ALIGN_RIGHT : LV_TEXT_ALIGN_CENTER);
@@ -3949,7 +4211,7 @@ static void create_compare_overlay(void)
     lv_obj_set_style_bg_color(close, color(RF_COLOR_PRESSED),
                               LV_STATE_PRESSED);
     lv_obj_add_flag(close, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(close, compare_close_event, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(close, compare_close_event, RF_BUTTON_EVENT, NULL);
     create_label(close, 0, 13, RF_TOUCH_TARGET, 18, LV_SYMBOL_CLOSE,
                  &lv_font_montserrat_14, RF_COLOR_TEXT, LV_TEXT_ALIGN_CENTER);
 
@@ -3968,7 +4230,7 @@ static void create_compare_overlay(void)
                                   LV_STATE_PRESSED);
         lv_obj_add_flag(card, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_add_event_cb(card, compare_target_click_event,
-                            LV_EVENT_CLICKED, (void *)(uintptr_t)index);
+                            RF_BUTTON_EVENT, (void *)(uintptr_t)index);
 
         char number[4];
         snprintf(number, sizeof(number), "%02u", (unsigned)index + 1U);
@@ -4149,7 +4411,7 @@ static bool channel_switch_build_start(bool restart)
     g_channel_build.source = source;
     g_channel_build.waterfall_cache_reused = reuse_waterfall_cache;
     if(g_waterfall_overlay.requested && !g_waterfall_overlay.failed) {
-        g_waterfall_overlay.boxes_dirty[g_channel_build.source] = true;
+        waterfall_overlay_boxes_invalidate(g_channel_build.source);
     }
     waterfall_source_state_invalidate(g_channel_build.source);
     g_channel_build.request_generation = request_generation;
@@ -4203,6 +4465,12 @@ static void channel_switch_restart(void)
     }
 }
 
+static uint32_t waterfall_catchup_visible_columns(uint32_t column_count)
+{
+    return column_count > RF_UI_WATERFALL_COLS ?
+           RF_UI_WATERFALL_COLS : column_count;
+}
+
 static uint32_t waterfall_render_catchup_row_at(
     rf_ui_waterfall_rgb565_ring_t * target,
     uint32_t channel,
@@ -4215,14 +4483,20 @@ static uint32_t waterfall_render_catchup_row_at(
     uint16_t * const render_row = target->rows[render_y];
     const uint16_t * const history_row =
         g_waterfall_rings[channel].rows[source_row];
+    const uint32_t visible_columns =
+        waterfall_catchup_visible_columns(column_count);
+    /* If acquisition outran the RGB565 viewport, discard the oldest part of
+     * this batch.  The render head still advances by the full batch below, so
+     * the ring remains chronologically aligned after the catch-up. */
+    const uint32_t source_skip = column_count - visible_columns;
     uint32_t bytes_written = 0U;
 
-    for(uint32_t offset = 0U; offset < column_count; ++offset) {
+    for(uint32_t offset = 0U; offset < visible_columns; ++offset) {
         const uint32_t source_column =
-            (source_head + offset) %
+            (source_head + source_skip + offset) %
             RF_UI_WATERFALL_HISTORY_COLS;
         const uint32_t render_column =
-            (render_head + offset) %
+            (render_head + source_skip + offset) %
             RF_UI_WATERFALL_COLS;
         const uint32_t render_start =
             g_waterfall_render_x[render_column];
@@ -4242,10 +4516,13 @@ static uint32_t waterfall_catchup_rows_per_step(uint32_t render_head,
                                                 uint32_t column_count,
                                                 uint32_t remaining_rows)
 {
+    const uint32_t visible_columns =
+        waterfall_catchup_visible_columns(column_count);
     uint32_t row_bytes = 0U;
-    for(uint32_t offset = 0U; offset < column_count; ++offset) {
+    const uint32_t render_skip = column_count - visible_columns;
+    for(uint32_t offset = 0U; offset < visible_columns; ++offset) {
         const uint32_t render_column =
-            (render_head + offset) % RF_UI_WATERFALL_COLS;
+            (render_head + render_skip + offset) % RF_UI_WATERFALL_COLS;
         const uint32_t render_width =
             (uint32_t)g_waterfall_render_x[render_column + 1U] -
             g_waterfall_render_x[render_column];
@@ -4373,7 +4650,7 @@ static bool waterfall_overlay_sync_step(void)
         source_state->render_write_column = (uint16_t)(
             (source_state->render_write_column + column_count) %
             RF_UI_WATERFALL_COLS);
-        g_waterfall_overlay.boxes_dirty[source] = true;
+        waterfall_overlay_boxes_invalidate(source);
         g_waterfall_overlay.visual_dirty = true;
         g_rf_ui_channel_switch_diag.overlay_sync_completions++;
         waterfall_overlay_sync_cancel();
@@ -4533,7 +4810,7 @@ static bool channel_switch_commit(void)
         g_channel_build.render_write_column;
     if(g_waterfall_overlay.requested && !g_waterfall_overlay.failed) {
         g_waterfall_overlay.visual_dirty = true;
-        g_waterfall_overlay.boxes_dirty[source] = true;
+        waterfall_overlay_boxes_invalidate(source);
         if(g_waterfall_overlay.display_source != source) {
             g_rf_ui_channel_switch_diag.overlay_source_switches++;
         }
@@ -4977,7 +5254,7 @@ static bool live_build_start(uint32_t channel)
     }
     else {
         if(overlay_build) {
-            g_waterfall_overlay.boxes_dirty[source] = true;
+            waterfall_overlay_boxes_invalidate(source);
         }
         g_live_build.state = RF_UI_LIVE_BUILD_BASE;
         g_live_build.base_total_columns = total;
@@ -5061,7 +5338,7 @@ static bool live_build_step(void)
                 source, channel, g_live_build.caught_up_total_columns,
                 g_live_build.catchup_source_head,
                 g_live_build.render_write_column);
-            g_waterfall_overlay.boxes_dirty[source] = true;
+            waterfall_overlay_boxes_invalidate(source);
             waterfall_overlay_boxes_refresh(source);
             if(g_waterfall_overlay.display_source != source) {
                 g_rf_ui_channel_switch_diag.overlay_source_switches++;
@@ -5277,7 +5554,7 @@ static bool channel_switch_prepare_render(void)
             g_channel_build.caught_up_total_columns,
             g_channel_build.catchup_source_head,
             g_channel_build.render_write_column);
-        g_waterfall_overlay.boxes_dirty[g_channel_build.source] = true;
+        waterfall_overlay_boxes_invalidate(g_channel_build.source);
         waterfall_overlay_boxes_refresh(g_channel_build.source);
     }
     if(!render_transaction_begin(
@@ -5759,7 +6036,10 @@ void rf_ui_set_running(int running)
             g_waterfall_pause_total_columns =
                 g_waterfall_overlay.presented_end_pixels /
                 RF_WATERFALL_CLUT_PIXELS_PER_COLUMN;
-            g_waterfall_overlay.boxes_dirty[g_waterfall_active_source] = true;
+            /* Keep the exact CLUT pixels that were visible at the live edge.
+             * New model results continue to be accepted for the live cache,
+             * but cannot alter this frozen source until resume. */
+            waterfall_overlay_boxes_freeze(g_waterfall_active_source);
             g_waterfall_overlay.visual_dirty = true;
         }
         else {
@@ -5781,6 +6061,7 @@ void rf_ui_set_running(int running)
         g_ui.waterfall_drag_accumulator = 0;
         if(g_waterfall_overlay.requested && !g_waterfall_overlay.failed) {
             g_ui.waterfall_dirty[g_ui.committed_channel] = true;
+            waterfall_overlay_boxes_invalidate(g_waterfall_active_source);
             g_waterfall_overlay.visual_dirty = true;
         }
         else {
@@ -6357,7 +6638,14 @@ bool rf_ui_waterfall_overlay_prepare_frame(
         return false;
     }
     if(g_waterfall_overlay.boxes_dirty[source]) {
-        waterfall_overlay_boxes_refresh(source);
+        /* A dirty flag may have been raised immediately before the pause
+         * transition.  Consume it without touching the frozen CLUT image. */
+        if(g_ui.running) {
+            waterfall_overlay_boxes_refresh(source);
+        }
+        else {
+            waterfall_overlay_boxes_freeze(source);
+        }
     }
 
     uint64_t target_end_pixels;
@@ -6435,7 +6723,7 @@ bool rf_ui_waterfall_overlay_prepare_frame(
         .generation = generation,
         .hsize = (uint16_t)(RF_WATERFALL_DISPLAY_WIDTH + prefix_pixels),
         .vsize = RF_WATERFALL_DISPLAY_HEIGHT,
-        .x = (int16_t)(RF_PLOT_X - prefix_pixels),
+        .x = (int16_t)(RF_WATERFALL_PLOT_X - prefix_pixels),
         .y = RF_WATERFALL_OVERLAY_Y,
         .pixels_advanced = pixels_advanced,
         .transparent_prefix = prefix_pixels,
@@ -6823,12 +7111,8 @@ static void rf_box_batch_resolve(
                 .history_boxes_dropped_out_of_history++;
             continue;
         }
-        if(waterfall_history_box_raster(
-               batch->channel, batch->anchor_end_column, box) == 0U) {
-            g_rf_ui_channel_switch_diag
-                .history_boxes_dropped_out_of_history++;
-            continue;
-        }
+        waterfall_retained_box_add(
+            batch->channel, batch->anchor_end_column, box);
         waterfall_overlay_box_raster_matching_sources(
             batch->channel, batch->anchor_end_column, box);
         rf_box_detail_update(

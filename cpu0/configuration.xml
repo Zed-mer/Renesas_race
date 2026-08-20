@@ -763,6 +763,33 @@
     <module id="module.arm.ethosu.core.driver.465136520">
       <property id="module.arm.ethosu.core.driver.name" value="g_ethosu0"/>
     </module>
+    <module id="module.driver.uart_on_sci_b_uart.335812651">
+      <property id="module.driver.uart.name" value="g_uart1"/>
+      <property id="module.driver.uart.channel" value="1"/>
+      <property id="module.driver.uart.data_bits" value="module.driver.uart.data_bits.data_bits_8"/>
+      <property id="module.driver.uart.parity" value="module.driver.uart.parity.parity_off"/>
+      <property id="module.driver.uart.stop_bits" value="module.driver.uart.stop_bits.stop_bits_1"/>
+      <property id="module.driver.uart.baud" value="115200"/>
+      <property id="module.driver.uart.baudrate_modulation" value="module.driver.uart.baudrate_modulation.disabled"/>
+      <property id="module.driver.uart.baudrate_max_err" value="5"/>
+      <property id="module.driver.uart.flow_control" value="module.driver.uart.flow_control.rts"/>
+      <property id="module.driver.uart.pin_control_port" value="module.driver.uart.pin_control_port.PORT_DISABLE"/>
+      <property id="module.driver.uart.pin_control_pin" value="module.driver.uart.pin_control_pin.PIN_DISABLE"/>
+      <property id="module.driver.uart.clk_src" value="module.driver.uart.clk_src.int_clk"/>
+      <property id="module.driver.uart.rx_edge_start" value="module.driver.uart.rx_edge_start.falling_edge"/>
+      <property id="module.driver.uart.noisecancel_en" value="module.driver.uart.noisecancel_en.disabled"/>
+      <property id="module.driver.uart.rx_fifo_trigger" value="module.driver.uart.rx_fifo_trigger.max"/>
+      <property id="module.driver.uart.rs485.de_enable" value="module.driver.uart.rs485.de_enable.disabled"/>
+      <property id="module.driver.uart.rs485.de_polarity" value="module.driver.uart.rs485.de_polarity.high"/>
+      <property id="module.driver.uart.rs485.de_assertion_time" value="1"/>
+      <property id="module.driver.uart.rs485.de_negation_time" value="1"/>
+      <property id="module.driver.uart.tei_synchronization_delay_cycles" value="0"/>
+      <property id="module.driver.uart.callback" value="user_uart1_callback"/>
+      <property id="module.driver.uart.rxi_ipl" value="board.icu.common.irq.priority12"/>
+      <property id="module.driver.uart.txi_ipl" value="board.icu.common.irq.priority12"/>
+      <property id="module.driver.uart.tei_ipl" value="board.icu.common.irq.priority12"/>
+      <property id="module.driver.uart.eri_ipl" value="board.icu.common.irq.priority12"/>
+    </module>
     <context id="_hal.0">
       <stack module="module.driver.ioport_on_ioport.0"/>
       <stack module="module.driver.ether_on_rmac.1536667874">
@@ -785,6 +812,7 @@
           </stack>
         </stack>
       </stack>
+      <stack module="module.driver.uart_on_sci_b_uart.335812651"/>
     </context>
     <config id="config.driver.ospi_b">
       <property id="config.driver.ospi_b.param_checking_enable" value="config.driver.ospi_b.param_checking_enable.bsp"/>
@@ -883,8 +911,8 @@
     <symbolicName propertyId="p303.symbolic_name" value="USER_LED_GREEN"/>
     <symbolicName propertyId="p308.symbolic_name" value="TCLK"/>
     <symbolicName propertyId="p312.symbolic_name" value="ARDUINO_D7"/>
-    <symbolicName propertyId="p400.symbolic_name" value="I3C_SCL"/>
-    <symbolicName propertyId="p401.symbolic_name" value="I3C_SDA"/>
+    <symbolicName propertyId="p400.symbolic_name" value="ESP_UART_TX"/>
+    <symbolicName propertyId="p401.symbolic_name" value="ESP_UART_RX"/>
     <symbolicName propertyId="p402.symbolic_name" value="PMOD1_RST"/>
     <symbolicName propertyId="p403.symbolic_name" value="AUDIO_BCLK"/>
     <symbolicName propertyId="p404.symbolic_name" value="AUDIO_WCLK"/>
@@ -1006,7 +1034,7 @@
     <symbolicName propertyId="pc12.symbolic_name" value="SDRAM_DQ18"/>
     <symbolicName propertyId="pc13.symbolic_name" value="SDRAM_DQ17"/>
     <symbolicName propertyId="pc14.symbolic_name" value="SDRAM_DQ16"/>
-    <symbolicName propertyId="pc15.symbolic_name" value="SDRAM_BA1"/>
+    <symbolicName propertyId="pc15.symbolic_name" value="ESP_WIFI_EN"/>
     <symbolicName propertyId="pd00.symbolic_name" value="SDRAM_BA0"/>
     <symbolicName propertyId="pd01.symbolic_name" value="ARDUINO_D8_MIKROBUS_INT"/>
     <symbolicName propertyId="pd02.symbolic_name" value="VCOMM_TXD_TO_EXT"/>
@@ -1182,6 +1210,10 @@
       <configSetting altId="p303.output.low" configurationId="p303"/>
       <configSetting altId="p303.gpio_speed.gpio_speed_h" configurationId="p303.gpio_drivecapacity"/>
       <configSetting altId="p303.gpio_mode.gpio_mode_out.low" configurationId="p303.gpio_mode"/>
+      <configSetting altId="p400.sci1.txd1" configurationId="p400"/>
+      <configSetting altId="p400.gpio_mode.gpio_mode_peripheral" configurationId="p400.gpio_mode"/>
+      <configSetting altId="p401.sci1.rxd1" configurationId="p401"/>
+      <configSetting altId="p401.gpio_mode.gpio_mode_peripheral" configurationId="p401.gpio_mode"/>
       <configSetting altId="p402.ssie.audio_clk" configurationId="p402"/>
       <configSetting altId="p402.gpio_mode.gpio_mode_peripheral" configurationId="p402.gpio_mode"/>
       <configSetting altId="p405.eswm_rgmii0.rgmii0_rx_ctl" configurationId="p405"/>
@@ -1278,6 +1310,11 @@
       <configSetting altId="pc08.gpio_mode.gpio_mode_peripheral" configurationId="pc08.gpio_mode"/>
       <configSetting altId="pc09.ospi1.om_1_rsto1" configurationId="pc09"/>
       <configSetting altId="pc09.gpio_mode.gpio_mode_peripheral" configurationId="pc09.gpio_mode"/>
+      <configSetting altId="pc15.output.low" configurationId="pc15"/>
+      <configSetting altId="pc15.gpio_mode.gpio_mode_out.low" configurationId="pc15.gpio_mode"/>
+      <configSetting altId="sci1.mode.asynchronousuart.free" configurationId="sci1.mode"/>
+      <configSetting altId="sci1.rxd1.p401" configurationId="sci1.rxd1"/>
+      <configSetting altId="sci1.txd1.p400" configurationId="sci1.txd1"/>
       <configSetting altId="sci5.mode.asynchronousuart.free" configurationId="sci5.mode"/>
       <configSetting altId="sci5.rxd5.pa08" configurationId="sci5.rxd5"/>
       <configSetting altId="sci5.txd5.pa09" configurationId="sci5.txd5"/>

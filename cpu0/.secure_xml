@@ -222,6 +222,8 @@
       <configSetting altId="p303.output.low" configurationId="p303"/>
       <configSetting altId="p303.gpio_speed.gpio_speed_h" configurationId="p303.gpio_drivecapacity"/>
       <configSetting altId="p303.gpio_mode.gpio_mode_out.low" configurationId="p303.gpio_mode"/>
+      <configSetting altId="p400.gpio_mode.gpio_mode_peripheral" configurationId="p400.gpio_mode"/>
+      <configSetting altId="p401.gpio_mode.gpio_mode_peripheral" configurationId="p401.gpio_mode"/>
       <configSetting altId="p402.gpio_mode.gpio_mode_peripheral" configurationId="p402.gpio_mode"/>
       <configSetting altId="p405.gpio_speed.gpio_speed_h" configurationId="p405.gpio_drivecapacity"/>
       <configSetting altId="p405.gpio_mode.gpio_mode_peripheral" configurationId="p405.gpio_mode"/>
@@ -283,6 +285,10 @@
       <configSetting altId="pc07.gpio_mode.gpio_mode_peripheral" configurationId="pc07.gpio_mode"/>
       <configSetting altId="pc08.gpio_mode.gpio_mode_peripheral" configurationId="pc08.gpio_mode"/>
       <configSetting altId="pc09.gpio_mode.gpio_mode_peripheral" configurationId="pc09.gpio_mode"/>
+      <configSetting altId="pc15.output.low" configurationId="pc15"/>
+      <configSetting altId="pc15.gpio_mode.gpio_mode_out.low" configurationId="pc15.gpio_mode"/>
+      <configSetting altId="sci1.rxd1.p401" configurationId="sci1.rxd1" peripheral="SCI1"/>
+      <configSetting altId="sci1.txd1.p400" configurationId="sci1.txd1" peripheral="SCI1"/>
       <configSetting altId="sci5.rxd5.pa08" configurationId="sci5.rxd5" peripheral="SCI5"/>
       <configSetting altId="sci5.txd5.pa09" configurationId="sci5.txd5" peripheral="SCI5"/>
       <configSetting altId="sci8.rxd8.p500" configurationId="sci8.rxd8" isUsedByDriver="true" peripheral="SCI8"/>
