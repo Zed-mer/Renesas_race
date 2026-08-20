@@ -12,6 +12,9 @@ supervisor_log=/tmp/sdr_capture_supervisor.log
 trace_flag=/mnt/jffs2/ra8p1/sdr_trace.enable
 control_port_hex=138C
 log_segment_bytes=262144
+supervisor_revision=gain25-v2
+fixed_gain_db=25
+fixed_gains_csv=25,25,25,25
 
 valid_pid()
 {
@@ -60,7 +63,7 @@ current_supervisor_running()
     kill -0 "$pid" 2>/dev/null || return 1
     cmdline=$(process_cmdline "$pid")
     case "$cmdline" in
-        *"$supervisor_script --supervise $agent $adapter"*) return 0 ;;
+        *"$supervisor_script --supervise $agent $adapter $supervisor_revision"*) return 0 ;;
         *) return 1 ;;
     esac
 }
@@ -102,6 +105,54 @@ log_supervisor()
     printf '%s %s\n' "${timestamp:-unknown-time}" "$*" >>"$supervisor_log"
 }
 
+find_ad9361_phy()
+{
+    for phy_candidate in /sys/bus/iio/devices/iio:device*; do
+        if [ -r "$phy_candidate/name" ] &&
+           [ "$(cat "$phy_candidate/name" 2>/dev/null)" = "ad9361-phy" ]; then
+            printf '%s\n' "$phy_candidate"
+            return 0
+        fi
+    done
+    return 1
+}
+
+fixed_gain_matches()
+{
+    gain_value=${1%% *}
+    [ "$gain_value" = "$fixed_gain_db" ] ||
+        [ "$gain_value" = "$fixed_gain_db.000000" ]
+}
+
+configure_fixed_rx_gain()
+{
+    gain_phy=$(find_ad9361_phy) || {
+        log_supervisor "ad9361-phy is unavailable"
+        return 1
+    }
+
+    for gain_channel in 0 1; do
+        gain_mode_path="$gain_phy/in_voltage${gain_channel}_gain_control_mode"
+        gain_value_path="$gain_phy/in_voltage${gain_channel}_hardwaregain"
+        if [ ! -w "$gain_mode_path" ] || [ ! -w "$gain_value_path" ]; then
+            log_supervisor "RX${gain_channel} gain attributes are unavailable"
+            return 1
+        fi
+        printf '%s\n' manual >"$gain_mode_path" || return 1
+        printf '%s\n' "$fixed_gain_db" >"$gain_value_path" || return 1
+        gain_mode_readback=$(cat "$gain_mode_path" 2>/dev/null)
+        gain_value_readback=$(cat "$gain_value_path" 2>/dev/null)
+        if [ "$gain_mode_readback" != "manual" ] ||
+           ! fixed_gain_matches "$gain_value_readback"; then
+            log_supervisor "RX${gain_channel} gain verify failed mode=$gain_mode_readback gain=$gain_value_readback"
+            return 1
+        fi
+    done
+
+    log_supervisor "fixed RX gain verified mode=manual gain_db=$fixed_gain_db"
+    return 0
+}
+
 rotate_log_file()
 {
     log_path=$1
@@ -117,7 +168,11 @@ rotate_log_file()
 pump_agent_log()
 {
     fifo_path=$1
-    log_size=$(wc -c <"$agent_log" 2>/dev/null)
+    if [ -f "$agent_log" ]; then
+        log_size=$(wc -c <"$agent_log" 2>/dev/null)
+    else
+        log_size=0
+    fi
     case "${log_size:-}" in
         ''|*[!0-9]*) log_size=0 ;;
     esac
@@ -286,7 +341,8 @@ request_supervisor_stop()
 
 run_supervisor()
 {
-    if [ "${1:-}" != "$agent" ] || [ "${2:-}" != "$adapter" ]; then
+    if [ "${1:-}" != "$agent" ] || [ "${2:-}" != "$adapter" ] ||
+       [ "${3:-}" != "$supervisor_revision" ]; then
         return 64
     fi
     if ! acquire_supervisor_lock; then
@@ -319,6 +375,12 @@ run_supervisor()
             continue
         fi
 
+        if ! configure_fixed_rx_gain; then
+            log_supervisor "fixed RX gain configuration failed; retrying"
+            sleep "$retry_delay_seconds"
+            continue
+        fi
+
         if [ -f "$trace_flag" ]; then
             trace_enabled=1
             trace_argument=--trace
@@ -337,7 +399,7 @@ run_supervisor()
         fi
         pump_agent_log "$fifo_path" &
         log_pump_pid=$!
-        RA8P1_SDR_FIXED_GAINS_DB=20,20,20,20 \
+        RA8P1_SDR_FIXED_GAINS_DB="$fixed_gains_csv" \
         RA8P1_SDR_IDENTITY=pluto-ethaddr-3E70EACC9791 \
         RA8P1_IIO_TUNE_SETTLE_US=1000 \
         RA8P1_IIO_TUNE_DISCARD_SAMPLES=4096 \
@@ -417,6 +479,7 @@ start_supervisor()
     stop_known_agents
 
     nohup "$supervisor_script" --supervise "$agent" "$adapter" \
+        "$supervisor_revision" \
         </dev/null >>"$supervisor_log" 2>&1 &
     supervisor_pid=$!
     if kill -0 "$supervisor_pid" 2>/dev/null; then
@@ -428,7 +491,7 @@ start_supervisor()
 
 case "${1:-}" in
     --supervise)
-        run_supervisor "${2:-}" "${3:-}"
+        run_supervisor "${2:-}" "${3:-}" "${4:-}"
         ;;
     *)
         start_supervisor

@@ -7,6 +7,9 @@ adapter_name=sdr_adapter_iio_mmap_b68f277d.so
 target_dir=/mnt/jffs2/ra8p1
 autorun_target=/mnt/jffs2/autorun.sh
 previous_pointer=$target_dir/autorun_previous_path
+supervisor_revision=gain25-v2
+fixed_gain_db=25
+fixed_gains_csv=25,25,25,25
 
 fail()
 {
@@ -18,6 +21,25 @@ file_hash()
 {
     set -- $(sha256sum "$1" 2>/dev/null)
     printf '%s\n' "${1:-}"
+}
+
+find_ad9361_phy()
+{
+    for phy_candidate in /sys/bus/iio/devices/iio:device*; do
+        if [ -r "$phy_candidate/name" ] &&
+           [ "$(cat "$phy_candidate/name" 2>/dev/null)" = "ad9361-phy" ]; then
+            printf '%s\n' "$phy_candidate"
+            return 0
+        fi
+    done
+    return 1
+}
+
+fixed_gain_matches()
+{
+    gain_value=${1%% *}
+    [ "$gain_value" = "$fixed_gain_db" ] ||
+        [ "$gain_value" = "$fixed_gain_db.000000" ]
 }
 
 publish_content_addressed()
@@ -117,10 +139,27 @@ while [ "$attempt" -lt 15 ]; do
        kill -0 "$supervisor_pid" 2>/dev/null && kill -0 "$agent_pid" 2>/dev/null &&
        [ "$(readlink "/proc/$agent_pid/exe" 2>/dev/null)" = "$target_dir/$agent_name" ]; then
         environment=$(tr '\000' '\n' <"/proc/$agent_pid/environ" 2>/dev/null)
-        printf '%s\n' "$environment" | grep -qx 'RA8P1_IIO_TUNE_SETTLE_US=1000' &&
-        printf '%s\n' "$environment" | grep -qx 'RA8P1_IIO_TUNE_DISCARD_SAMPLES=4096' &&
-        printf '%s\n' "$environment" | grep -qx 'RA8P1_SDR_UDP_GSO=1' &&
-        printf '%s\n' "$environment" | grep -qx 'RA8P1_SDR_CRC_BACKEND=nibble' && break
+        supervisor_command=$(tr '\000' ' ' <"/proc/$supervisor_pid/cmdline" 2>/dev/null)
+        gain_phy=$(find_ad9361_phy 2>/dev/null) || gain_phy=
+        gain_mode0=$(cat "$gain_phy/in_voltage0_gain_control_mode" 2>/dev/null)
+        gain_value0=$(cat "$gain_phy/in_voltage0_hardwaregain" 2>/dev/null)
+        gain_mode1=$(cat "$gain_phy/in_voltage1_gain_control_mode" 2>/dev/null)
+        gain_value1=$(cat "$gain_phy/in_voltage1_hardwaregain" 2>/dev/null)
+        case "$supervisor_command" in
+            *"$autorun_target --supervise $target_dir/$agent_name $target_dir/$adapter_name $supervisor_revision"*)
+                supervisor_current=1 ;;
+            *) supervisor_current=0 ;;
+        esac
+        if [ "$supervisor_current" -eq 1 ] &&
+           printf '%s\n' "$environment" | grep -qx "RA8P1_SDR_FIXED_GAINS_DB=$fixed_gains_csv" &&
+           printf '%s\n' "$environment" | grep -qx 'RA8P1_IIO_TUNE_SETTLE_US=1000' &&
+           printf '%s\n' "$environment" | grep -qx 'RA8P1_IIO_TUNE_DISCARD_SAMPLES=4096' &&
+           printf '%s\n' "$environment" | grep -qx 'RA8P1_SDR_UDP_GSO=1' &&
+           printf '%s\n' "$environment" | grep -qx 'RA8P1_SDR_CRC_BACKEND=nibble' &&
+           [ "$gain_mode0" = "manual" ] && fixed_gain_matches "$gain_value0" &&
+           [ "$gain_mode1" = "manual" ] && fixed_gain_matches "$gain_value1"; then
+            break
+        fi
     fi
     sleep 1
     attempt=$((attempt + 1))
@@ -130,6 +169,7 @@ done
 printf 'RA8P1 SDR install: PASS supervisor_pid=%s agent_pid=%s\n' "$supervisor_pid" "$agent_pid"
 printf 'RA8P1 SDR install: agent=%s\n' "$target_dir/$agent_name"
 printf 'RA8P1 SDR install: adapter=%s\n' "$target_dir/$adapter_name"
+printf 'RA8P1 SDR install: gain=manual/%s dB RX0+RX1\n' "$fixed_gain_db"
 if [ -f "$previous_pointer" ]; then
     printf 'RA8P1 SDR install: rollback=%s\n' "$(cat "$previous_pointer")"
 fi

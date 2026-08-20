@@ -5,6 +5,8 @@ set -u
 autorun_target=/mnt/jffs2/autorun.sh
 previous_pointer=/mnt/jffs2/ra8p1/autorun_previous_path
 
+# Restores the complete previous startup contract, including its gain policy.
+
 fail()
 {
     printf 'RA8P1 SDR rollback: %s\n' "$*" >&2

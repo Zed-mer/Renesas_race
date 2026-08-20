@@ -1,0 +1,6 @@
+artifacts/sdr/persistent_current/*.sh text eol=lf
+artifacts/sdr/persistent_current/SHA256SUMS text eol=lf
+artifacts/sdr/persistent_current/README_CN.md text eol=lf
+RA8P1_DRONE_DETECT_SDR_PERSISTENT_V27_6/artifacts/sdr/persistent_current/*.sh text eol=lf
+RA8P1_DRONE_DETECT_SDR_PERSISTENT_V27_6/artifacts/sdr/persistent_current/SHA256SUMS text eol=lf
+RA8P1_DRONE_DETECT_SDR_PERSISTENT_V27_6/artifacts/sdr/persistent_current/README_CN.md text eol=lf
