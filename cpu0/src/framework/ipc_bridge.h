@@ -7,6 +7,7 @@
 #include "rf_v13_activity_fusion.h"
 #include "latency_telemetry.h"
 #include "system_protocol.h"
+#include "wifi_status_mailbox.h"
 
 void ipc_bridge_cpu0_init(void);
 void ipc_bridge_cpu0_publish(const ra8p1_system_telemetry_t *telemetry);
@@ -31,6 +32,9 @@ bool ipc_bridge_cpu0_activity_publish(
     const rf_v13_cpu0_round_message_t *message);
 bool ipc_bridge_cpu0_activity_report_read(uint32_t *generation,
                                           uint32_t *working_mask);
+void ipc_bridge_cpu0_wifi_status_publish(
+    ra8p1_wifi_connection_state_t connection_state,
+    const char *ssid);
 
 /* CPU0 latency evidence is kept separate from the display payload so a
  * 60-Msample burst never copies raw IQ or enlarges the RPMsg region. */

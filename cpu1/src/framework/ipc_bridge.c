@@ -6,6 +6,7 @@
 #include "ipc_mailbox.h"
 #include "latency_telemetry.h"
 #include "activity_mailbox.h"
+#include "wifi_status_mailbox.h"
 
 static uint32_t g_telemetry_sequence;
 static uint32_t g_command_sequence;
@@ -31,6 +32,8 @@ static uint32_t g_visible_pending_window;
 static uint32_t g_activity_sequence;
 static uint32_t g_activity_cpu0_epoch;
 static uint32_t g_activity_report_generation;
+static uint32_t g_wifi_status_sequence;
+static uint32_t g_wifi_status_cpu0_epoch;
 static bool g_panel_shutdown_ack;
 
 #define CPU1_COMMAND_RETRY_SERVICE_CALLS (50U)
@@ -270,6 +273,8 @@ void ipc_bridge_cpu1_init(void)
     g_activity_sequence = 0U;
     g_activity_cpu0_epoch = 0U;
     g_activity_report_generation = 0U;
+    g_wifi_status_sequence = 0U;
+    g_wifi_status_cpu0_epoch = 0U;
     g_panel_shutdown_ack = false;
     state->published_command_sequence = 0U;
     state->published_mailbox_sequence = 0U;
@@ -283,6 +288,55 @@ void ipc_bridge_cpu1_init(void)
         activity->report_word = 0U;
         ipc_cpu1_activity_state_publish();
     }
+}
+
+bool ipc_bridge_cpu1_wifi_status_poll(ra8p1_wifi_status_mailbox_t *status)
+{
+    volatile ra8p1_wifi_status_mailbox_t * const source =
+        RA8P1_WIFI_STATUS_MAILBOX;
+    ra8p1_wifi_status_mailbox_t snapshot;
+    uint32_t begin;
+    uint32_t end;
+    uint32_t final_begin;
+
+    if ((status == NULL) || !g_cpu0_ready ||
+        (g_observed_cpu0_boot_epoch == 0U))
+    {
+        return false;
+    }
+#if (__DCACHE_PRESENT == 1U)
+    SCB_InvalidateDCache_by_Addr((volatile void *)source,
+                                 (int32_t)sizeof(*source));
+#endif
+    ipc_barrier();
+    begin = source->begin_sequence;
+    if ((begin == 0U) || ((begin & 1U) != 0U))
+    {
+        return false;
+    }
+    memcpy(&snapshot, (const void *)source, sizeof(snapshot));
+    ipc_barrier();
+    end = source->end_sequence;
+    final_begin = source->begin_sequence;
+    if ((begin != end) || (begin != final_begin) ||
+        (snapshot.magic != RA8P1_WIFI_STATUS_MAGIC) ||
+        (snapshot.version != RA8P1_WIFI_STATUS_VERSION) ||
+        (snapshot.size != sizeof(snapshot)) ||
+        (snapshot.cpu0_boot_epoch != g_observed_cpu0_boot_epoch) ||
+        (snapshot.connection_state > RA8P1_WIFI_CONNECTED) ||
+        ((snapshot.ssid[RA8P1_WIFI_SSID_MAX_BYTES] != '\0')))
+    {
+        return false;
+    }
+    if ((begin == g_wifi_status_sequence) &&
+        (snapshot.cpu0_boot_epoch == g_wifi_status_cpu0_epoch))
+    {
+        return false;
+    }
+    *status = snapshot;
+    g_wifi_status_sequence = begin;
+    g_wifi_status_cpu0_epoch = snapshot.cpu0_boot_epoch;
+    return true;
 }
 
 bool ipc_bridge_cpu1_activity_poll(

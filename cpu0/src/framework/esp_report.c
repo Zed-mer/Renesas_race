@@ -91,6 +91,7 @@ static bool g_esp_service_ready;
 static bool g_esp_reset_detected;
 static bool g_mqtt_link_active;
 static bool g_mqtt_available;
+static bool g_sta_retry_requested;
 static char g_status_line[ESP_REPORT_STATUS_LINE_MAX];
 static size_t g_status_line_used;
 static esp_report_event_record_t
@@ -101,8 +102,67 @@ static uint8_t g_event_queue_count;
 static bool g_activity_state_ready;
 static uint32_t g_activity_generation;
 static uint32_t g_activity_working_mask;
+static ra8p1_wifi_connection_state_t g_sta_connection_state;
+static char g_sta_attempt_ssid[RA8P1_WIFI_SSID_MAX_BYTES + 1U];
+static char g_sta_connected_ssid[RA8P1_WIFI_SSID_MAX_BYTES + 1U];
+
+typedef struct st_esp_report_sta_network
+{
+    const char *ssid;
+    const char *password;
+} esp_report_sta_network_t;
+
+static const esp_report_sta_network_t g_sta_networks[] =
+{
+    {ESP_REPORT_WIFI_PRIMARY_SSID, ESP_REPORT_WIFI_PRIMARY_PASSWORD},
+    {ESP_REPORT_WIFI_SECONDARY_SSID, ESP_REPORT_WIFI_SECONDARY_PASSWORD}
+};
 
 static const char *esp_report_event_name(uint32_t event);
+static bool esp_report_sta_connect(void);
+static bool esp_report_sta_configured(void);
+
+static size_t esp_report_bounded_length(const char *text, size_t maximum)
+{
+    size_t length = 0U;
+    if (text == NULL)
+    {
+        return 0U;
+    }
+    while ((length < maximum) && (text[length] != '\0'))
+    {
+        ++length;
+    }
+    return length;
+}
+
+static void esp_report_ssid_copy(char *destination, const char *source)
+{
+    const size_t length = esp_report_bounded_length(
+        source, RA8P1_WIFI_SSID_MAX_BYTES);
+    memset(destination, 0, RA8P1_WIFI_SSID_MAX_BYTES + 1U);
+    if (length != 0U)
+    {
+        memcpy(destination, source, length);
+    }
+}
+
+static void esp_report_sta_status_set(
+    ra8p1_wifi_connection_state_t connection_state,
+    const char *ssid)
+{
+    char normalized_ssid[RA8P1_WIFI_SSID_MAX_BYTES + 1U];
+    esp_report_ssid_copy(normalized_ssid, ssid);
+    if ((g_sta_connection_state == connection_state) &&
+        (strcmp(g_sta_connected_ssid, normalized_ssid) == 0))
+    {
+        return;
+    }
+    g_sta_connection_state = connection_state;
+    esp_report_ssid_copy(g_sta_connected_ssid, normalized_ssid);
+    ipc_bridge_cpu0_wifi_status_publish(connection_state,
+                                         g_sta_connected_ssid);
+}
 
 static void esp_report_event_queue_push(uint32_t event,
                                         uint32_t generation,
@@ -171,11 +231,18 @@ static void esp_report_status_line_complete(void)
     if (strstr(g_status_line, "WIFI GOT IP") != NULL)
     {
         g_esp_report_diag.sta_connected = 1U;
+        if (g_sta_attempt_ssid[0] != '\0')
+        {
+            esp_report_sta_status_set(RA8P1_WIFI_CONNECTED,
+                                      g_sta_attempt_ssid);
+        }
     }
     else if (strstr(g_status_line, "WIFI DISCONNECT") != NULL)
     {
         g_esp_report_diag.sta_connected = 0U;
         g_mqtt_available = false;
+        g_sta_retry_requested = true;
+        esp_report_sta_status_set(RA8P1_WIFI_DISCONNECTED, "");
     }
 
     if (strstr(g_status_line, "4,CLOSED") != NULL)
@@ -193,6 +260,8 @@ static void esp_report_status_line_complete(void)
         g_esp_report_diag.sta_connected = 0U;
         g_esp_report_diag.web_server_ready = 0U;
         g_esp_report_diag.esp_resets++;
+        g_sta_attempt_ssid[0] = '\0';
+        esp_report_sta_status_set(RA8P1_WIFI_DISCONNECTED, "");
     }
     g_status_line_used = 0U;
 }
@@ -450,6 +519,30 @@ static bool esp_report_bytes_contains(const uint8_t *data,
     return false;
 }
 
+static uint32_t esp_report_cwjap_code_parse(const uint8_t *data,
+                                            size_t data_length)
+{
+    static const char prefix[] = "+CWJAP:";
+    const size_t prefix_length = sizeof(prefix) - 1U;
+    if (data_length <= prefix_length)
+    {
+        return ESP_REPORT_CWJAP_CODE_NONE;
+    }
+    for (size_t index = 0U; index + prefix_length < data_length; ++index)
+    {
+        if (memcmp(data + index, prefix, prefix_length) != 0)
+        {
+            continue;
+        }
+        const uint8_t code = data[index + prefix_length];
+        if ((code >= (uint8_t)'1') && (code <= (uint8_t)'4'))
+        {
+            return (uint32_t)(code - (uint8_t)'0');
+        }
+    }
+    return ESP_REPORT_CWJAP_CODE_NONE;
+}
+
 static bool esp_report_wait_ascii(uint32_t timeout_ms,
                                   const char *accept1,
                                   const char *accept2)
@@ -487,6 +580,12 @@ static bool esp_report_wait_ascii(uint32_t timeout_ms,
             memcpy(response + used, chunk, count);
             used += count;
             response[used] = '\0';
+            const uint32_t cwjap_code =
+                esp_report_cwjap_code_parse(response, used);
+            if (cwjap_code != ESP_REPORT_CWJAP_CODE_NONE)
+            {
+                g_esp_report_diag.sta_last_cwjap_code = cwjap_code;
+            }
             if (esp_report_bytes_contains(response, used, "ERROR") ||
                 esp_report_bytes_contains(response, used, "FAIL"))
             {
@@ -699,18 +798,62 @@ static bool esp_report_at_ready(void)
     return false;
 }
 
-static bool esp_report_service_start(void)
+static bool esp_report_http_service_start(bool start_listener)
 {
     char command[192];
+
+    if (!esp_report_at("AT+CIPMODE=0", ESP_REPORT_AT_TIMEOUT_MS) ||
+        !esp_report_at("AT+CIPMUX=1", ESP_REPORT_AT_TIMEOUT_MS))
+    {
+        return false;
+    }
+
+    /* These commands are optional on older Nano AT builds. */
+    (void)esp_report_at("AT+CIPDINFO=0", ESP_REPORT_AT_TIMEOUT_MS);
+    (void)esp_report_at("AT+CIPSERVER=0", ESP_REPORT_AT_TIMEOUT_MS);
+    (void)snprintf(command, sizeof(command), "AT+CIPSERVERMAXCONN=%u",
+                   (unsigned int)ESP_REPORT_HTTP_MAX_CLIENTS);
+    (void)esp_report_at(command, ESP_REPORT_AT_TIMEOUT_MS);
+
+    g_esp_service_ready = true;
+    g_esp_report_diag.service_ready = 1U;
+    g_esp_report_diag.web_server_ready = 0U;
+
+    if (!start_listener)
+    {
+        return true;
+    }
+
+    (void)snprintf(command, sizeof(command), "AT+CIPSERVER=1,%u",
+                   (unsigned int)ESP_REPORT_HTTP_PORT);
+    if (!esp_report_at(command, ESP_REPORT_AT_TIMEOUT_MS))
+    {
+        g_esp_service_ready = false;
+        g_esp_report_diag.service_ready = 0U;
+        return false;
+    }
+
+    g_esp_report_diag.web_server_ready = 1U;
+    return true;
+}
+
+static bool esp_report_service_start(void)
+{
+    bool sta_connected = false;
+    uint32_t sta_failure = ESP_REPORT_ERROR_NONE;
+    uint32_t cwjap_code = ESP_REPORT_CWJAP_CODE_NONE;
 
     g_esp_service_ready = false;
     g_esp_reset_detected = false;
     g_mqtt_link_active = false;
     g_mqtt_available = false;
+    g_sta_retry_requested = false;
     g_esp_report_diag.service_ready = 0U;
     g_esp_report_diag.ap_ready = 0U;
     g_esp_report_diag.sta_connected = 0U;
     g_esp_report_diag.web_server_ready = 0U;
+    g_sta_attempt_ssid[0] = '\0';
+    esp_report_sta_status_set(RA8P1_WIFI_DISCONNECTED, "");
     memset(g_http_queue, 0, sizeof(g_http_queue));
     memset(&g_ipd_parser, 0, sizeof(g_ipd_parser));
     g_http_queue_read = 0U;
@@ -730,85 +873,126 @@ static bool esp_report_service_start(void)
         return false;
     }
 
-    if (!esp_report_at(ESP_REPORT_AP_ENABLE ? "AT+CWMODE=3" :
-                                              "AT+CWMODE=1",
-                       ESP_REPORT_AT_TIMEOUT_MS))
+    /* Keep the radio in pure STA mode. Running a SoftAP on a different
+     * channel can prevent older ESP AT firmware from joining REDMIha. */
+    if (!esp_report_at("AT+CWMODE=1", ESP_REPORT_AT_TIMEOUT_MS))
     {
         return false;
     }
-    /* Let the ESP reconnect in the background after a hotspot disappears.
-     * Manual joins remain as a slow fallback instead of blocking the local
-     * AP service for 20 seconds every minute. */
-    (void)esp_report_at("AT+CWAUTOCONN=1", ESP_REPORT_AT_TIMEOUT_MS);
+    /* Manual joins prevent credentials retained by ESP flash from overriding
+     * the configured REDMIha-only policy. */
+    (void)esp_report_at("AT+CWAUTOCONN=0", ESP_REPORT_AT_TIMEOUT_MS);
+    (void)esp_report_at("AT+CWQAP", ESP_REPORT_AT_TIMEOUT_MS);
 
-    if (ESP_REPORT_AP_ENABLE)
+    if (esp_report_sta_configured())
     {
-        (void)snprintf(command, sizeof(command),
-                       "AT+CWSAP=\"%s\",\"%s\",%u,%u",
-                       ESP_REPORT_AP_SSID,
-                       ESP_REPORT_AP_PASSWORD,
-                       (unsigned int)ESP_REPORT_AP_CHANNEL,
-                       (unsigned int)ESP_REPORT_AP_ENCRYPTION);
-        if (!esp_report_at(command, ESP_REPORT_AT_TIMEOUT_MS))
-        {
-            return false;
-        }
-        g_esp_report_diag.ap_ready = 1U;
+        sta_connected = esp_report_sta_connect();
+        sta_failure = g_esp_report_diag.last_error;
+        cwjap_code = g_esp_report_diag.sta_last_cwjap_code;
     }
 
-    if (!esp_report_at("AT+CIPMODE=0", ESP_REPORT_AT_TIMEOUT_MS) ||
-        !esp_report_at("AT+CIPMUX=1", ESP_REPORT_AT_TIMEOUT_MS))
+    if (!esp_report_http_service_start(sta_connected))
     {
         return false;
     }
 
-    /* These commands are optional on older Nano AT builds. */
-    (void)esp_report_at("AT+CIPDINFO=0", ESP_REPORT_AT_TIMEOUT_MS);
-    (void)esp_report_at("AT+CIPSERVER=0", ESP_REPORT_AT_TIMEOUT_MS);
-    (void)snprintf(command, sizeof(command), "AT+CIPSERVERMAXCONN=%u",
-                   (unsigned int)ESP_REPORT_HTTP_MAX_CLIENTS);
-    (void)esp_report_at(command, ESP_REPORT_AT_TIMEOUT_MS);
-
-    (void)snprintf(command, sizeof(command), "AT+CIPSERVER=1,%u",
-                   (unsigned int)ESP_REPORT_HTTP_PORT);
-    if (!esp_report_at(command, ESP_REPORT_AT_TIMEOUT_MS))
+    if (esp_report_sta_configured() && !sta_connected)
     {
-        return false;
+        g_esp_report_diag.last_step = ESP_REPORT_STEP_WIFI;
+        g_esp_report_diag.last_error = sta_failure;
+        g_esp_report_diag.sta_last_cwjap_code = cwjap_code;
     }
-
-    g_esp_service_ready = true;
-    g_esp_report_diag.service_ready = 1U;
-    g_esp_report_diag.web_server_ready = 1U;
-    g_esp_report_diag.last_step = ESP_REPORT_STEP_IDLE;
-    g_esp_report_diag.last_error = ESP_REPORT_ERROR_NONE;
+    else
+    {
+        g_esp_report_diag.last_step = ESP_REPORT_STEP_IDLE;
+        g_esp_report_diag.last_error = ESP_REPORT_ERROR_NONE;
+    }
     return true;
 }
 
 static bool esp_report_sta_connect(void)
 {
     char command[192];
+    const bool restore_http_service = g_esp_service_ready;
+    bool connected = false;
 
-    if (!g_esp_service_ready || (ESP_REPORT_WIFI_SSID[0] == '\0'))
+    if (!g_esp_report_diag.uart_ready)
     {
         g_esp_report_diag.sta_connected = 0U;
+        esp_report_sta_status_set(RA8P1_WIFI_DISCONNECTED, "");
         return false;
     }
 
-    (void)snprintf(command, sizeof(command), "AT+CWJAP=\"%s\",\"%s\"",
-                   ESP_REPORT_WIFI_SSID, ESP_REPORT_WIFI_PASSWORD);
-    g_esp_report_diag.sta_connect_attempts++;
-    g_esp_report_diag.last_step = ESP_REPORT_STEP_WIFI;
-    if (!esp_report_at(command, ESP_REPORT_WIFI_TIMEOUT_MS))
+    if (restore_http_service)
     {
+        g_esp_service_ready = false;
+        g_esp_report_diag.service_ready = 0U;
+        g_esp_report_diag.ap_ready = 0U;
+        g_esp_report_diag.web_server_ready = 0U;
+        (void)esp_report_at("AT+CIPSERVER=0", ESP_REPORT_AT_TIMEOUT_MS);
+        rt_thread_mdelay(100U);
+    }
+
+    for (size_t network_index = 0U;
+         network_index < (sizeof(g_sta_networks) / sizeof(g_sta_networks[0]));
+         ++network_index)
+    {
+        const esp_report_sta_network_t * const network =
+            &g_sta_networks[network_index];
+        if (network->ssid[0] == '\0')
+        {
+            continue;
+        }
+        esp_report_ssid_copy(g_sta_attempt_ssid, network->ssid);
+        esp_report_sta_status_set(RA8P1_WIFI_CONNECTING,
+                                  g_sta_attempt_ssid);
+        (void)snprintf(command, sizeof(command),
+                       "AT+CWJAP=\"%s\",\"%s\"",
+                       network->ssid, network->password);
+        g_esp_report_diag.sta_connect_attempts++;
+        g_esp_report_diag.sta_last_cwjap_code =
+            ESP_REPORT_CWJAP_CODE_NONE;
+        g_esp_report_diag.last_step = ESP_REPORT_STEP_WIFI;
+        if (esp_report_at(command, ESP_REPORT_WIFI_TIMEOUT_MS))
+        {
+            g_esp_report_diag.sta_connected = 1U;
+            g_esp_report_diag.last_step = ESP_REPORT_STEP_IDLE;
+            g_esp_report_diag.last_error = ESP_REPORT_ERROR_NONE;
+            esp_report_sta_status_set(RA8P1_WIFI_CONNECTED,
+                                      g_sta_attempt_ssid);
+            connected = true;
+            break;
+        }
+        g_esp_report_diag.sta_join_failures++;
+        g_esp_report_diag.sta_last_failure =
+            g_esp_report_diag.last_error;
         g_esp_report_diag.sta_connected = 0U;
         g_mqtt_available = false;
-        return false;
     }
 
-    g_esp_report_diag.sta_connected = 1U;
-    g_esp_report_diag.last_step = ESP_REPORT_STEP_IDLE;
-    g_esp_report_diag.last_error = ESP_REPORT_ERROR_NONE;
-    return true;
+    if (!connected)
+    {
+        g_sta_attempt_ssid[0] = '\0';
+        esp_report_sta_status_set(RA8P1_WIFI_DISCONNECTED, "");
+    }
+
+    if (restore_http_service)
+    {
+        const uint32_t saved_error = g_esp_report_diag.last_error;
+        const uint32_t saved_code =
+            g_esp_report_diag.sta_last_cwjap_code;
+        if (!esp_report_http_service_start(connected))
+        {
+            return false;
+        }
+        if (!connected)
+        {
+            g_esp_report_diag.last_step = ESP_REPORT_STEP_WIFI;
+            g_esp_report_diag.last_error = saved_error;
+            g_esp_report_diag.sta_last_cwjap_code = saved_code;
+        }
+    }
+    return connected;
 }
 
 static bool esp_report_http_path_is(const esp_http_request_t *request,
@@ -1244,17 +1428,22 @@ done:
     return success;
 }
 
+static bool esp_report_sta_configured(void)
+{
+    return (ESP_REPORT_WIFI_PRIMARY_SSID[0] != '\0') ||
+           (ESP_REPORT_WIFI_SECONDARY_SSID[0] != '\0');
+}
+
 static bool esp_report_mqtt_configured(void)
 {
-    return (ESP_REPORT_WIFI_SSID[0] != '\0') &&
+    return esp_report_sta_configured() &&
            (ESP_REPORT_MQTT_HOST[0] != '\0') &&
            (ESP_REPORT_MQTT_TOPIC[0] != '\0');
 }
 
 static bool esp_report_configured(void)
 {
-    return ESP_REPORT_ENABLE &&
-           (ESP_REPORT_AP_ENABLE || esp_report_mqtt_configured());
+    return ESP_REPORT_ENABLE && esp_report_sta_configured();
 }
 
 static void esp_report_collector_thread_entry(void *parameter)
@@ -1334,7 +1523,7 @@ static void esp_report_thread_entry(void *parameter)
 
     if (!g_esp_report_diag.configured)
     {
-        rt_kprintf("[esp] service disabled: configure AP or Wi-Fi/MQTT\n");
+        rt_kprintf("[esp] service disabled: configure Wi-Fi STA\n");
         while (true)
         {
             rt_thread_mdelay(5000U);
@@ -1409,19 +1598,24 @@ static void esp_report_thread_entry(void *parameter)
             }
         }
 
-        /* Serve an already received phone request before beginning any
+        /* Serve an already received browser request before beginning any
          * potentially slow STA or MQTT operation. */
-        if (g_esp_service_ready)
+        if (g_esp_report_diag.web_server_ready)
         {
             esp_report_http_service_one();
         }
 
         if (g_esp_service_ready &&
-            esp_report_mqtt_configured() &&
+            esp_report_sta_configured() &&
             !g_esp_report_diag.sta_connected &&
-            esp_report_tick_due(rt_tick_get(), next_sta_retry))
+            (g_sta_retry_requested ||
+             esp_report_tick_due(rt_tick_get(), next_sta_retry)))
         {
+            g_sta_retry_requested = false;
             (void)esp_report_sta_connect();
+            /* A failed CWJAP may itself emit WIFI DISCONNECT. Do not turn
+             * that synchronous failure into an unbounded retry loop. */
+            g_sta_retry_requested = false;
             next_sta_retry = rt_tick_get() +
                 rt_tick_from_millisecond(ESP_REPORT_STA_RETRY_MS);
         }
@@ -1477,6 +1671,11 @@ void esp_report_start(void)
     g_activity_state_ready = false;
     g_activity_generation = 0U;
     g_activity_working_mask = 0U;
+    g_sta_connection_state = RA8P1_WIFI_DISCONNECTED;
+    g_sta_retry_requested = false;
+    g_sta_attempt_ssid[0] = '\0';
+    g_sta_connected_ssid[0] = '\0';
+    ipc_bridge_cpu0_wifi_status_publish(RA8P1_WIFI_DISCONNECTED, "");
     g_esp_report_diag.magic = ESP_REPORT_DIAG_MAGIC;
     g_esp_report_diag.version = ESP_REPORT_DIAG_VERSION;
     g_esp_report_diag.size = (uint16_t)sizeof(g_esp_report_diag);

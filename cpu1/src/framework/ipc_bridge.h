@@ -8,6 +8,7 @@
 #include "latency_telemetry.h"
 #include "rf_v13_activity_fusion.h"
 #include "system_protocol.h"
+#include "wifi_status_mailbox.h"
 
 void ipc_bridge_cpu1_init(void);
 bool ipc_bridge_cpu1_poll(ra8p1_system_telemetry_t *telemetry);
@@ -23,6 +24,7 @@ bool ipc_bridge_cpu1_activity_poll(
 bool ipc_bridge_cpu1_command_send(const ra8p1_ui_command_t *command);
 void ipc_bridge_cpu1_command_service(void);
 bool ipc_bridge_cpu1_cpu0_ready(void);
+bool ipc_bridge_cpu1_wifi_status_poll(ra8p1_wifi_status_mailbox_t *status);
 bool ipc_bridge_cpu1_command_pending(void);
 uint32_t ipc_bridge_cpu1_command_retry_count(void);
 bool ipc_bridge_cpu1_panel_shutdown_requested(void);

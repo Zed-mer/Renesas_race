@@ -257,6 +257,10 @@ class WaterfallLayoutRegressionTest(unittest.TestCase):
         self.assertEqual(sidebar_y + sidebar_height, metrics_y)
 
     def test_daylight_header_controls_are_touchable_without_overlap(self) -> None:
+        mute_x = integer_define(RF_UI_C, "RF_MUTE_X")
+        mute_y = integer_define(RF_UI_C, "RF_MUTE_Y")
+        mute_width = integer_define(RF_UI_C, "RF_MUTE_WIDTH")
+        mute_height = integer_define(RF_UI_C, "RF_MUTE_HEIGHT")
         mode_x = integer_define(RF_UI_C, "RF_MODE_X")
         mode_y = integer_define(RF_UI_C, "RF_MODE_Y")
         mode_width = integer_define(RF_UI_C, "RF_MODE_WIDTH")
@@ -276,12 +280,16 @@ class WaterfallLayoutRegressionTest(unittest.TestCase):
         header_height = integer_define(RF_UI_C, "RF_HEADER_HEIGHT")
         touch_target = integer_define(RF_UI_C, "RF_TOUCH_TARGET")
 
+        self.assertGreaterEqual(mute_width, touch_target)
+        self.assertGreaterEqual(mute_height, touch_target)
         self.assertGreaterEqual(mode_height, touch_target)
         self.assertGreaterEqual(transport_height, touch_target)
         self.assertGreaterEqual(live_button_width, touch_target)
         self.assertGreaterEqual(history_width, touch_target)
         self.assertGreaterEqual(touch_target, 44)
         self.assertLessEqual(mode_y + mode_height, header_height)
+        self.assertLessEqual(mute_y + mute_height, header_height)
+        self.assertLessEqual(mute_x + mute_width, mode_x)
         self.assertLessEqual(transport_y + transport_height, header_height)
         self.assertLessEqual(mode_x + 2 * mode_width + mode_gap, transport_x)
         self.assertLessEqual(transport_x + transport_width, 1024)
@@ -295,6 +303,9 @@ class WaterfallLayoutRegressionTest(unittest.TestCase):
         )
         self.assertNotIn("RF_SOURCE_BADGE_X", RF_UI_C)
         self.assertNotIn("LV_SYMBOL_WIFI", RF_UI_C)
+        self.assertIn("LV_SYMBOL_MUTE", RF_UI_C)
+        self.assertIn("LV_SYMBOL_VOLUME_MAX", RF_UI_C)
+        self.assertIn("alarm_mute_click_event", RF_UI_C)
         self.assertIn('"全频扫描", "重点锁定"', RF_UI_C)
 
     def test_decorative_boxes_do_not_swallow_parent_button_hits(self) -> None:
@@ -1724,6 +1735,45 @@ class WaterfallLayoutRegressionTest(unittest.TestCase):
         self.assertIn("range_present[2]", detail)
         self.assertIn('index == 0U ? "图传" : "遥控"', detail)
         self.assertNotIn("range_count", detail)
+
+    def test_dji_display_uses_physical_bandwidth_not_the_legacy_flag(self) -> None:
+        classifier = RF_UI_C.split(
+            "static rf_ui_dji_bandwidth_t rf_box_dji_bandwidth", 1
+        )[1].split("static bool find_last_detection_box_filtered", 1)[0]
+        finder = RF_UI_C.split(
+            "static bool find_last_detection_box_filtered", 1
+        )[1].split("static void format_box_frequency_range", 1)[0]
+        detail = RF_UI_C.split("static void refresh_target_detail(void)", 1)[
+            1
+        ].split("static void refresh_selected_view", 1)[0]
+
+        reliable_mhz = 56
+        scale = integer_define(RF_UI_H, "RF_UI_RF_COORD_SCALE")
+        control_limit_mhz = integer_define(
+            RF_UI_C, "RF_DJI_CONTROL_MAX_BANDWIDTH_MHZ"
+        )
+        video_limit_mhz = integer_define(
+            RF_UI_C, "RF_DJI_VIDEO_MIN_BANDWIDTH_MHZ"
+        )
+        classified = []
+        for span_q8 in range(1, 256):
+            scaled_bandwidth = span_q8 * reliable_mhz
+            if scaled_bandwidth < control_limit_mhz * scale:
+                classified.append("control")
+            elif scaled_bandwidth > video_limit_mhz * scale:
+                classified.append("video")
+            else:
+                classified.append("ambiguous")
+
+        self.assertEqual(classified[21], "control")  # span_q8 == 22
+        self.assertEqual(classified[22], "ambiguous")  # span_q8 == 23
+        self.assertEqual(classified[44], "ambiguous")  # span_q8 == 45
+        self.assertEqual(classified[45], "video")  # span_q8 == 46
+        self.assertIn("box->frequency_span_q8 * RF_RELIABLE_BANDWIDTH_MHZ", classifier)
+        self.assertIn("RF_UI_RF_BOX_FLAG_FREQUENCY_CLIPPED", classifier)
+        self.assertNotIn("RF_UI_RF_BOX_FLAG_VIDEO_20MHZ", finder)
+        self.assertIn("RF_UI_DJI_BANDWIDTH_VIDEO", detail)
+        self.assertIn("RF_UI_DJI_BANDWIDTH_CONTROL", detail)
 
     def test_target_detail_surface_keeps_fixed_dark_colors(self) -> None:
         surface = RF_UI_C.split(

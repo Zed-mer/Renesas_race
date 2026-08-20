@@ -6,6 +6,7 @@
 #include "framework/display_tile.h"
 #include "framework/activity_service.h"
 #include "framework/system_protocol.h"
+#include "framework/wifi_status_mailbox.h"
 
 #define LVGL_APP_INPUT_DIAG_MAGIC   (0x544F5543U) /* "TOUC" */
 #define LVGL_APP_INPUT_DIAG_VERSION (1U)
@@ -75,6 +76,8 @@ bool lvgl_app_frame_presented(const ra8p1_display_frame_t *frame);
 void lvgl_app_tile_update(const ra8p1_display_tile_payload_t *tile);
 void lvgl_app_signal_reset(void);
 void lvgl_app_telemetry_update(const ra8p1_system_telemetry_t *telemetry);
+void lvgl_app_wifi_status_update(
+    const ra8p1_wifi_status_mailbox_t *wifi_status);
 void lvgl_app_runtime_metrics_get(lvgl_app_runtime_metrics_t *metrics);
 uint32_t lvgl_app_center_valid_mask(void);
 bool lvgl_app_center_frame_get(uint32_t center_index, ra8p1_display_frame_t *frame);

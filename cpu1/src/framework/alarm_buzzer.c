@@ -12,6 +12,7 @@ volatile alarm_buzzer_diag_t g_alarm_buzzer_diag;
 static bool g_alarm_buzzer_initialized;
 static bool g_alarm_buzzer_requested;
 static bool g_alarm_buzzer_output_active;
+static bool g_alarm_buzzer_muted;
 static uint32_t g_alarm_buzzer_cycle_start_ms;
 
 static fsp_err_t alarm_buzzer_write(bool active)
@@ -60,6 +61,7 @@ void alarm_buzzer_init(void)
     g_alarm_buzzer_initialized = false;
     g_alarm_buzzer_requested = false;
     g_alarm_buzzer_output_active = false;
+    g_alarm_buzzer_muted = false;
     g_alarm_buzzer_cycle_start_ms = 0U;
     g_alarm_buzzer_diag.magic = ALARM_BUZZER_DIAG_MAGIC;
     g_alarm_buzzer_diag.version = ALARM_BUZZER_DIAG_VERSION;
@@ -73,6 +75,7 @@ void alarm_buzzer_init(void)
     g_alarm_buzzer_diag.output_active = 0U;
     g_alarm_buzzer_diag.last_tick_ms = 0U;
     g_alarm_buzzer_diag.cycle_start_ms = 0U;
+    g_alarm_buzzer_diag.muted = 0U;
 
     /* The generated pin configuration also starts HIGH.  Re-assert it here
      * after the shared IOPORT instance is open so a warm reset stays silent. */
@@ -116,7 +119,7 @@ void alarm_buzzer_apply_round(
         g_alarm_buzzer_diag.request_active = requested ? 1U : 0U;
         g_alarm_buzzer_cycle_start_ms = now_ms;
         g_alarm_buzzer_diag.cycle_start_ms = now_ms;
-        (void) alarm_buzzer_write(requested);
+        (void) alarm_buzzer_write(requested && !g_alarm_buzzer_muted);
     }
     if (!requested)
     {
@@ -133,7 +136,7 @@ void alarm_buzzer_step(uint32_t now_ms)
         return;
     }
     g_alarm_buzzer_diag.last_tick_ms = now_ms;
-    if (!g_alarm_buzzer_requested)
+    if (!g_alarm_buzzer_requested || g_alarm_buzzer_muted)
     {
         (void) alarm_buzzer_write(false);
         return;
@@ -141,6 +144,27 @@ void alarm_buzzer_step(uint32_t now_ms)
     elapsed = now_ms - g_alarm_buzzer_cycle_start_ms;
     active = (elapsed % ALARM_BUZZER_CYCLE_MS) < ALARM_BUZZER_ACTIVE_MS;
     (void) alarm_buzzer_write(active);
+}
+
+void alarm_buzzer_set_muted(bool muted, uint32_t now_ms)
+{
+    if (g_alarm_buzzer_muted == muted)
+    {
+        return;
+    }
+    g_alarm_buzzer_muted = muted;
+    g_alarm_buzzer_diag.muted = muted ? 1U : 0U;
+    g_alarm_buzzer_cycle_start_ms = now_ms;
+    g_alarm_buzzer_diag.cycle_start_ms = now_ms;
+    if (g_alarm_buzzer_initialized)
+    {
+        (void) alarm_buzzer_write(!muted && g_alarm_buzzer_requested);
+    }
+}
+
+bool alarm_buzzer_is_muted(void)
+{
+    return g_alarm_buzzer_muted;
 }
 
 void alarm_buzzer_force_off(void)

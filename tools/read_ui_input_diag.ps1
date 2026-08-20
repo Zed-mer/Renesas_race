@@ -46,7 +46,7 @@ foreach ($name in @(
 {
     [void] $rfUiFields.Add($name)
 }
-for ($index = 0; $index -lt 11; ++$index)
+for ($index = 0; $index -lt 12; ++$index)
 {
     [void] $rfUiFields.Add(('control_events[{0}]' -f $index))
 }
@@ -68,7 +68,7 @@ $objects = [ordered]@{
         Symbol = 'g_rf_ui_input_diag'
         Fields = @($rfUiFields)
         Magic = [uint32] 0x55494E50
-        Version = [uint32] 1
+        Version = [uint32] 2
     }
 }
 

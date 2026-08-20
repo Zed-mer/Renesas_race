@@ -29,6 +29,11 @@
 #define RF_TARGET_CARD_WIDTH 256
 #define RF_TARGET_THUMB_WIDTH 52
 #define RF_TARGET_THUMB_HEIGHT 46
+#define RF_BRAND_TEXT_WIDTH 140
+#define RF_MUTE_X 208
+#define RF_MUTE_Y 5
+#define RF_MUTE_WIDTH 44
+#define RF_MUTE_HEIGHT 44
 #define RF_MODE_X 260
 #define RF_MODE_Y 5
 #define RF_MODE_WIDTH 91
@@ -128,6 +133,11 @@
 #define RF_WATERFALL_CLUT_GAP_A 14u
 #define RF_WATERFALL_CLUT_GAP_B 15u
 #define RF_CHANNEL_HALF_BANDWIDTH_MHZ 28u
+#define RF_RELIABLE_BANDWIDTH_MHZ (RF_CHANNEL_HALF_BANDWIDTH_MHZ * 2u)
+#define RF_DJI_CONTROL_MAX_BANDWIDTH_MHZ 5u
+#define RF_DJI_VIDEO_MIN_BANDWIDTH_MHZ 10u
+#define RF_UI_WIFI_SSID_MAX_BYTES 32u
+#define RF_UI_WIFI_DISPLAY_SSID_BYTES 12
 #define RF_WATERFALL_RF_WINDOW_SAMPLES 590336u
 #define RF_WATERFALL_RF_SAMPLE_RATE_HZ 60000000u
 #define RF_WATERFALL_RF_ROWS_PER_WINDOW 16u
@@ -260,6 +270,9 @@ typedef struct {
     bool waterfall_dirty[RF_DEMO_CHANNEL_COUNT];
     bool rf_boxes_dirty[RF_DEMO_CHANNEL_COUNT];
     bool focus_mode;
+    bool wifi_connected;
+    bool wifi_connecting;
+    char wifi_ssid[RF_UI_WIFI_SSID_MAX_BYTES + 1u];
     uint8_t pending_channel;
     uint8_t committed_channel;
     uint16_t waterfall_pan_columns;
@@ -280,6 +293,9 @@ typedef struct {
     lv_obj_t * source_badge;
     lv_obj_t * source_badge_label;
     lv_obj_t * header_status_label;
+    lv_obj_t * wifi_status_label;
+    lv_obj_t * alarm_mute_button;
+    lv_obj_t * alarm_mute_icon;
     lv_obj_t * compare_button;
     lv_obj_t * compare_label;
     lv_obj_t * performance_labels[RF_METRIC_COUNT];
@@ -886,6 +902,11 @@ _Static_assert((RF_MODE_X +
                 ((RF_ACQUISITION_MODE_COUNT - 1u) * RF_MODE_GAP)) <=
                RF_TRANSPORT_X,
                "acquisition controls overlap transport");
+_Static_assert(RF_MUTE_WIDTH >= RF_TOUCH_TARGET &&
+               RF_MUTE_HEIGHT >= RF_TOUCH_TARGET,
+               "alarm mute must meet the minimum touch target");
+_Static_assert((RF_MUTE_X + RF_MUTE_WIDTH) <= RF_MODE_X,
+               "alarm mute overlaps acquisition controls");
 _Static_assert((RF_TRANSPORT_X + RF_TRANSPORT_WIDTH) <= RF_SCREEN_WIDTH,
                "header transport exceeds the screen");
 _Static_assert((RF_LIVE_BUTTON_X + RF_LIVE_BUTTON_WIDTH) ==
@@ -2868,13 +2889,41 @@ typedef struct {
     uint32_t observation_generation;
 } rf_ui_box_ref_t;
 
+typedef enum {
+    RF_UI_DJI_BANDWIDTH_ANY = 0,
+    RF_UI_DJI_BANDWIDTH_CONTROL,
+    RF_UI_DJI_BANDWIDTH_VIDEO,
+    RF_UI_DJI_BANDWIDTH_AMBIGUOUS,
+} rf_ui_dji_bandwidth_t;
+
 static bool rf_box_generation_newer(uint32_t candidate, uint32_t current)
 {
     return (int32_t)(candidate - current) > 0;
 }
 
+static rf_ui_dji_bandwidth_t rf_box_dji_bandwidth(
+    const rf_ui_rf_box_t * box)
+{
+    if(box == NULL ||
+       (box->flags & RF_UI_RF_BOX_FLAG_FREQUENCY_CLIPPED) != 0U) {
+        return RF_UI_DJI_BANDWIDTH_AMBIGUOUS;
+    }
+
+    const uint32_t scaled_bandwidth =
+        (uint32_t)box->frequency_span_q8 * RF_RELIABLE_BANDWIDTH_MHZ;
+    if(scaled_bandwidth <
+       RF_DJI_CONTROL_MAX_BANDWIDTH_MHZ * RF_UI_RF_COORD_SCALE) {
+        return RF_UI_DJI_BANDWIDTH_CONTROL;
+    }
+    if(scaled_bandwidth >
+       RF_DJI_VIDEO_MIN_BANDWIDTH_MHZ * RF_UI_RF_COORD_SCALE) {
+        return RF_UI_DJI_BANDWIDTH_VIDEO;
+    }
+    return RF_UI_DJI_BANDWIDTH_AMBIGUOUS;
+}
+
 static bool find_last_detection_box_filtered(uint32_t detection_index,
-                                             int32_t video_filter,
+                                             rf_ui_dji_bandwidth_t bandwidth_filter,
                                              rf_ui_box_ref_t * ref)
 {
     if(detection_index >= RF_UI_DETECTION_COUNT || ref == NULL) return false;
@@ -2893,9 +2942,8 @@ static bool find_last_detection_box_filtered(uint32_t detection_index,
                box->frequency_span_q8 == 0U) {
                 continue;
             }
-            const bool video =
-                (box->flags & RF_UI_RF_BOX_FLAG_VIDEO_20MHZ) != 0U;
-            if(video_filter >= 0 && video != (video_filter != 0)) continue;
+            if(bandwidth_filter != RF_UI_DJI_BANDWIDTH_ANY &&
+               rf_box_dji_bandwidth(box) != bandwidth_filter) continue;
             if(!found || generation == ref->observation_generation ||
                rf_box_generation_newer(
                    generation, ref->observation_generation)) {
@@ -2912,7 +2960,8 @@ static bool find_last_detection_box_filtered(uint32_t detection_index,
 static bool find_last_detection_box(uint32_t detection_index,
                                     rf_ui_box_ref_t * ref)
 {
-    return find_last_detection_box_filtered(detection_index, -1, ref);
+    return find_last_detection_box_filtered(
+        detection_index, RF_UI_DJI_BANDWIDTH_ANY, ref);
 }
 
 static void format_box_frequency_range(char * buffer,
@@ -3386,9 +3435,9 @@ static void refresh_target_detail(void)
         bool range_present[2] = {false, false};
         if(working && target == 0U) {
             range_present[0] = find_last_detection_box_filtered(
-                target, 1, &range_refs[0]);
+                target, RF_UI_DJI_BANDWIDTH_VIDEO, &range_refs[0]);
             range_present[1] = find_last_detection_box_filtered(
-                target, 0, &range_refs[1]);
+                target, RF_UI_DJI_BANDWIDTH_CONTROL, &range_refs[1]);
         }
         else if(working) {
             range_present[0] = find_last_detection_box(
@@ -3622,6 +3671,85 @@ static void acquisition_mode_click_event(lv_event_t * event)
     if(accepted) rf_ui_set_focus_mode(mode == RF_ACQUISITION_FOCUS);
 }
 
+static void refresh_wifi_status(void)
+{
+    if(g_ui.wifi_status_label == NULL) return;
+
+    char text[32];
+    uint32_t text_color = RF_COLOR_RED;
+    if(g_ui.wifi_connected) {
+        snprintf(text, sizeof(text), "WiFi %.*s OK",
+                 RF_UI_WIFI_DISPLAY_SSID_BYTES, g_ui.wifi_ssid);
+        text_color = RF_COLOR_GREEN;
+    }
+    else if(g_ui.wifi_connecting) {
+        snprintf(text, sizeof(text), "WiFi %.*s ...",
+                 RF_UI_WIFI_DISPLAY_SSID_BYTES, g_ui.wifi_ssid);
+        text_color = RF_COLOR_AMBER;
+    }
+    else {
+        snprintf(text, sizeof(text), "WiFi OFFLINE");
+    }
+    lv_label_set_text(g_ui.wifi_status_label, text);
+    lv_obj_set_style_text_color(g_ui.wifi_status_label,
+                                color(text_color), 0);
+}
+
+void rf_ui_set_wifi_status(bool connected,
+                           bool connecting,
+                           const char *ssid)
+{
+    char normalized_ssid[RF_UI_WIFI_SSID_MAX_BYTES + 1u] = {0};
+    size_t length = 0U;
+    if(!connected && !connecting) ssid = NULL;
+    if(ssid != NULL) {
+        while(length < RF_UI_WIFI_SSID_MAX_BYTES && ssid[length] != '\0') {
+            ++length;
+        }
+        memcpy(normalized_ssid, ssid, length);
+    }
+
+    connecting = connecting && !connected;
+    if(g_ui.wifi_connected == connected &&
+       g_ui.wifi_connecting == connecting &&
+       strcmp(g_ui.wifi_ssid, normalized_ssid) == 0) return;
+
+    g_ui.wifi_connected = connected;
+    g_ui.wifi_connecting = connecting;
+    memcpy(g_ui.wifi_ssid, normalized_ssid, sizeof(g_ui.wifi_ssid));
+    refresh_wifi_status();
+}
+
+static void refresh_alarm_mute(void)
+{
+    if(g_ui.alarm_mute_button == NULL || g_ui.alarm_mute_icon == NULL) return;
+
+    const bool muted = display_app_alarm_muted();
+    lv_label_set_text(g_ui.alarm_mute_icon,
+                      muted ? LV_SYMBOL_MUTE : LV_SYMBOL_VOLUME_MAX);
+    lv_obj_set_style_bg_color(g_ui.alarm_mute_button,
+                              color(muted ? RF_COLOR_AMBER_SOFT :
+                                            RF_COLOR_PANEL), 0);
+    lv_obj_set_style_border_color(g_ui.alarm_mute_button,
+                                  color(muted ? RF_COLOR_AMBER :
+                                                RF_COLOR_BORDER), 0);
+    lv_obj_set_style_text_color(g_ui.alarm_mute_icon,
+                                color(muted ? RF_COLOR_AMBER :
+                                              RF_COLOR_GREEN), 0);
+}
+
+static void alarm_mute_click_event(lv_event_t * event)
+{
+    const lv_event_code_t code = lv_event_get_code(event);
+    if(code != RF_BUTTON_EVENT) return;
+
+    const bool muted = !display_app_alarm_muted();
+    display_app_set_alarm_muted(muted);
+    input_diag_record(RF_UI_INPUT_CONTROL_ALARM_MUTE,
+                      muted ? 1U : 0U, code, true);
+    refresh_alarm_mute();
+}
+
 static void create_acquisition_modes(lv_obj_t * header)
 {
     static const char * labels[RF_ACQUISITION_MODE_COUNT] = {
@@ -3662,10 +3790,28 @@ static void create_header(void)
     lv_obj_set_style_radius(brand, 4, 0);
     create_label(brand, 0, 10, 40, 20, "RF", &rf_font_14,
                  RF_COLOR_ON_PRIMARY, LV_TEXT_ALIGN_CENTER);
-    create_label(header, 60, 6, 190, 20, "低空射频监测", &rf_font_zh_14,
+    create_label(header, 60, 6, RF_BRAND_TEXT_WIDTH, 20, "低空射频监测", &rf_font_zh_14,
                  RF_COLOR_TEXT, LV_TEXT_ALIGN_LEFT);
-    create_label(header, 60, 29, 190, 16, "RA8P1",
-                 &rf_font_12, RF_COLOR_MUTED, LV_TEXT_ALIGN_LEFT);
+    g_ui.wifi_status_label = create_label(
+        header, 60, 29, RF_BRAND_TEXT_WIDTH, 16, "WiFi OFFLINE",
+        &rf_font_12, RF_COLOR_RED, LV_TEXT_ALIGN_LEFT);
+
+    g_ui.alarm_mute_button = create_box(
+        header, RF_MUTE_X, RF_MUTE_Y, RF_MUTE_WIDTH, RF_MUTE_HEIGHT,
+        RF_COLOR_PANEL, LV_OPA_COVER);
+    lv_obj_set_style_border_width(g_ui.alarm_mute_button, 1, 0);
+    lv_obj_set_style_radius(g_ui.alarm_mute_button, 4, 0);
+    lv_obj_set_style_bg_color(g_ui.alarm_mute_button,
+                              color(RF_COLOR_PRESSED), LV_STATE_PRESSED);
+    lv_obj_add_flag(g_ui.alarm_mute_button, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(g_ui.alarm_mute_button, alarm_mute_click_event,
+                        RF_BUTTON_EVENT, NULL);
+    g_ui.alarm_mute_icon = create_label(
+        g_ui.alarm_mute_button, 0, 11, RF_MUTE_WIDTH, 22,
+        LV_SYMBOL_VOLUME_MAX, &lv_font_montserrat_20,
+        RF_COLOR_GREEN, LV_TEXT_ALIGN_CENTER);
+    refresh_wifi_status();
+    refresh_alarm_mute();
 
     create_acquisition_modes(header);
 

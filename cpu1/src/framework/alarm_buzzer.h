@@ -7,7 +7,7 @@
 #include "activity_service.h"
 
 #define ALARM_BUZZER_DIAG_MAGIC   (0x425A5231UL) /* BZR1 */
-#define ALARM_BUZZER_DIAG_VERSION (1U)
+#define ALARM_BUZZER_DIAG_VERSION (2U)
 
 /* A one-second alarm cadence: 500 ms active, 500 ms silent. */
 #define ALARM_BUZZER_CYCLE_MS     (1000U)
@@ -27,6 +27,7 @@ typedef struct st_alarm_buzzer_diag
     uint32_t output_active;
     uint32_t last_tick_ms;
     uint32_t cycle_start_ms;
+    uint32_t muted;
 } alarm_buzzer_diag_t;
 
 extern volatile alarm_buzzer_diag_t g_alarm_buzzer_diag;
@@ -36,6 +37,8 @@ void alarm_buzzer_apply_round(
     const rf_v27_activity_round_decision_t *decision,
     uint32_t now_ms);
 void alarm_buzzer_step(uint32_t now_ms);
+void alarm_buzzer_set_muted(bool muted, uint32_t now_ms);
+bool alarm_buzzer_is_muted(void);
 void alarm_buzzer_force_off(void);
 
 #endif

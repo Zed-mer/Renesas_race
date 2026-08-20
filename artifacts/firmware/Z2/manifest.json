@@ -1,0 +1,53 @@
+﻿{
+    "schema":  1,
+    "version":  "Z2",
+    "snapshot_utc":  "2026-08-20T09:44:32.6755193Z",
+    "configuration":  "Debug",
+    "repository":  {
+                       "root":  "D:\\Renesas_race\\RA8P1_DRONE_DETECT_Zt813\\RA8P1_DRONE_DETECT_Zt_T5_new_819",
+                       "head_before_version_commit":  "fc6093d7f3bcab1d5a056c228b96f015a818d770",
+                       "branch":  "T5_new_819"
+                   },
+    "firmware":  [
+                     {
+                         "core":  "CPU0",
+                         "artifact":  "cpu0/rtthread.elf",
+                         "source":  "cpu0/Debug/rtthread.elf",
+                         "bytes":  4188784,
+                         "sha256":  "4D30376FB47EDF327AC7D02E17B35FB4F19F10CA637FC3FF63A30EE793EAECC1",
+                         "build_utc":  "2026-08-20T06:03:14.3897391Z"
+                     },
+                     {
+                         "core":  "CPU0",
+                         "artifact":  "cpu0/rtthread.map",
+                         "source":  "cpu0/Debug/rtthread.map",
+                         "bytes":  2608393,
+                         "sha256":  "2F1DBED67131E544F5FDE12B7CBF35D29EA8EE6C02894D416488410B21E088F3",
+                         "build_utc":  "2026-08-20T06:03:14.4064458Z"
+                     },
+                     {
+                         "core":  "CPU0",
+                         "artifact":  "cpu0/rtthread.hex",
+                         "source":  "cpu0/Debug/rtthread.hex",
+                         "bytes":  1384565,
+                         "sha256":  "64A7257986B629DF72F3F1483735E959F3B0AD4FF6599E32A078CFC9448EAF90",
+                         "build_utc":  "2026-08-20T06:03:14.5919251Z"
+                     },
+                     {
+                         "core":  "CPU1",
+                         "artifact":  "cpu1/ra8p1_sdr_ai_display_solution_20260718_CPU1.elf",
+                         "source":  "cpu1/Debug/ra8p1_sdr_ai_display_solution_20260718_CPU1.elf",
+                         "bytes":  3949776,
+                         "sha256":  "5BAE3A3180C11BD8F66E3EF584D184919DB877DAE4E2AF20A60E2A6CCDED2D6F",
+                         "build_utc":  "2026-08-20T04:11:57.6947718Z"
+                     },
+                     {
+                         "core":  "CPU1",
+                         "artifact":  "cpu1/ra8p1_sdr_ai_display_solution_20260718_CPU1.map",
+                         "source":  "cpu1/Debug/ra8p1_sdr_ai_display_solution_20260718_CPU1.map",
+                         "bytes":  1193705,
+                         "sha256":  "4C4B939F4F3815E34E0C0C6AAC5F83D4315C98DC0E7EA24EE44530B48AB8AFAA",
+                         "build_utc":  "2026-08-20T04:11:57.7055986Z"
+                     }
+                 ]
+}

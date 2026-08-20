@@ -4,7 +4,13 @@
 #include <stdint.h>
 
 #define ESP_REPORT_DIAG_MAGIC   (0x52505345UL) /* ESPR */
-#define ESP_REPORT_DIAG_VERSION (4U)
+#define ESP_REPORT_DIAG_VERSION (5U)
+
+#define ESP_REPORT_CWJAP_CODE_NONE               (0U)
+#define ESP_REPORT_CWJAP_CODE_CONNECTION_TIMEOUT (1U)
+#define ESP_REPORT_CWJAP_CODE_WRONG_PASSWORD     (2U)
+#define ESP_REPORT_CWJAP_CODE_AP_NOT_FOUND       (3U)
+#define ESP_REPORT_CWJAP_CODE_CONNECTION_FAILED  (4U)
 
 typedef struct st_esp_report_diag
 {
@@ -44,6 +50,9 @@ typedef struct st_esp_report_diag
     uint32_t event_queue_high_water;
     uint32_t event_queue_drops;
     uint32_t sta_connect_attempts;
+    uint32_t sta_join_failures;
+    uint32_t sta_last_cwjap_code;
+    uint32_t sta_last_failure;
 } esp_report_diag_t;
 
 extern volatile esp_report_diag_t g_esp_report_diag;

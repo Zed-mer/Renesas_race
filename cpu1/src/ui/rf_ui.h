@@ -35,7 +35,7 @@ extern "C" {
 #define RF_UI_RUNTIME_MONITOR_MAGIC       0x4C495645u /* "LIVE" */
 #define RF_UI_RUNTIME_MONITOR_VERSION     2u
 #define RF_UI_INPUT_DIAG_MAGIC            0x55494E50u /* "UINP" */
-#define RF_UI_INPUT_DIAG_VERSION          1u
+#define RF_UI_INPUT_DIAG_VERSION          2u
 #define RF_UI_CHANNEL_NONE                UINT32_MAX
 
 typedef enum {
@@ -50,6 +50,7 @@ typedef enum {
     RF_UI_INPUT_CONTROL_HISTORY_BUTTON,
     RF_UI_INPUT_CONTROL_HISTORY_SLIDER,
     RF_UI_INPUT_CONTROL_WATERFALL,
+    RF_UI_INPUT_CONTROL_ALARM_MUTE,
     RF_UI_INPUT_CONTROL_COUNT,
 } rf_ui_input_control_t;
 
@@ -475,6 +476,11 @@ void rf_ui_mark_channel_result(uint32_t channel_index,
                                uint8_t confidence_percent);
 void rf_ui_force_channel_result_redraw(uint32_t channel_index);
 void rf_ui_set_model_placeholder(bool placeholder);
+
+/** Update the header with CPU0's external STA state and current SSID. */
+void rf_ui_set_wifi_status(bool connected,
+                           bool connecting,
+                           const char *ssid);
 
 /** Set the acquisition/scan-rate text in tenths of hertz (82 -> "8.2 Hz"). */
 void rf_ui_set_scan_rate_x10(uint16_t rate_x10);

@@ -190,12 +190,17 @@ void display_app_step(void)
 {
     ra8p1_system_telemetry_t telemetry;
     ra8p1_display_frame_t display_frame;
+    ra8p1_wifi_status_mailbox_t wifi_status;
     rf_v27_activity_round_decision_t activity_decision;
     const uint32_t alarm_now_ms = g_display_diag.heartbeat;
     bool display_frame_ready;
     bool display_frame_valid;
     bool activity_output_ready;
     ipc_bridge_cpu1_command_service();
+    if (ipc_bridge_cpu1_wifi_status_poll(&wifi_status))
+    {
+        lvgl_app_wifi_status_update(&wifi_status);
+    }
     activity_output_ready = rf_v27_activity_service_poll();
     if (g_panel_shutdown_latched)
     {
@@ -336,6 +341,16 @@ void display_app_step(void)
                                        g_display_diag.running,
                                        &runtime_metrics);
     }
+}
+
+void display_app_set_alarm_muted(bool muted)
+{
+    alarm_buzzer_set_muted(muted, g_display_diag.heartbeat);
+}
+
+bool display_app_alarm_muted(void)
+{
+    return alarm_buzzer_is_muted();
 }
 
 void display_app_drain_tiles_bounded(uint32_t max_tiles)

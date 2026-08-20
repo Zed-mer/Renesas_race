@@ -9,6 +9,7 @@
 #include "analysis_contract.h"
 #include "activity_mailbox.h"
 #include "latency_telemetry.h"
+#include "wifi_status_mailbox.h"
 #include "cpu0_trace.h"
 
 static ra8p1_system_telemetry_t g_telemetry_shadow;
@@ -21,6 +22,7 @@ static uint32_t g_display_sequence;
 static uint32_t g_tile_sequence;
 static uint32_t g_display_session_id;
 static uint32_t g_activity_sequence;
+static uint32_t g_wifi_status_sequence;
 
 #define CPU0_LATENCY_MAX_WINDOWS (RA8P1_ANALYSIS_TILE_COUNT)
 
@@ -49,6 +51,20 @@ static void ipc_barrier(void)
     __asm volatile ("dmb" ::: "memory");
 }
 
+static size_t ipc_bounded_string_length(const char *text, size_t maximum)
+{
+    size_t length = 0U;
+    if (text == NULL)
+    {
+        return 0U;
+    }
+    while ((length < maximum) && (text[length] != '\0'))
+    {
+        ++length;
+    }
+    return length;
+}
+
 static uint32_t ipc_next_epoch(uint32_t epoch)
 {
     epoch++;
@@ -70,6 +86,15 @@ static void ipc_cpu0_activity_state_clean(void)
     SCB_CleanDCache_by_Addr(
         (volatile void *)&RA8P1_ACTIVITY_CONTROL->cpu0,
         (int32_t)sizeof(RA8P1_ACTIVITY_CONTROL->cpu0));
+#endif
+    __DSB();
+}
+
+static void ipc_cpu0_wifi_status_clean(void)
+{
+#if (__DCACHE_PRESENT == 1U)
+    SCB_CleanDCache_by_Addr((volatile void *)RA8P1_WIFI_STATUS_MAILBOX,
+                            (int32_t)sizeof(*RA8P1_WIFI_STATUS_MAILBOX));
 #endif
     __DSB();
 }
@@ -112,6 +137,49 @@ bool ipc_bridge_cpu0_activity_report_read(uint32_t *generation,
     *generation = report_word >> RA8P1_ACTIVITY_REPORT_MASK_BITS;
     *working_mask = report_word & RA8P1_ACTIVITY_REPORT_MASK;
     return *generation != 0U;
+}
+
+void ipc_bridge_cpu0_wifi_status_publish(
+    ra8p1_wifi_connection_state_t connection_state,
+    const char *ssid)
+{
+    volatile ra8p1_wifi_status_mailbox_t * const status =
+        RA8P1_WIFI_STATUS_MAILBOX;
+    uint32_t sequence;
+    size_t ssid_length = 0U;
+
+    if (connection_state > RA8P1_WIFI_CONNECTED)
+    {
+        connection_state = RA8P1_WIFI_DISCONNECTED;
+    }
+    ssid_length = ipc_bounded_string_length(
+        ssid, RA8P1_WIFI_SSID_MAX_BYTES);
+    sequence = (g_wifi_status_sequence + 2U) & ~1U;
+    if (sequence == 0U)
+    {
+        sequence = 2U;
+    }
+
+    status->begin_sequence = sequence | 1U;
+    ipc_barrier();
+    status->magic = RA8P1_WIFI_STATUS_MAGIC;
+    status->version = RA8P1_WIFI_STATUS_VERSION;
+    status->size = (uint16_t)sizeof(*status);
+    status->cpu0_boot_epoch = g_cpu0_boot_epoch;
+    status->generation = sequence >> 1U;
+    status->connection_state = (uint32_t)connection_state;
+    memset((void *)status->ssid, 0, sizeof(status->ssid));
+    if (ssid_length != 0U)
+    {
+        memcpy((void *)status->ssid, ssid, ssid_length);
+    }
+    memset((void *)status->reserved, 0, sizeof(status->reserved));
+    ipc_barrier();
+    status->end_sequence = sequence;
+    status->begin_sequence = sequence;
+    ipc_barrier();
+    ipc_cpu0_wifi_status_clean();
+    g_wifi_status_sequence = sequence;
 }
 
 static void ipc_cpu0_activity_init(void)
@@ -675,6 +743,8 @@ void ipc_bridge_cpu0_init(void)
 
     ipc_cpu0_handshake_begin();
     ipc_cpu0_activity_init();
+    g_wifi_status_sequence = 0U;
+    ipc_bridge_cpu0_wifi_status_publish(RA8P1_WIFI_DISCONNECTED, "");
     memset(&g_telemetry_shadow, 0, sizeof(g_telemetry_shadow));
     g_telemetry_shadow.magic = RA8P1_SYSTEM_PROTOCOL_MAGIC;
     g_telemetry_shadow.version = RA8P1_SYSTEM_PROTOCOL_VERSION;

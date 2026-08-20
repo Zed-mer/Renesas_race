@@ -299,6 +299,7 @@ $contractTypes = @(
     'ra8p1_ipc_handshake_t',
     'ra8p1_telemetry_mailbox_t',
     'ra8p1_command_mailbox_t',
+    'ra8p1_wifi_status_mailbox_t',
     'ra8p1_display_stream_control_t',
     'ra8p1_detection_box_t',
     'ra8p1_analysis_extension_t',

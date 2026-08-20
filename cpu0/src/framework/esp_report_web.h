@@ -26,9 +26,9 @@ static const char g_esp_report_web_page[] =
 "<div class='target' id='t3'><span>Xiaobawang</span><i>INACTIVE</i></div></section>"
 "<h2>System</h2><section class='stats'><div class='stat'><b id='gen'>--</b><small>Generation</small></div>"
 "<div class='stat'><b id='up'>--</b><small>Uptime</small></div><div class='stat'><b id='sent'>--</b><small>Reports sent</small></div></section>"
-"<footer>Local read-only monitor &middot; http://192.168.4.1</footer></main><script>"
+"<footer>Local read-only monitor &middot; Connected Wi-Fi network</footer></main><script>"
 "const names=['DJI','AT9S','T12','Xiaobawang'];function target(i,on){const e=document.getElementById('t'+i);e.classList.toggle('on',on);e.querySelector('i').textContent=on?'ACTIVE':'INACTIVE'}"
-"function render(d){const alarm=d.mask!==0,s=document.getElementById('state');s.classList.toggle('alarm',alarm);document.getElementById('headline').textContent=alarm?'RF TARGET DETECTED':'AREA CLEAR';document.getElementById('event').textContent=d.event+' / mask '+d.mask;for(let i=0;i<4;i++)target(i,(d.mask&(1<<i))!==0);document.getElementById('gen').textContent=d.generation;document.getElementById('up').textContent=Math.floor(d.uptime_ms/1000)+' s';document.getElementById('sent').textContent=d.publish_successes;document.getElementById('net').textContent='AP '+(d.ap?'ON':'OFF')+' / STA '+(d.sta?'ON':'OFF')+' / MQTT '+(d.mqtt?'OK':'--')}"
+"function render(d){const alarm=d.mask!==0,s=document.getElementById('state');s.classList.toggle('alarm',alarm);document.getElementById('headline').textContent=alarm?'RF TARGET DETECTED':'AREA CLEAR';document.getElementById('event').textContent=d.event+' / mask '+d.mask;for(let i=0;i<4;i++)target(i,(d.mask&(1<<i))!==0);document.getElementById('gen').textContent=d.generation;document.getElementById('up').textContent=Math.floor(d.uptime_ms/1000)+' s';document.getElementById('sent').textContent=d.publish_successes;document.getElementById('net').textContent='STA '+(d.sta?'ON':'OFF')+' / MQTT '+(d.mqtt?'OK':'--')}"
 "async function poll(){try{const r=await fetch('/api/status',{cache:'no-store'});if(!r.ok)throw 0;render(await r.json())}catch(e){document.getElementById('net').textContent='Connection lost'}}poll();setInterval(poll,1000);"
 "</script></body></html>";
 

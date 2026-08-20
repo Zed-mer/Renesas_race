@@ -4001,6 +4001,19 @@ void lvgl_app_telemetry_update(const ra8p1_system_telemetry_t * telemetry)
     }
 }
 
+void lvgl_app_wifi_status_update(
+    const ra8p1_wifi_status_mailbox_t *wifi_status)
+{
+    if (wifi_status == NULL)
+    {
+        return;
+    }
+    rf_ui_set_wifi_status(
+        wifi_status->connection_state == RA8P1_WIFI_CONNECTED,
+        wifi_status->connection_state == RA8P1_WIFI_CONNECTING,
+        wifi_status->ssid);
+}
+
 static void lvgl_wait_for_next_line_event(uint32_t line_event)
 {
     while (g_display_diag.glcdc_line_events == line_event)

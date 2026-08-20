@@ -45,5 +45,7 @@ bool display_app_campaign_command_stop(void);
 void display_app_campaign_takeover(void);
 uint32_t display_app_last_issued_command_sequence(void);
 uint32_t display_app_last_visible_session_id(void);
+void display_app_set_alarm_muted(bool muted);
+bool display_app_alarm_muted(void);
 
 #endif
