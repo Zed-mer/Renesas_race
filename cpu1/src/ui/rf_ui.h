@@ -317,7 +317,7 @@ typedef struct {
     uint8_t detection_index;
     uint8_t confidence_percent;
     uint8_t flags;
-    uint8_t reserved;
+    uint8_t source_class_id;
 } rf_ui_rf_box_t;
 
 /**

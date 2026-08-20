@@ -2839,7 +2839,8 @@ static void ui_flow_prepare_rf_boxes(const ra8p1_display_frame_t * frame)
             destination->confidence_percent = (uint8_t)(
                 ((uint32_t)source->score * 100U + 127U) / 255U);
             destination->flags = source_flags;
-            destination->reserved = 0U;
+            destination->source_class_id = (uint8_t)(
+                source->metadata & RA8P1_DISPLAY_BOX_SOURCE_CLASS_MASK);
         }
     }
     ui_flow_try_commit_rf_box_batch(center, batch);

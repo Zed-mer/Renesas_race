@@ -11,6 +11,7 @@
 
 #include "display_bringup.h"
 #include "framework/display_app.h"
+#include "framework/rf_v13_activity_fusion.h"
 #include "rf_demo_data.h"
 #include "rf_device_thumbnails.h"
 #include "rf_ui_fonts.h"
@@ -136,6 +137,13 @@
 #define RF_RELIABLE_BANDWIDTH_MHZ (RF_CHANNEL_HALF_BANDWIDTH_MHZ * 2u)
 #define RF_DJI_CONTROL_MAX_BANDWIDTH_MHZ 5u
 #define RF_DJI_VIDEO_MIN_BANDWIDTH_MHZ 10u
+#define RF_DJI_VIDEO_HISTORY_ROUNDS 8u
+#define RF_DJI_VIDEO_INITIAL_LOOKBACK_ROUNDS 6u
+#define RF_DJI_VIDEO_INITIAL_LOCK_VOTES 4u
+#define RF_DJI_VIDEO_SWITCH_VOTES 5u
+#define RF_DJI_VIDEO_SWITCH_LEAD_VOTES 2u
+#define RF_DJI_VIDEO_CLUSTER_TOLERANCE_MHZ 2u
+#define RF_DJI_VIDEO_CLEAR_MISS_ROUNDS 6u
 #define RF_UI_WIFI_SSID_MAX_BYTES 32u
 #define RF_UI_WIFI_DISPLAY_SSID_BYTES 12
 #define RF_WATERFALL_RF_WINDOW_SAMPLES 590336u
@@ -467,6 +475,27 @@ typedef struct {
     rf_ui_rf_box_t box;
 } rf_ui_retained_box_t;
 
+typedef struct {
+    uint32_t round_index;
+    uint16_t center_mhz;
+    uint8_t bandwidth_mhz;
+    uint8_t confidence_percent;
+    uint8_t channel;
+    uint8_t edge_margin_q8;
+    bool occupied;
+    bool candidate_valid;
+    bool complete;
+} rf_ui_dji_video_round_t;
+
+typedef struct {
+    rf_ui_dji_video_round_t rounds[RF_DJI_VIDEO_HISTORY_ROUNDS];
+    uint32_t latest_complete_round;
+    uint16_t locked_center_mhz;
+    uint8_t locked_bandwidth_mhz;
+    bool latest_complete_valid;
+    bool locked;
+} rf_ui_dji_video_tracker_t;
+
 static rf_ui_rf_box_batch_t g_rf_box_batches[RF_UI_CHANNEL_COUNT];
 static rf_ui_rf_box_batch_t g_rf_box_pause_snapshot;
 static rf_ui_rf_box_batch_t g_spectrum_rf_box_batches[RF_UI_CHANNEL_COUNT];
@@ -489,6 +518,7 @@ static uint32_t
     g_last_detail_round_index[RF_UI_CHANNEL_COUNT][RF_UI_DETECTION_COUNT];
 static uint8_t g_last_detail_round_valid_mask[RF_UI_CHANNEL_COUNT];
 static uint32_t g_rf_box_observation_generation;
+static rf_ui_dji_video_tracker_t g_dji_video_tracker;
 static uint64_t g_waterfall_total_columns[RF_UI_CHANNEL_COUNT];
 static uint64_t g_waterfall_presented_columns[RF_UI_CHANNEL_COUNT];
 static uint64_t g_waterfall_pause_total_columns;
@@ -2922,6 +2952,337 @@ static rf_ui_dji_bandwidth_t rf_box_dji_bandwidth(
     return RF_UI_DJI_BANDWIDTH_AMBIGUOUS;
 }
 
+static bool rf_box_frequency_range_tenths(const rf_ui_rf_box_t * box,
+                                          uint32_t channel,
+                                          uint32_t * start_tenths,
+                                          uint32_t * end_tenths)
+{
+    if(box == NULL || channel >= RF_UI_CHANNEL_COUNT ||
+       start_tenths == NULL || end_tenths == NULL) return false;
+
+    const uint32_t end_q8 =
+        (uint32_t)box->frequency_start_q8 + box->frequency_span_q8;
+    if(end_q8 > RF_UI_RF_COORD_SCALE) return false;
+
+    const uint32_t base_tenths =
+        rf_demo_channels[channel].center_mhz * 10U - 280U;
+    *start_tenths = base_tenths +
+        (((uint32_t)box->frequency_start_q8 * 560U + 128U) /
+         RF_UI_RF_COORD_SCALE);
+    *end_tenths = base_tenths +
+        ((end_q8 * 560U + 128U) / RF_UI_RF_COORD_SCALE);
+    return true;
+}
+
+static uint32_t rf_frequency_distance_mhz(uint16_t a, uint16_t b)
+{
+    return a >= b ? (uint32_t)(a - b) : (uint32_t)(b - a);
+}
+
+static rf_ui_dji_video_round_t * dji_video_round_get(uint32_t round_index,
+                                                      bool create)
+{
+    rf_ui_dji_video_round_t * free_slot = NULL;
+    rf_ui_dji_video_round_t * oldest = NULL;
+    for(uint32_t index = 0U; index < RF_DJI_VIDEO_HISTORY_ROUNDS; ++index) {
+        rf_ui_dji_video_round_t * const candidate =
+            &g_dji_video_tracker.rounds[index];
+        if(candidate->occupied && candidate->round_index == round_index) {
+            return candidate;
+        }
+        if(!candidate->occupied && free_slot == NULL) free_slot = candidate;
+        if(candidate->occupied &&
+           (oldest == NULL ||
+            (int32_t)(candidate->round_index - oldest->round_index) < 0)) {
+            oldest = candidate;
+        }
+    }
+    if(!create) return NULL;
+    if(g_dji_video_tracker.latest_complete_valid &&
+       (int32_t)(g_dji_video_tracker.latest_complete_round - round_index) >=
+           (int32_t)RF_DJI_VIDEO_HISTORY_ROUNDS) {
+        return NULL;
+    }
+
+    rf_ui_dji_video_round_t * const destination =
+        free_slot != NULL ? free_slot : oldest;
+    if(destination == NULL) return NULL;
+    memset(destination, 0, sizeof(*destination));
+    destination->occupied = true;
+    destination->round_index = round_index;
+    return destination;
+}
+
+static bool dji_video_round_in_lookback(
+    const rf_ui_dji_video_round_t * round,
+    uint32_t lookback,
+    uint32_t * age)
+{
+    if(round == NULL || !round->occupied || !round->complete ||
+       !g_dji_video_tracker.latest_complete_valid) return false;
+    const int32_t signed_age = (int32_t)(
+        g_dji_video_tracker.latest_complete_round - round->round_index);
+    if(signed_age < 0 || (uint32_t)signed_age >= lookback) return false;
+    if(age != NULL) *age = (uint32_t)signed_age;
+    return true;
+}
+
+typedef struct {
+    bool valid;
+    uint16_t center_mhz;
+    uint8_t votes;
+    uint8_t exact_votes;
+    uint8_t votes_10mhz;
+    uint8_t votes_20mhz;
+    uint16_t confidence_sum;
+    bool recent;
+} rf_ui_dji_video_cluster_t;
+
+static rf_ui_dji_video_cluster_t dji_video_best_cluster(uint32_t lookback)
+{
+    rf_ui_dji_video_cluster_t best = {0};
+    for(uint32_t anchor_index = 0U;
+        anchor_index < RF_DJI_VIDEO_HISTORY_ROUNDS; ++anchor_index) {
+        const rf_ui_dji_video_round_t * const anchor =
+            &g_dji_video_tracker.rounds[anchor_index];
+        if(!anchor->candidate_valid ||
+           !dji_video_round_in_lookback(anchor, lookback, NULL)) continue;
+
+        rf_ui_dji_video_cluster_t current = {
+            .valid = true,
+            .center_mhz = anchor->center_mhz,
+        };
+        for(uint32_t index = 0U;
+            index < RF_DJI_VIDEO_HISTORY_ROUNDS; ++index) {
+            const rf_ui_dji_video_round_t * const candidate =
+                &g_dji_video_tracker.rounds[index];
+            uint32_t age;
+            if(!candidate->candidate_valid ||
+               !dji_video_round_in_lookback(candidate, lookback, &age) ||
+               rf_frequency_distance_mhz(candidate->center_mhz,
+                                         anchor->center_mhz) >
+                   RF_DJI_VIDEO_CLUSTER_TOLERANCE_MHZ) continue;
+            current.votes++;
+            current.confidence_sum = (uint16_t)(
+                current.confidence_sum + candidate->confidence_percent);
+            if(candidate->center_mhz == anchor->center_mhz) {
+                current.exact_votes++;
+            }
+            if(candidate->bandwidth_mhz >= 20U) current.votes_20mhz++;
+            else current.votes_10mhz++;
+            if(age < 2U) current.recent = true;
+        }
+
+        const bool current_matches_lock = g_dji_video_tracker.locked &&
+            rf_frequency_distance_mhz(current.center_mhz,
+                                     g_dji_video_tracker.locked_center_mhz) <=
+                RF_DJI_VIDEO_CLUSTER_TOLERANCE_MHZ;
+        const bool best_matches_lock = best.valid &&
+            g_dji_video_tracker.locked &&
+            rf_frequency_distance_mhz(best.center_mhz,
+                                     g_dji_video_tracker.locked_center_mhz) <=
+                RF_DJI_VIDEO_CLUSTER_TOLERANCE_MHZ;
+        if(!best.valid || current.votes > best.votes ||
+           (current.votes == best.votes &&
+            current.exact_votes > best.exact_votes) ||
+           (current.votes == best.votes &&
+            current.exact_votes == best.exact_votes &&
+            current_matches_lock && !best_matches_lock) ||
+           (current.votes == best.votes &&
+            current.exact_votes == best.exact_votes &&
+            current_matches_lock == best_matches_lock &&
+            current.confidence_sum > best.confidence_sum)) {
+            best = current;
+        }
+    }
+    return best;
+}
+
+static uint8_t dji_video_votes_near(uint16_t center_mhz,
+                                    uint32_t lookback)
+{
+    uint8_t votes = 0U;
+    for(uint32_t index = 0U; index < RF_DJI_VIDEO_HISTORY_ROUNDS; ++index) {
+        const rf_ui_dji_video_round_t * const candidate =
+            &g_dji_video_tracker.rounds[index];
+        if(candidate->candidate_valid &&
+           dji_video_round_in_lookback(candidate, lookback, NULL) &&
+           rf_frequency_distance_mhz(candidate->center_mhz, center_mhz) <=
+               RF_DJI_VIDEO_CLUSTER_TOLERANCE_MHZ) {
+            votes++;
+        }
+    }
+    return votes;
+}
+
+static uint8_t dji_video_cluster_bandwidth(
+    const rf_ui_dji_video_cluster_t * cluster)
+{
+    if(cluster == NULL) return 10U;
+    return cluster->votes_20mhz > cluster->votes_10mhz ? 20U : 10U;
+}
+
+static bool dji_video_tracker_evaluate(void)
+{
+    const bool was_locked = g_dji_video_tracker.locked;
+    const uint16_t old_center = g_dji_video_tracker.locked_center_mhz;
+    const uint8_t old_bandwidth = g_dji_video_tracker.locked_bandwidth_mhz;
+
+    if(g_dji_video_tracker.locked) {
+        uint32_t consecutive_misses = 0U;
+        for(uint32_t age = 0U;
+            age < RF_DJI_VIDEO_CLEAR_MISS_ROUNDS; ++age) {
+            rf_ui_dji_video_round_t * const round = dji_video_round_get(
+                g_dji_video_tracker.latest_complete_round - age, false);
+            if(round == NULL || !round->complete || round->candidate_valid) {
+                break;
+            }
+            consecutive_misses++;
+        }
+        if(consecutive_misses >= RF_DJI_VIDEO_CLEAR_MISS_ROUNDS) {
+            g_dji_video_tracker.locked = false;
+        }
+    }
+
+    if(!g_dji_video_tracker.locked) {
+        const rf_ui_dji_video_cluster_t initial = dji_video_best_cluster(
+            RF_DJI_VIDEO_INITIAL_LOOKBACK_ROUNDS);
+        if(initial.valid && initial.votes >= RF_DJI_VIDEO_INITIAL_LOCK_VOTES) {
+            g_dji_video_tracker.locked = true;
+            g_dji_video_tracker.locked_center_mhz = initial.center_mhz;
+            g_dji_video_tracker.locked_bandwidth_mhz =
+                dji_video_cluster_bandwidth(&initial);
+        }
+    }
+    else {
+        const rf_ui_dji_video_cluster_t best = dji_video_best_cluster(
+            RF_DJI_VIDEO_HISTORY_ROUNDS);
+        if(best.valid &&
+           rf_frequency_distance_mhz(best.center_mhz,
+                                    g_dji_video_tracker.locked_center_mhz) <=
+               RF_DJI_VIDEO_CLUSTER_TOLERANCE_MHZ) {
+            const uint8_t bandwidth_votes = best.votes_20mhz >
+                best.votes_10mhz ? best.votes_20mhz : best.votes_10mhz;
+            if(bandwidth_votes >= RF_DJI_VIDEO_SWITCH_VOTES) {
+                g_dji_video_tracker.locked_bandwidth_mhz =
+                    dji_video_cluster_bandwidth(&best);
+            }
+        }
+        else if(best.valid && best.recent &&
+                best.votes >= RF_DJI_VIDEO_SWITCH_VOTES) {
+            const uint8_t locked_votes = dji_video_votes_near(
+                g_dji_video_tracker.locked_center_mhz,
+                RF_DJI_VIDEO_HISTORY_ROUNDS);
+            if(best.votes >= (uint8_t)(locked_votes +
+                                      RF_DJI_VIDEO_SWITCH_LEAD_VOTES)) {
+                g_dji_video_tracker.locked_center_mhz = best.center_mhz;
+                g_dji_video_tracker.locked_bandwidth_mhz =
+                    dji_video_cluster_bandwidth(&best);
+            }
+        }
+    }
+
+    return was_locked != g_dji_video_tracker.locked ||
+           old_center != g_dji_video_tracker.locked_center_mhz ||
+           old_bandwidth != g_dji_video_tracker.locked_bandwidth_mhz;
+}
+
+static bool dji_video_box_is_candidate(const rf_ui_rf_box_t * box)
+{
+    return box != NULL && box->detection_index == 0U &&
+           box->source_class_id == RF_V13_CLASS_DJI_VIDEO &&
+           rf_box_dji_bandwidth(box) == RF_UI_DJI_BANDWIDTH_VIDEO &&
+           (box->flags & (RF_UI_RF_BOX_FLAG_BANDWIDTH_AMBIGUOUS |
+                          RF_UI_RF_BOX_FLAG_NEEDS_REVIEW |
+                          RF_UI_RF_BOX_FLAG_FREQUENCY_CLIPPED)) == 0U;
+}
+
+static void dji_video_tracker_consider(uint32_t round_index,
+                                       uint32_t channel,
+                                       const rf_ui_rf_box_t * box)
+{
+    if(channel >= RF_UI_CHANNEL_COUNT ||
+       !dji_video_box_is_candidate(box)) return;
+
+    uint32_t start_tenths;
+    uint32_t end_tenths;
+    if(!rf_box_frequency_range_tenths(box, channel,
+                                     &start_tenths, &end_tenths)) return;
+    rf_ui_dji_video_round_t * const round =
+        dji_video_round_get(round_index, true);
+    if(round == NULL) return;
+
+    const uint16_t center_mhz = (uint16_t)(
+        (start_tenths + end_tenths + 10U) / 20U);
+    const uint32_t end_q8 =
+        (uint32_t)box->frequency_start_q8 + box->frequency_span_q8;
+    const uint8_t edge_margin_q8 = (uint8_t)(
+        box->frequency_start_q8 < RF_UI_RF_COORD_SCALE - end_q8 ?
+        box->frequency_start_q8 : RF_UI_RF_COORD_SCALE - end_q8);
+    if(round->candidate_valid &&
+       (box->confidence_percent < round->confidence_percent ||
+        (box->confidence_percent == round->confidence_percent &&
+         edge_margin_q8 <= round->edge_margin_q8))) return;
+
+    round->candidate_valid = true;
+    round->center_mhz = center_mhz;
+    round->bandwidth_mhz =
+        ((box->flags & RF_UI_RF_BOX_FLAG_VIDEO_20MHZ) != 0U ||
+         end_tenths - start_tenths >= 150U) ? 20U : 10U;
+    round->confidence_percent = box->confidence_percent;
+    round->channel = (uint8_t)channel;
+    round->edge_margin_q8 = edge_margin_q8;
+}
+
+static void dji_video_tracker_complete_round(uint32_t round_index)
+{
+    rf_ui_dji_video_round_t * const round =
+        dji_video_round_get(round_index, true);
+    if(round == NULL) return;
+    round->complete = true;
+    if(!g_dji_video_tracker.latest_complete_valid ||
+       (int32_t)(round_index -
+                 g_dji_video_tracker.latest_complete_round) > 0) {
+        g_dji_video_tracker.latest_complete_valid = true;
+        g_dji_video_tracker.latest_complete_round = round_index;
+    }
+    if(dji_video_tracker_evaluate()) {
+        (void)channel_switch_defer_metadata_refresh();
+    }
+}
+
+static bool dji_video_tracker_format_range(char * buffer,
+                                           size_t buffer_size)
+{
+    if(buffer == NULL || buffer_size == 0U ||
+       !g_dji_video_tracker.locked) return false;
+    const uint32_t half_bandwidth =
+        (uint32_t)g_dji_video_tracker.locked_bandwidth_mhz / 2U;
+    snprintf(buffer, buffer_size, "%u-%u MHz",
+             (unsigned)(g_dji_video_tracker.locked_center_mhz -
+                        half_bandwidth),
+             (unsigned)(g_dji_video_tracker.locked_center_mhz +
+                        half_bandwidth));
+    return true;
+}
+
+static bool rf_box_matches_dji_filter(
+    const rf_ui_rf_box_t * box,
+    rf_ui_dji_bandwidth_t bandwidth_filter)
+{
+    if(bandwidth_filter == RF_UI_DJI_BANDWIDTH_ANY) return true;
+    if(box == NULL || rf_box_dji_bandwidth(box) != bandwidth_filter) {
+        return false;
+    }
+    if(bandwidth_filter == RF_UI_DJI_BANDWIDTH_CONTROL) {
+        return box->source_class_id == RF_V13_CLASS_DJI_CONTROL;
+    }
+    if(bandwidth_filter == RF_UI_DJI_BANDWIDTH_VIDEO) {
+        return box->source_class_id == RF_V13_CLASS_DJI_VIDEO;
+    }
+    return false;
+}
+
 static bool find_last_detection_box_filtered(uint32_t detection_index,
                                              rf_ui_dji_bandwidth_t bandwidth_filter,
                                              rf_ui_box_ref_t * ref)
@@ -2942,8 +3303,7 @@ static bool find_last_detection_box_filtered(uint32_t detection_index,
                box->frequency_span_q8 == 0U) {
                 continue;
             }
-            if(bandwidth_filter != RF_UI_DJI_BANDWIDTH_ANY &&
-               rf_box_dji_bandwidth(box) != bandwidth_filter) continue;
+            if(!rf_box_matches_dji_filter(box, bandwidth_filter)) continue;
             if(!found || generation == ref->observation_generation ||
                rf_box_generation_newer(
                    generation, ref->observation_generation)) {
@@ -2971,16 +3331,10 @@ static void format_box_frequency_range(char * buffer,
     if(buffer == NULL || buffer_size == 0U || ref == NULL ||
        ref->box == NULL || ref->channel >= RF_UI_CHANNEL_COUNT) return;
 
-    const uint32_t end_q8 =
-        (uint32_t)ref->box->frequency_start_q8 +
-        ref->box->frequency_span_q8;
-    const uint32_t base_tenths =
-        rf_demo_channels[ref->channel].center_mhz * 10U - 280U;
-    const uint32_t start_tenths = base_tenths +
-        (((uint32_t)ref->box->frequency_start_q8 * 560U + 128U) /
-         RF_UI_RF_COORD_SCALE);
-    const uint32_t end_tenths = base_tenths +
-        ((end_q8 * 560U + 128U) / RF_UI_RF_COORD_SCALE);
+    uint32_t start_tenths;
+    uint32_t end_tenths;
+    if(!rf_box_frequency_range_tenths(ref->box, ref->channel,
+                                     &start_tenths, &end_tenths)) return;
     snprintf(buffer, buffer_size, "%u-%u MHz",
              (unsigned)((start_tenths + 5U) / 10U),
              (unsigned)((end_tenths + 5U) / 10U));
@@ -3157,9 +3511,17 @@ static void refresh_target_cards(void)
                           g_target_display_names[index]);
         if(online) {
             rf_ui_box_ref_t ref = {0};
-            if(find_last_detection_box(index, &ref)) {
-                char range[32];
-                format_box_frequency_range(range, sizeof(range), &ref);
+            char range[32] = "-- MHz";
+            const bool range_valid = index == 0U ?
+                dji_video_tracker_format_range(range, sizeof(range)) :
+                find_last_detection_box(index, &ref);
+            if(range_valid) {
+                if(index != 0U) {
+                    format_box_frequency_range(range, sizeof(range), &ref);
+                }
+                lv_label_set_text(g_ui.target_channel_labels[index], range);
+            }
+            else if(index == 0U) {
                 lv_label_set_text(g_ui.target_channel_labels[index], range);
             }
             else {
@@ -3433,9 +3795,10 @@ static void refresh_target_detail(void)
         const rf_ui_detection_t * const detection = &g_detections[target];
         rf_ui_box_ref_t range_refs[2] = {0};
         bool range_present[2] = {false, false};
+        char stable_video_range[32] = "--";
         if(working && target == 0U) {
-            range_present[0] = find_last_detection_box_filtered(
-                target, RF_UI_DJI_BANDWIDTH_VIDEO, &range_refs[0]);
+            range_present[0] = dji_video_tracker_format_range(
+                stable_video_range, sizeof(stable_video_range));
             range_present[1] = find_last_detection_box_filtered(
                 target, RF_UI_DJI_BANDWIDTH_CONTROL, &range_refs[1]);
         }
@@ -3456,8 +3819,13 @@ static void refresh_target_detail(void)
             char range[32] = "--";
             char line[48];
             if(range_present[index]) {
-                format_box_frequency_range(
-                    range, sizeof(range), &range_refs[index]);
+                if(target == 0U && index == 0U) {
+                    snprintf(range, sizeof(range), "%s", stable_video_range);
+                }
+                else {
+                    format_box_frequency_range(
+                        range, sizeof(range), &range_refs[index]);
+                }
             }
             if(target == 0U) {
                 snprintf(line, sizeof(line), "%s %s",
@@ -6075,6 +6443,7 @@ void rf_ui_create(void)
            sizeof(g_last_detail_round_valid_mask));
     g_fusion_decision_generation = 0U;
     g_rf_box_observation_generation = 0U;
+    memset(&g_dji_video_tracker, 0, sizeof(g_dji_video_tracker));
     g_waterfall_pause_total_columns = 0U;
     /* This integration is live-IQ only.  The reference package seeded these
      * arrays with a pleasing demo, but that made the boot screen misleading
@@ -7189,7 +7558,9 @@ static void rf_box_detail_update(uint32_t channel,
     rf_ui_rf_box_batch_t * const detail = &g_rf_box_batches[channel];
     uint32_t destination = detail->count;
     for(uint32_t index = 0U; index < detail->count; ++index) {
-        if(detail->boxes[index].detection_index == detection) {
+        if(detail->boxes[index].detection_index == detection &&
+           (detection != 0U ||
+            detail->boxes[index].source_class_id == box->source_class_id)) {
             destination = index;
             break;
         }
@@ -7201,6 +7572,22 @@ static void rf_box_detail_update(uint32_t channel,
     detail->anchor_end_columns[destination] = anchor_end_column;
     g_last_detail_round_index[channel][detection] = round_index;
     g_last_detail_round_valid_mask[channel] |= detection_bit;
+}
+
+static void dji_video_tracker_finish_decision(
+    const rf_ui_fusion_decision_cache_t * decision)
+{
+    if(decision == NULL ||
+       (decision->round.flags & RF_UI_FUSION_ROUND_OUTPUT_VALID) == 0U) {
+        return;
+    }
+    const uint8_t expected_mask = (uint8_t)(
+        decision->round.identity_mask &
+        ((1U << RF_UI_CHANNEL_COUNT) - 1U));
+    if(expected_mask != 0U &&
+       (decision->processed_channel_mask & expected_mask) == expected_mask) {
+        dji_video_tracker_complete_round(decision->round.round_index);
+    }
 }
 
 static void rf_box_batch_resolve(
@@ -7215,6 +7602,7 @@ static void rf_box_batch_resolve(
         g_rf_ui_channel_switch_diag.history_boxes_dropped_identity_mismatch +=
             batch->count;
         decision->processed_channel_mask |= channel_bit;
+        dji_video_tracker_finish_decision(decision);
         rf_box_pending_release(batch);
         return;
     }
@@ -7232,6 +7620,8 @@ static void rf_box_batch_resolve(
     bool committed = false;
     for(uint32_t index = 0U; index < batch->count; ++index) {
         const rf_ui_rf_box_t * const box = &batch->boxes[index];
+        dji_video_tracker_consider(decision->round.round_index,
+                                   batch->channel, box);
         const uint32_t detection = box->detection_index;
         if(detection >= RF_UI_DETECTION_COUNT) {
             g_rf_ui_channel_switch_diag.history_boxes_dropped_uncertain++;
@@ -7281,6 +7671,7 @@ static void rf_box_batch_resolve(
         (void)channel_switch_defer_metadata_refresh();
     }
     decision->processed_channel_mask |= channel_bit;
+    dji_video_tracker_finish_decision(decision);
     rf_box_pending_release(batch);
 }
 
@@ -7461,6 +7852,7 @@ void rf_ui_reset_rf_box_fusion(void)
            sizeof(g_last_detail_round_valid_mask));
     memset(g_spectrum_rf_box_batches, 0,
            sizeof(g_spectrum_rf_box_batches));
+    memset(&g_dji_video_tracker, 0, sizeof(g_dji_video_tracker));
     g_fusion_decision_generation = 0U;
     g_rf_ui_channel_switch_diag.box_batches_waiting_for_fusion = 0U;
     for(uint32_t channel = 0U; channel < RF_UI_CHANNEL_COUNT; ++channel) {
