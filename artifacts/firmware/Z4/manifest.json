@@ -1,0 +1,62 @@
+{
+  "schema": 1,
+  "version": "Z4",
+  "snapshot_utc": "2026-08-20T14:48:11.3724332Z",
+  "configuration": "Debug",
+  "repository": {
+    "root": "D:\\Renesas_race\\RA8P1_DRONE_DETECT_Zt813\\RA8P1_DRONE_DETECT_Zt_Z4",
+    "base_tag": "Z2",
+    "source_commit": "1db16955e0070388121ae41d42974decddea8504",
+    "branch": "Z4"
+  },
+  "build": {
+    "cross_core_abi_verified": true,
+    "shared_abi_sha256": "176CA481AB13AFBE97AE0CEABBE48330E0D02A06168C5EFDED18E2124CE40267",
+    "flashed": false
+  },
+  "firmware": [
+    {
+      "core": "CPU0",
+      "artifact": "cpu0/rtthread.elf",
+      "source": "artifacts/firmware/Z2/cpu0/rtthread.elf",
+      "reused_from": "Z2",
+      "bytes": 4188784,
+      "sha256": "4D30376FB47EDF327AC7D02E17B35FB4F19F10CA637FC3FF63A30EE793EAECC1",
+      "build_utc": "2026-08-20T06:03:14.3897391Z"
+    },
+    {
+      "core": "CPU0",
+      "artifact": "cpu0/rtthread.map",
+      "source": "artifacts/firmware/Z2/cpu0/rtthread.map",
+      "reused_from": "Z2",
+      "bytes": 2608393,
+      "sha256": "2F1DBED67131E544F5FDE12B7CBF35D29EA8EE6C02894D416488410B21E088F3",
+      "build_utc": "2026-08-20T06:03:14.4064458Z"
+    },
+    {
+      "core": "CPU0",
+      "artifact": "cpu0/rtthread.hex",
+      "source": "artifacts/firmware/Z2/cpu0/rtthread.hex",
+      "reused_from": "Z2",
+      "bytes": 1384565,
+      "sha256": "64A7257986B629DF72F3F1483735E959F3B0AD4FF6599E32A078CFC9448EAF90",
+      "build_utc": "2026-08-20T06:03:14.5919251Z"
+    },
+    {
+      "core": "CPU1",
+      "artifact": "cpu1/ra8p1_sdr_ai_display_solution_20260718_CPU1.elf",
+      "source": "cpu1/Debug/ra8p1_sdr_ai_display_solution_20260718_CPU1.elf",
+      "bytes": 3961500,
+      "sha256": "A7FBEDF56E93BFB7ED11FCEDBB53798E580E2E5265B872C3C6710F738058D708",
+      "build_utc": "2026-08-20T14:45:41.9425023Z"
+    },
+    {
+      "core": "CPU1",
+      "artifact": "cpu1/ra8p1_sdr_ai_display_solution_20260718_CPU1.map",
+      "source": "cpu1/Debug/ra8p1_sdr_ai_display_solution_20260718_CPU1.map",
+      "bytes": 1194113,
+      "sha256": "157F2AE3695F84538BC32146613BDE0267D9E4B5E1DB1EE6784E728A10DCC06B",
+      "build_utc": "2026-08-20T14:45:41.9504085Z"
+    }
+  ]
+}
