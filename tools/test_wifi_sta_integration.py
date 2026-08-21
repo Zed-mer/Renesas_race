@@ -91,6 +91,16 @@ class WifiStaIntegrationTests(unittest.TestCase):
         self.assertIn('esp_report_at("AT+CWAUTOCONN=0"', ESP)
         self.assertIn('esp_report_at("AT+CWQAP"', ESP)
 
+    def test_public_mqtt_endpoint_is_used_for_phone_hotspot_uplink(self) -> None:
+        self.assertIn('#define ESP_REPORT_MQTT_HOST           "116.62.225.71"', CONFIG)
+        self.assertIn('#define ESP_REPORT_MQTT_PORT           (1883U)', CONFIG)
+        self.assertIn('#define ESP_REPORT_MQTT_USERNAME        "esp32-01"', CONFIG)
+        self.assertRegex(
+            CONFIG,
+            r'#define ESP_REPORT_MQTT_PASSWORD\s+"[0-9a-f]{48}"',
+        )
+        self.assertIn('#define ESP_REPORT_MQTT_TOPIC           "ra8p1/drone/status"', CONFIG)
+
     def test_join_failures_are_diagnosable_and_retried_in_30_seconds(self) -> None:
         self.assertEqual(30000, integer_define(CONFIG, "ESP_REPORT_STA_RETRY_MS"))
         self.assertEqual(20000, integer_define(CONFIG, "ESP_REPORT_WIFI_TIMEOUT_MS"))
@@ -103,6 +113,28 @@ class WifiStaIntegrationTests(unittest.TestCase):
                 ESP_HEADER,
                 rf"#define ESP_REPORT_CWJAP_CODE_[A-Z_]+\s+\({code}U\)",
             )
+
+    def test_reports_only_presence_edges_and_20_second_clear_heartbeat(self) -> None:
+        self.assertEqual(20000, integer_define(CONFIG, "ESP_REPORT_NORMAL_INTERVAL_MS"))
+        collector = ESP.split(
+            "static void esp_report_collector_thread_entry", 1
+        )[1].split("static void esp_report_thread_entry", 1)[0]
+        self.assertIn(
+            "else if ((last_mask == 0U) != (working_mask == 0U))",
+            collector,
+        )
+        self.assertIn(
+            "event = (working_mask != 0U) ? ESP_REPORT_EVENT_START :",
+            collector,
+        )
+        self.assertIn("ESP_REPORT_EVENT_CLEAR;", collector)
+        self.assertNotIn("ESP_REPORT_EVENT_UPDATE", collector)
+
+        reporter = ESP.split("static void esp_report_thread_entry", 1)[1].split(
+            "void esp_report_start", 1
+        )[0]
+        self.assertIn("have_state && (current_mask == 0U)", reporter)
+        self.assertIn("ESP_REPORT_EVENT_NORMAL", reporter)
 
     def test_mailbox_is_one_cache_line_and_does_not_expose_passwords(self) -> None:
         self.assertEqual(64, ctypes.sizeof(WifiStatusMailbox))

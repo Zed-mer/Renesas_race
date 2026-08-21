@@ -16,15 +16,15 @@
 #define ESP_REPORT_WIFI_PRIMARY_PASSWORD   "lzhdasb1"
 #define ESP_REPORT_WIFI_SECONDARY_SSID     ""
 #define ESP_REPORT_WIFI_SECONDARY_PASSWORD ""
-#define ESP_REPORT_MQTT_HOST           "192.168.137.1"
+#define ESP_REPORT_MQTT_HOST           "116.62.225.71"
 #define ESP_REPORT_MQTT_PORT           (1883U)
 #define ESP_REPORT_MQTT_CLIENT_ID       "ra8p1-drone-detector"
-#define ESP_REPORT_MQTT_USERNAME        ""
-#define ESP_REPORT_MQTT_PASSWORD        ""
+#define ESP_REPORT_MQTT_USERNAME        "esp32-01"
+#define ESP_REPORT_MQTT_PASSWORD        "2176d5ce8b39d0cd4935943526937294343821e08318f3c7"
 #define ESP_REPORT_MQTT_TOPIC           "ra8p1/drone/status"
 #define ESP_REPORT_DEVICE_ID            "ra8p1-drone-detector"
 
-#define ESP_REPORT_NORMAL_INTERVAL_MS   (60000U)
+#define ESP_REPORT_NORMAL_INTERVAL_MS   (20000U)
 #define ESP_REPORT_EVENT_RETRY_MS       (30000U)
 #define ESP_REPORT_SERVICE_RETRY_MS     (30000U)
 #define ESP_REPORT_STA_RETRY_MS         (30000U)

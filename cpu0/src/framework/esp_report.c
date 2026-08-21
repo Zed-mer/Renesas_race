@@ -1470,11 +1470,10 @@ static void esp_report_collector_thread_entry(void *parameter)
                 }
                 have_state = true;
             }
-            else if (working_mask != last_mask)
+            else if ((last_mask == 0U) != (working_mask == 0U))
             {
-                event = (last_mask == 0U) ? ESP_REPORT_EVENT_START :
-                        ((working_mask == 0U) ? ESP_REPORT_EVENT_CLEAR :
-                                               ESP_REPORT_EVENT_UPDATE);
+                event = (working_mask != 0U) ? ESP_REPORT_EVENT_START :
+                                               ESP_REPORT_EVENT_CLEAR;
             }
 
             {
