@@ -3,6 +3,7 @@
 **/Release/
 **/.metadata/
 **/RemoteSystemsTempFiles/
+**/.settings/.rtmenus
 
 # Firmware and delivery products
 *.elf
@@ -41,3 +42,6 @@ __pycache__/
 *~
 Thumbs.db
 Desktop.ini
+
+# RT-Thread offline documentation bundles are not required to build firmware
+**/rt-thread/documentation/

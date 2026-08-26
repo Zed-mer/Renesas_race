@@ -1,0 +1,790 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Titan SDR 串口上位机</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f5f7fa;
+      --panel: #ffffff;
+      --ink: #17212b;
+      --muted: #667485;
+      --line: #d8dee8;
+      --accent: #1476c8;
+      --accent-strong: #0d5795;
+      --ok: #198754;
+      --warn: #b06b00;
+      --bad: #c03221;
+      --chip: #edf4fb;
+      --shadow: 0 8px 24px rgba(22, 37, 55, .08);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font: 14px/1.5 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--ink);
+      background: var(--bg);
+    }
+
+    button, input, select {
+      font: inherit;
+    }
+
+    button {
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--ink);
+      min-height: 36px;
+      padding: 0 12px;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+
+    button:hover { border-color: var(--accent); }
+    button:disabled { color: #9aa5b1; cursor: not-allowed; background: #f2f4f7; }
+    button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+    button.primary:hover { background: var(--accent-strong); }
+    button.danger { color: var(--bad); border-color: #e2b7b2; }
+
+    input, select {
+      width: 100%;
+      min-height: 36px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 0 10px;
+      background: #fff;
+      color: var(--ink);
+    }
+
+    label {
+      display: grid;
+      gap: 5px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 18px 22px;
+      background: #fff;
+      border-bottom: 1px solid var(--line);
+      position: sticky;
+      top: 0;
+      z-index: 5;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 20px;
+      line-height: 1.2;
+      font-weight: 700;
+    }
+
+    .sub {
+      color: var(--muted);
+      font-size: 13px;
+      margin-top: 2px;
+    }
+
+    .header-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      justify-content: flex-end;
+    }
+
+    main {
+      display: grid;
+      grid-template-columns: 360px 1fr;
+      gap: 16px;
+      padding: 16px;
+      max-width: 1440px;
+      margin: 0 auto;
+    }
+
+    section {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .section-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--line);
+      font-weight: 700;
+    }
+
+    .section-body {
+      padding: 14px;
+      display: grid;
+      gap: 12px;
+    }
+
+    .grid2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .stack {
+      display: grid;
+      gap: 16px;
+      align-content: start;
+    }
+
+    .status-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #98a2b3;
+      display: inline-block;
+    }
+
+    .status-dot.ok { background: var(--ok); }
+    .status-dot.bad { background: var(--bad); }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 26px;
+      padding: 0 9px;
+      border-radius: 999px;
+      background: var(--chip);
+      color: #24435f;
+      border: 1px solid #d4e6f7;
+      white-space: nowrap;
+    }
+
+    .metric-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(120px, 1fr));
+      gap: 10px;
+    }
+
+    .metric {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px;
+      min-height: 72px;
+      background: #fff;
+    }
+
+    .metric .name {
+      color: var(--muted);
+      font-size: 12px;
+      margin-bottom: 5px;
+    }
+
+    .metric .value {
+      font-size: 20px;
+      font-weight: 700;
+      overflow-wrap: anywhere;
+    }
+
+    .quick {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 8px;
+    }
+
+    .quick button {
+      justify-content: center;
+      min-height: 38px;
+    }
+
+    .command-line {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 8px;
+    }
+
+    canvas {
+      width: 100%;
+      height: 260px;
+      display: block;
+      background: #fbfcfe;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+
+    .log {
+      min-height: 360px;
+      max-height: calc(100vh - 460px);
+      overflow: auto;
+      background: #0f1720;
+      color: #d6e2ee;
+      padding: 12px;
+      font: 12px/1.45 Consolas, "Cascadia Mono", monospace;
+      white-space: pre-wrap;
+      word-break: break-word;
+      border-radius: 8px;
+    }
+
+    .table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    .table th, .table td {
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      padding: 8px 6px;
+      white-space: nowrap;
+    }
+
+    .table th { color: var(--muted); font-weight: 600; }
+    .table td:last-child { white-space: normal; }
+
+    .hint {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    @media (max-width: 980px) {
+      header {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      main {
+        grid-template-columns: 1fr;
+      }
+
+      .metric-grid {
+        grid-template-columns: repeat(2, minmax(120px, 1fr));
+      }
+    }
+
+    @media (max-width: 520px) {
+      .grid2, .quick, .command-line {
+        grid-template-columns: 1fr;
+      }
+
+      .metric-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>Titan SDR 串口上位机</h1>
+      <div class="sub">Web Serial 控制 COM7，展示 IQ、采样统计和 RF 扫描结果</div>
+    </div>
+    <div class="header-actions">
+      <span class="pill"><span id="dot" class="status-dot"></span><span id="connectState">未连接</span></span>
+      <button id="connectBtn" class="primary">连接串口</button>
+      <button id="disconnectBtn" disabled>断开</button>
+      <button id="saveLogBtn">保存日志</button>
+    </div>
+  </header>
+
+  <main>
+    <div class="stack">
+      <section>
+        <div class="section-title">连接设置</div>
+        <div class="section-body">
+          <div class="grid2">
+            <label>波特率
+              <select id="baudRate">
+                <option selected>115200</option>
+                <option>921600</option>
+                <option>460800</option>
+                <option>230400</option>
+                <option>57600</option>
+              </select>
+            </label>
+            <label>换行
+              <select id="lineEnding">
+                <option value="\r\n" selected>CRLF</option>
+                <option value="\n">LF</option>
+                <option value="\r">CR</option>
+              </select>
+            </label>
+          </div>
+          <label>自定义命令
+            <div class="command-line">
+              <input id="commandInput" value="sdr_status" autocomplete="off">
+              <button id="sendBtn" disabled>发送</button>
+            </div>
+          </label>
+          <div class="hint">命令会自动追加所选换行。RT-Thread shell 提示符为 msh /&gt;。</div>
+        </div>
+      </section>
+
+      <section>
+        <div class="section-title">预置命令</div>
+        <div class="section-body">
+          <div class="quick">
+            <button data-cmd="ifconfig">ifconfig</button>
+            <button data-cmd="ping 192.168.1.10">Ping SDR</button>
+            <button data-cmd="sdr_help">帮助</button>
+            <button data-cmd="sdr_status">状态检查</button>
+            <button data-cmd="sdr_cap 256">单次采样</button>
+            <button data-cmd="sdr_stream 512 20">连续采样</button>
+            <button data-cmd="rf_measure 5785000000 256 3">5785M 统计</button>
+            <button data-cmd="rf_scan 256 2">RF 扫描</button>
+            <button data-cmd="sdr_tone 1000000 50000 90000">TX 单音</button>
+            <button data-cmd="sdr_stop">停止 TX</button>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <div class="section-title">参数快捷控制</div>
+        <div class="section-body">
+          <div class="grid2">
+            <label>RX LO Hz
+              <input id="rxLo" value="5785000000">
+            </label>
+            <label>采样率 Hz
+              <input id="sampleRate" value="40000000">
+            </label>
+            <label>带宽 Hz
+              <input id="bandwidth" value="18000000">
+            </label>
+            <label>样本数
+              <input id="sampleCount" value="512">
+            </label>
+          </div>
+          <div class="row">
+            <button id="applyRxBtn" disabled>设置 RX</button>
+            <button id="measureBtn" disabled>按参数统计</button>
+            <button id="streamBtn" disabled>按参数连续采样</button>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <div class="stack">
+      <section>
+        <div class="section-title">
+          <span>实时状态</span>
+          <button id="clearStatsBtn">清空统计</button>
+        </div>
+        <div class="section-body">
+          <div class="metric-grid">
+            <div class="metric"><div class="name">SDR iiod</div><div id="mIiod" class="value">-</div></div>
+            <div class="metric"><div class="name">RX LO</div><div id="mRxLo" class="value">-</div></div>
+            <div class="metric"><div class="name">采样成功</div><div id="mCapture" class="value">0</div></div>
+            <div class="metric"><div class="name">RF 最佳频点</div><div id="mBest" class="value">-</div></div>
+          </div>
+          <table class="table">
+            <thead>
+              <tr>
+                <th>频点</th>
+                <th>样本</th>
+                <th>非零</th>
+                <th>Mean</th>
+                <th>Peak</th>
+                <th>K</th>
+                <th>Peak ratio</th>
+              </tr>
+            </thead>
+            <tbody id="rfTable">
+              <tr><td colspan="7" class="hint">暂无 RF 统计</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section>
+        <div class="section-title">
+          <span>IQ 波形</span>
+          <span class="hint">解析 [sdr] iq[n]=i0,q0,i1,q1</span>
+        </div>
+        <div class="section-body">
+          <canvas id="iqCanvas" width="1000" height="300"></canvas>
+          <div class="row">
+            <span class="pill">I0</span>
+            <span class="pill">Q0</span>
+            <span class="pill">I1</span>
+            <span class="pill">Q1</span>
+            <span id="iqCount" class="hint">0 个 IQ 行</span>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <div class="section-title">
+          <span>串口日志</span>
+          <div class="row">
+            <label style="display:flex; gap:6px; align-items:center; font-size:12px;">
+              <input id="autoScroll" type="checkbox" checked style="width:auto; min-height:auto;">自动滚动
+            </label>
+            <button id="clearLogBtn" class="danger">清空</button>
+          </div>
+        </div>
+        <div class="section-body">
+          <div id="log" class="log"></div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    const state = {
+      port: null,
+      reader: null,
+      keepReading: false,
+      log: '',
+      captures: 0,
+      streamOk: 0,
+      streamTotal: 0,
+      iqRows: [],
+      rfRows: []
+    };
+
+    const el = (id) => document.getElementById(id);
+    const logEl = el('log');
+    const connectBtn = el('connectBtn');
+    const disconnectBtn = el('disconnectBtn');
+    const sendBtn = el('sendBtn');
+    const dot = el('dot');
+    const connectState = el('connectState');
+    const commandInput = el('commandInput');
+    const canvas = el('iqCanvas');
+    const ctx = canvas.getContext('2d');
+
+    function setConnected(connected) {
+      connectBtn.disabled = connected;
+      disconnectBtn.disabled = !connected;
+      sendBtn.disabled = !connected;
+      el('applyRxBtn').disabled = !connected;
+      el('measureBtn').disabled = !connected;
+      el('streamBtn').disabled = !connected;
+      document.querySelectorAll('[data-cmd]').forEach((button) => button.disabled = !connected);
+      dot.className = 'status-dot ' + (connected ? 'ok' : '');
+      connectState.textContent = connected ? '已连接' : '未连接';
+    }
+
+    function appendLog(text) {
+      state.log += text;
+      if (state.log.length > 300000) {
+        state.log = state.log.slice(-240000);
+      }
+      logEl.textContent = state.log;
+      if (el('autoScroll').checked) {
+        logEl.scrollTop = logEl.scrollHeight;
+      }
+      parseIncoming(text);
+    }
+
+    function cleanText(text) {
+      return text.replace(/\x1b\[[0-9;]*m/g, '').replace(/\0/g, '');
+    }
+
+    function parseIncoming(text) {
+      const cleaned = cleanText(text);
+      const lines = cleaned.split(/\r?\n/);
+      for (const rawLine of lines) {
+        const line = rawLine.trim();
+        if (!line) continue;
+
+        let m = line.match(/\[sdr\]\s+iiod\s+(.+?)\s+ready at\s+([0-9.]+):(\d+)/);
+        if (m) {
+          el('mIiod').textContent = `${m[1].trim()} @ ${m[2]}:${m[3]}`;
+        }
+
+        m = line.match(/sdr_status ok .*iiod=(.*?)\s+ensm=(\S+)\s+rx_lo=(\d+)\s+tx_lo=(\d+)\s+gain=(\S+)/);
+        if (m) {
+          el('mIiod').textContent = `${m[1].trim()} ensm=${m[2]}`;
+          el('mRxLo').textContent = m[3];
+        }
+
+        m = line.match(/sdr_cap ok .*samples=(\d+)\s+bytes=(\d+)\s+nonzero=(\d+)/);
+        if (m) {
+          state.captures += 1;
+          el('mCapture').textContent = String(state.captures);
+        }
+
+        m = line.match(/sdr_stream loop\s+(\d+)\/(\d+)\s+ok/);
+        if (m) {
+          state.streamOk = Number(m[1]);
+          state.streamTotal = Number(m[2]);
+          el('mCapture').textContent = `${state.captures} + stream ${state.streamOk}/${state.streamTotal}`;
+        }
+
+        m = line.match(/\[sdr\]\s+iq\[(\d+)\]=(-?\d+),(-?\d+),(-?\d+),(-?\d+)/);
+        if (m) {
+          state.iqRows.push([Number(m[2]), Number(m[3]), Number(m[4]), Number(m[5])]);
+          if (state.iqRows.length > 240) state.iqRows.shift();
+          el('iqCount').textContent = `${state.iqRows.length} 个 IQ 行`;
+          drawIq();
+        }
+
+        m = line.match(/rf_(?:measure|scan)\s+freq=(\d+)\s+samples=(\d+)\s+nonzero=(\d+)\s+mean=(\d+)\s+peak=(\d+)\s+k=([0-9.]+)\s+peak_ratio=([0-9.]+)/);
+        if (m) {
+          addRfRow({
+            freq: m[1],
+            samples: m[2],
+            nonzero: m[3],
+            mean: m[4],
+            peak: m[5],
+            k: m[6],
+            peakRatio: m[7]
+          });
+        }
+
+        m = line.match(/rf_scan\s+best=(\d+)\s+score=(\d+)/);
+        if (m) {
+          el('mBest').textContent = `${m[1]} (${m[2]})`;
+        }
+      }
+    }
+
+    function addRfRow(row) {
+      state.rfRows.unshift(row);
+      state.rfRows = state.rfRows.slice(0, 12);
+      renderRfTable();
+    }
+
+    function renderRfTable() {
+      const tbody = el('rfTable');
+      if (!state.rfRows.length) {
+        tbody.innerHTML = '<tr><td colspan="7" class="hint">暂无 RF 统计</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = state.rfRows.map((row) => `
+        <tr>
+          <td>${escapeHtml(row.freq)}</td>
+          <td>${escapeHtml(row.samples)}</td>
+          <td>${escapeHtml(row.nonzero)}</td>
+          <td>${escapeHtml(row.mean)}</td>
+          <td>${escapeHtml(row.peak)}</td>
+          <td>${escapeHtml(row.k)}</td>
+          <td>${escapeHtml(row.peakRatio)}</td>
+        </tr>
+      `).join('');
+    }
+
+    function escapeHtml(value) {
+      return String(value).replace(/[&<>"']/g, (ch) => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;'
+      }[ch]));
+    }
+
+    function drawIq() {
+      const w = canvas.width;
+      const h = canvas.height;
+      ctx.clearRect(0, 0, w, h);
+      ctx.fillStyle = '#fbfcfe';
+      ctx.fillRect(0, 0, w, h);
+
+      ctx.strokeStyle = '#d8dee8';
+      ctx.lineWidth = 1;
+      for (let i = 0; i <= 4; i++) {
+        const y = Math.round((h - 24) * i / 4) + 12;
+        ctx.beginPath();
+        ctx.moveTo(12, y);
+        ctx.lineTo(w - 12, y);
+        ctx.stroke();
+      }
+
+      ctx.strokeStyle = '#9aa5b1';
+      ctx.beginPath();
+      ctx.moveTo(12, h / 2);
+      ctx.lineTo(w - 12, h / 2);
+      ctx.stroke();
+
+      const rows = state.iqRows;
+      if (rows.length < 2) {
+        ctx.fillStyle = '#667485';
+        ctx.fillText('等待 IQ 数据...', 18, 28);
+        return;
+      }
+
+      let maxAbs = 1;
+      for (const row of rows) {
+        for (const v of row) maxAbs = Math.max(maxAbs, Math.abs(v));
+      }
+
+      const colors = ['#1476c8', '#d14d2a', '#198754', '#7b4bb7'];
+      for (let series = 0; series < 4; series++) {
+        ctx.strokeStyle = colors[series];
+        ctx.lineWidth = 1.8;
+        ctx.beginPath();
+        rows.forEach((row, i) => {
+          const x = 12 + i * (w - 24) / (rows.length - 1);
+          const y = h / 2 - row[series] * (h * 0.42) / maxAbs;
+          if (i === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        });
+        ctx.stroke();
+      }
+
+      ctx.fillStyle = '#667485';
+      ctx.fillText(`max abs ${maxAbs}`, 18, 24);
+    }
+
+    async function connectSerial() {
+      if (!('serial' in navigator)) {
+        appendLog('[host] 当前浏览器不支持 Web Serial，请使用 Chrome 或 Edge。\n');
+        return;
+      }
+
+      try {
+        const baudRate = Number(el('baudRate').value);
+        state.port = await navigator.serial.requestPort();
+        await state.port.open({ baudRate, dataBits: 8, stopBits: 1, parity: 'none', flowControl: 'none' });
+        setConnected(true);
+        appendLog(`[host] 已连接串口，baud=${baudRate}\n`);
+        readLoop();
+      } catch (error) {
+        appendLog(`[host] 连接失败：${error.message}\n`);
+        await disconnectSerial();
+      }
+    }
+
+    async function readLoop() {
+      state.keepReading = true;
+      const decoder = new TextDecoder();
+
+      while (state.port && state.keepReading) {
+        try {
+          state.reader = state.port.readable.getReader();
+          while (state.keepReading) {
+            const { value, done } = await state.reader.read();
+            if (done) break;
+            if (value) appendLog(decoder.decode(value, { stream: true }));
+          }
+        } catch (error) {
+          appendLog(`[host] 读取失败：${error.message}\n`);
+        } finally {
+          if (state.reader) {
+            state.reader.releaseLock();
+            state.reader = null;
+          }
+        }
+      }
+    }
+
+    async function disconnectSerial() {
+      state.keepReading = false;
+      try {
+        if (state.reader) {
+          await state.reader.cancel();
+          state.reader.releaseLock();
+          state.reader = null;
+        }
+      } catch (_) {}
+
+      try {
+        if (state.port) {
+          await state.port.close();
+        }
+      } catch (error) {
+        appendLog(`[host] 断开失败：${error.message}\n`);
+      } finally {
+        state.port = null;
+        setConnected(false);
+        appendLog('[host] 串口已断开\n');
+      }
+    }
+
+    async function sendCommand(command) {
+      if (!state.port || !state.port.writable) return;
+      const text = command.trim();
+      if (!text) return;
+
+      const writer = state.port.writable.getWriter();
+      const ending = el('lineEnding').value.replace('\\r', '\r').replace('\\n', '\n');
+      try {
+        await writer.write(new TextEncoder().encode(text + ending));
+        appendLog(`\n[host] >>> ${text}\n`);
+      } catch (error) {
+        appendLog(`[host] 发送失败：${error.message}\n`);
+      } finally {
+        writer.releaseLock();
+      }
+    }
+
+    function saveLog() {
+      const blob = new Blob([state.log], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+      a.href = url;
+      a.download = `titan-sdr-log-${stamp}.txt`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    connectBtn.addEventListener('click', connectSerial);
+    disconnectBtn.addEventListener('click', disconnectSerial);
+    sendBtn.addEventListener('click', () => sendCommand(commandInput.value));
+    commandInput.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') sendCommand(commandInput.value);
+    });
+
+    document.querySelectorAll('[data-cmd]').forEach((button) => {
+      button.addEventListener('click', () => sendCommand(button.dataset.cmd));
+    });
+
+    el('applyRxBtn').addEventListener('click', () => {
+      sendCommand(`sdr_rx ${el('rxLo').value} ${el('sampleRate').value} ${el('bandwidth').value}`);
+    });
+
+    el('measureBtn').addEventListener('click', () => {
+      sendCommand(`rf_measure ${el('rxLo').value} ${el('sampleCount').value} 3 ${el('sampleRate').value} ${el('bandwidth').value}`);
+    });
+
+    el('streamBtn').addEventListener('click', () => {
+      sendCommand(`sdr_stream ${el('sampleCount').value} 20`);
+    });
+
+    el('clearLogBtn').addEventListener('click', () => {
+      state.log = '';
+      logEl.textContent = '';
+    });
+
+    el('clearStatsBtn').addEventListener('click', () => {
+      state.captures = 0;
+      state.streamOk = 0;
+      state.streamTotal = 0;
+      state.iqRows = [];
+      state.rfRows = [];
+      el('mIiod').textContent = '-';
+      el('mRxLo').textContent = '-';
+      el('mCapture').textContent = '0';
+      el('mBest').textContent = '-';
+      el('iqCount').textContent = '0 个 IQ 行';
+      renderRfTable();
+      drawIq();
+    });
+
+    el('saveLogBtn').addEventListener('click', saveLog);
+
+    setConnected(false);
+    drawIq();
+  </script>
+</body>
+</html>
