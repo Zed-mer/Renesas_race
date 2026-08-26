@@ -1,0 +1,50 @@
+[
+  {
+    "Tool": "ra8p1-cpu0-net-stats",
+    "ToolVersion": "1.0",
+    "Elf": {"Sha256": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"},
+    "Snapshots": [{"Phy": {"LinkUp": true}, "Rmac": {"RxOverflow": 0, "RxErrorFrames": 0}, "Iq": {"Initialized": true, "Active": 0, "SessionId": 1000, "Packets": 16667, "PayloadBytes": 24000000, "SequenceGaps": 0, "Reordered": 0, "Invalid": 0, "MbpsX1000": 720000}, "Ring": {"FullDrops": 0, "OversizeDrops": 0}}]
+  },
+  {
+    "Tool": "ra8p1-cpu0-net-stats",
+    "ToolVersion": "1.0",
+    "Elf": {"Sha256": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"},
+    "Snapshots": [{"Phy": {"LinkUp": true}, "Rmac": {"RxOverflow": 0, "RxErrorFrames": 0}, "Iq": {"Initialized": true, "Active": 0, "SessionId": 1001, "Packets": 16667, "PayloadBytes": 24000000, "SequenceGaps": 0, "Reordered": 0, "Invalid": 0, "MbpsX1000": 720000}, "Ring": {"FullDrops": 0, "OversizeDrops": 0}}]
+  },
+  {
+    "Tool": "ra8p1-cpu0-net-stats",
+    "ToolVersion": "1.0",
+    "Elf": {"Sha256": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"},
+    "Snapshots": [{"Phy": {"LinkUp": true}, "Rmac": {"RxOverflow": 0, "RxErrorFrames": 0}, "Iq": {"Initialized": true, "Active": 0, "SessionId": 1002, "Packets": 16667, "PayloadBytes": 24000000, "SequenceGaps": 0, "Reordered": 0, "Invalid": 0, "MbpsX1000": 720000}, "Ring": {"FullDrops": 0, "OversizeDrops": 0}}]
+  },
+  {
+    "Tool": "ra8p1-cpu0-net-stats",
+    "ToolVersion": "1.0",
+    "Elf": {"Sha256": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"},
+    "Snapshots": [{"Phy": {"LinkUp": true}, "Rmac": {"RxOverflow": 0, "RxErrorFrames": 0}, "Iq": {"Initialized": true, "Active": 0, "SessionId": 1003, "Packets": 16667, "PayloadBytes": 24000000, "SequenceGaps": 0, "Reordered": 0, "Invalid": 0, "MbpsX1000": 720000}, "Ring": {"FullDrops": 0, "OversizeDrops": 0}}]
+  },
+  {
+    "Tool": "ra8p1-cpu0-net-stats",
+    "ToolVersion": "1.0",
+    "Elf": {"Sha256": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"},
+    "Snapshots": [{"Phy": {"LinkUp": true}, "Rmac": {"RxOverflow": 0, "RxErrorFrames": 0}, "Iq": {"Initialized": true, "Active": 0, "SessionId": 1004, "Packets": 16667, "PayloadBytes": 24000000, "SequenceGaps": 0, "Reordered": 0, "Invalid": 0, "MbpsX1000": 800000}, "Ring": {"FullDrops": 0, "OversizeDrops": 0}}]
+  },
+  {
+    "Tool": "ra8p1-cpu0-net-stats",
+    "ToolVersion": "1.0",
+    "Elf": {"Sha256": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"},
+    "Snapshots": [{"Phy": {"LinkUp": true}, "Rmac": {"RxOverflow": 0, "RxErrorFrames": 0}, "Iq": {"Initialized": true, "Active": 0, "SessionId": 1005, "Packets": 16667, "PayloadBytes": 24000000, "SequenceGaps": 0, "Reordered": 0, "Invalid": 0, "MbpsX1000": 800000}, "Ring": {"FullDrops": 0, "OversizeDrops": 0}}]
+  },
+  {
+    "Tool": "ra8p1-cpu0-net-stats",
+    "ToolVersion": "1.0",
+    "Elf": {"Sha256": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"},
+    "Snapshots": [{"Phy": {"LinkUp": true}, "Rmac": {"RxOverflow": 0, "RxErrorFrames": 0}, "Iq": {"Initialized": true, "Active": 0, "SessionId": 1006, "Packets": 16667, "PayloadBytes": 24000000, "SequenceGaps": 0, "Reordered": 0, "Invalid": 0, "MbpsX1000": 800000}, "Ring": {"FullDrops": 0, "OversizeDrops": 0}}]
+  },
+  {
+    "Tool": "ra8p1-cpu0-net-stats",
+    "ToolVersion": "1.0",
+    "Elf": {"Sha256": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"},
+    "Snapshots": [{"Phy": {"LinkUp": true}, "Rmac": {"RxOverflow": 0, "RxErrorFrames": 0}, "Iq": {"Initialized": true, "Active": 0, "SessionId": 1007, "Packets": 16667, "PayloadBytes": 24000000, "SequenceGaps": 0, "Reordered": 0, "Invalid": 0, "MbpsX1000": 800000}, "Ring": {"FullDrops": 0, "OversizeDrops": 0}}]
+  }
+]

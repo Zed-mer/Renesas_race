@@ -1,0 +1,9 @@
+ExitOnError 1
+Device R7KA8P1KF_CPU0
+SelectInterface SWD
+Speed 4000
+Connect
+Mem32 0x220EE45C 1
+Mem32 0x220EE48C 1
+Mem32 0x220E3D00 8
+Exit

@@ -1,0 +1,7 @@
+Package: RA8P1_DRONE_DETECT_SDR_PERSISTENT_V27_6
+Created: 2026-08-02 13:19:14 +08:00
+Source Git HEAD: 1e697af9b3f23b644403794ca7cfebbe6c6d08ab
+Source kind: current worktree snapshot (tracked and untracked source included)
+RA8P1: CPU0 + CPU1 source, current ELF/MAP and build/flash/verify scripts
+SDR: content-addressed persistent agent/adapter, supervisor, installer and rollback
+Excluded: .git, Debug/Release intermediates, caches, old delivery archives and raw IQ

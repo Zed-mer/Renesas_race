@@ -1,0 +1,43 @@
+# e2 studio and GCC build products
+**/Debug/
+**/Release/
+**/.metadata/
+**/RemoteSystemsTempFiles/
+
+# Firmware and delivery products
+*.elf
+*.axf
+*.map
+*.hex
+*.bin
+*.mot
+*.srec
+*.sbd
+artifacts/
+firmware/artifacts/
+
+# Runtime data, captures, evidence, and historical delivery snapshots
+evidence/
+firmware/evidence/
+captures/
+datasets/
+iq_dataset_*/
+RA8P1_DRONE_DETECT_SDR_PERSISTENT_*/
+*.zip
+*.7z
+*.tar
+*.gz
+
+# Logs, caches, and machine-local state
+*.log
+JLinkLog.log
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.vscode/
+.idea/
+*.tmp
+*.bak
+*~
+Thumbs.db
+Desktop.ini
