@@ -243,3 +243,55 @@ bool imu_quaternion_extract_rotation_vector_deg(Quaternion_t const * p_quat,
 
     return true;
 }
+
+Quaternion_t imu_quaternion_from_axis_angle_deg(icm42688Float3_t const * p_axis, float angle_deg)
+{
+    Quaternion_t     result = {1.0f, 0.0f, 0.0f, 0.0f};
+    icm42688Float3_t axis = {0.0f, 0.0f, 0.0f};
+    float            half_angle_rad;
+    float            sin_half;
+
+    if (NULL == p_axis)
+    {
+        return result;
+    }
+
+    axis = *p_axis;
+    if (!imu_vector_normalize_unit(&axis))
+    {
+        return result;
+    }
+
+    half_angle_rad = 0.5f * angle_deg * IMU_DEG_TO_RAD;
+    sin_half = sinf(half_angle_rad);
+
+    result.q0 = cosf(half_angle_rad);
+    result.q1 = axis.x * sin_half;
+    result.q2 = axis.y * sin_half;
+    result.q3 = axis.z * sin_half;
+    imu_quaternion_normalize(&result);
+
+    return result;
+}
+
+float imu_quaternion_angular_distance_deg(Quaternion_t const * p_from, Quaternion_t const * p_to)
+{
+    Quaternion_t     inverse = {1.0f, 0.0f, 0.0f, 0.0f};
+    Quaternion_t     delta = {1.0f, 0.0f, 0.0f, 0.0f};
+    icm42688Float3_t axis = {0.0f, 0.0f, 0.0f};
+    float            angle_deg = 0.0f;
+
+    if ((NULL == p_from) || (NULL == p_to))
+    {
+        return 0.0f;
+    }
+
+    inverse = imu_quaternion_inverse(p_from);
+    delta = imu_quaternion_multiply(&inverse, p_to);
+    if (!imu_quaternion_extract_axis_angle(&delta, &axis, &angle_deg))
+    {
+        return 0.0f;
+    }
+
+    return fabsf(angle_deg);
+}

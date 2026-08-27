@@ -1,0 +1,8 @@
+# e2 studio build output and local diagnostics
+Debug/
+Release/
+_codex_build_ws*/
+JLinkLog.log
+
+# Older nested workspace; IMU_V11 is the published project
+IMU_V9/

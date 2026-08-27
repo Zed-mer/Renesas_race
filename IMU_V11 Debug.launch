@@ -19,12 +19,12 @@
     <intAttribute key="ilg.gnumcueclipse.debug.gdbjtag.pyocd.gdbServerGdbPortNumber" value="3333"/>
     <booleanAttribute key="ilg.gnumcueclipse.debug.gdbjtag.pyocd.gdbServerHaltAtHardFault" value="true"/>
     <stringAttribute key="ilg.gnumcueclipse.debug.gdbjtag.pyocd.gdbServerLog" value=""/>
-    <stringAttribute key="ilg.gnumcueclipse.debug.gdbjtag.pyocd.gdbServerOther" value="--config C:\Users\user\RA_PYOCD\pyocd.yaml --connect under-reset"/>
+    <stringAttribute key="ilg.gnumcueclipse.debug.gdbjtag.pyocd.gdbServerOther" value="--config C:\100ASK_PYOCD\pyocd.yaml"/>
     <booleanAttribute key="ilg.gnumcueclipse.debug.gdbjtag.pyocd.gdbServerOverrideTarget" value="true"/>
     <intAttribute key="ilg.gnumcueclipse.debug.gdbjtag.pyocd.gdbServerResetType" value="0"/>
     <booleanAttribute key="ilg.gnumcueclipse.debug.gdbjtag.pyocd.gdbServerSmartFlash" value="true"/>
     <booleanAttribute key="ilg.gnumcueclipse.debug.gdbjtag.pyocd.gdbServerStepIntoInterrutps" value="false"/>
-    <stringAttribute key="ilg.gnumcueclipse.debug.gdbjtag.pyocd.gdbServerTargetName" value=""/>
+    <stringAttribute key="ilg.gnumcueclipse.debug.gdbjtag.pyocd.gdbServerTargetName" value="R7FA6M5BF"/>
     <intAttribute key="ilg.gnumcueclipse.debug.gdbjtag.pyocd.gdbServerTelnetPortNumber" value="4444"/>
     <booleanAttribute key="ilg.gnumcueclipse.debug.gdbjtag.pyocd.gdbServerUseGdbSyscalls" value="false"/>
     <stringAttribute key="ilg.gnumcueclipse.debug.gdbjtag.pyocd.otherInitCommands" value=""/>
@@ -54,13 +54,13 @@
     <booleanAttribute key="org.eclipse.cdt.dsf.gdb.UPDATE_THREADLIST_ON_SUSPEND" value="false"/>
     <intAttribute key="org.eclipse.cdt.launch.ATTR_BUILD_BEFORE_LAUNCH_ATTR" value="2"/>
     <stringAttribute key="org.eclipse.cdt.launch.COREFILE_PATH" value=""/>
-    <stringAttribute key="org.eclipse.cdt.launch.PROGRAM_NAME" value="Debug/ra6m5_eeg_imu_y2.elf"/>
-    <stringAttribute key="org.eclipse.cdt.launch.PROJECT_ATTR" value="ra6m5_eeg_imu"/>
+    <stringAttribute key="org.eclipse.cdt.launch.PROGRAM_NAME" value="Debug/IMU_V11.elf"/>
+    <stringAttribute key="org.eclipse.cdt.launch.PROJECT_ATTR" value="IMU_V11"/>
     <booleanAttribute key="org.eclipse.cdt.launch.PROJECT_BUILD_CONFIG_AUTO_ATTR" value="true"/>
-    <stringAttribute key="org.eclipse.cdt.launch.PROJECT_BUILD_CONFIG_ID_ATTR" value=""/>
+    <stringAttribute key="org.eclipse.cdt.launch.PROJECT_BUILD_CONFIG_ID_ATTR" value="com.renesas.cdt.managedbuild.gnuarm.config.elf.debug.889824619"/>
     <booleanAttribute key="org.eclipse.debug.core.ATTR_FORCE_SYSTEM_CONSOLE_ENCODING" value="false"/>
     <listAttribute key="org.eclipse.debug.core.MAPPED_RESOURCE_PATHS">
-        <listEntry value="/ra6m5_eeg_imu"/>
+        <listEntry value="/IMU_V11"/>
     </listAttribute>
     <listAttribute key="org.eclipse.debug.core.MAPPED_RESOURCE_TYPES">
         <listEntry value="4"/>

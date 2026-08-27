@@ -82,6 +82,12 @@ void imu_test(void)
 
     imu_timebase_init(&s_imu_app.timebase);
 
+    err = emg_runtime_init();
+    if (FSP_SUCCESS != err)
+    {
+        imu_fail_stop(11U, err);
+    }
+
     err = bsp_Icm42688Init();
     if (FSP_SUCCESS != err)
     {
@@ -242,6 +248,8 @@ void imu_test(void)
 
         loop_time_us = (upper_updated || lower_updated) ? frame_sample_time_us : imu_time_now_us(&s_imu_app.timebase);
 
+        emg_runtime_poll(loop_time_us);
+        arm_apply_emg_envelope_to_servo0(emg_runtime_get_last_envelope());
         imu_handle_button_event(loop_time_us);
         imu_protocol_handle_uart_commands(&s_imu_app, loop_time_us);
         imu_update_status_led(loop_time_us);

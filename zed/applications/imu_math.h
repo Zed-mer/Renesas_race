@@ -19,5 +19,7 @@ bool             imu_quaternion_extract_axis_angle(Quaternion_t const * p_quat,
                                                    float * p_angle_deg);
 bool             imu_quaternion_extract_rotation_vector_deg(Quaternion_t const * p_quat,
                                                             icm42688Float3_t * p_rotation_vec_deg);
+Quaternion_t     imu_quaternion_from_axis_angle_deg(icm42688Float3_t const * p_axis, float angle_deg);
+float            imu_quaternion_angular_distance_deg(Quaternion_t const * p_from, Quaternion_t const * p_to);
 
 #endif

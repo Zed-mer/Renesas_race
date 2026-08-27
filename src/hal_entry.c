@@ -16,6 +16,7 @@ void hal_entry(void)
 //    app_test();
 //    zhua_test();
     imu_test();
+//    adc_emg_print_test();
 //    arm_calibration_entry();
 
     while (1)

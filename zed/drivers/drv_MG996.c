@@ -3,6 +3,9 @@
 // 实例化 6 个舵机的全局数组，并绑定底层硬件资源
 //初始姿态，举手
 // 假设：关节0,1绑GPT0；关节2,3绑GPT1；关节4,5绑GPT2
+/* Runtime joint mapping used by app_arm_link:
+ * servo 0 gripper, 1 wrist twist, 2 elbow, 3/4 shoulder split, 5 base.
+ */
 Servo_Motor_t g_servos[SERVO_NUM] = {
     // 初始角度, 目标角度, 默认步长, 定时器实例, 引脚通道
     {30.0f, 30.0f, 0.1f, &g_timer1, GPT_IO_PIN_GTIOCA}, // 舵机 0 (Base)
@@ -55,7 +58,7 @@ void Servo_SetAngle_Direct(uint8_t servo_id, float angle)
     if (servo_id == 0)
     {
         // 舵机 0 (机械爪) 的特定安全范围：10 度到 90 度
-        if (angle < 10.0f) angle = 10.0f;
+        if (angle < 0.0f) angle = 0.0f;
         if (angle > 90.0f) angle = 90.0f;
     }
     else
