@@ -7,8 +7,9 @@
 - RA8P1 目标地址：`192.168.31.20`
 - SDR `eth0` 地址：`192.168.31.10/24`
 - 默认日志模式：`--no-trace`
-- AD9361 RX0/RX1：`manual` 固定增益 `25 dB`，每次启动 agent 前写入并回读校验
-- `RA8P1_SDR_FIXED_GAINS_DB=25,25,25,25`
+- AD9361 RX0/RX1：硬件 AGC `slow_attack`，每次启动 agent 前写入并回读 `gain_control_mode`
+- `RA8P1_SDR_GAIN_MODE=slow_attack`
+- A/B 回退：在 `autorun.sh` 和 `install.sh` 同时将 `gain_control_mode` 改为 `manual`，并保留 `manual_gain_db=25`
 - `RA8P1_IIO_TUNE_SETTLE_US=1000`
 - `RA8P1_IIO_TUNE_DISCARD_SAMPLES=4096`
 - `RA8P1_SDR_UDP_GSO=1`

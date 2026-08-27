@@ -223,7 +223,7 @@ $arguments = @{
     Launch = $launch
     Workspace = $Workspace
     SkipBuild = $true
-    LoadImage = @($cpu0Elf, $cpu1Elf)
+    Background = $true
     PreRunCommand = @('delete breakpoints')
 }
 if ($Run)

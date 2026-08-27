@@ -12,9 +12,10 @@ supervisor_log=/tmp/sdr_capture_supervisor.log
 trace_flag=/mnt/jffs2/ra8p1/sdr_trace.enable
 control_port_hex=138C
 log_segment_bytes=262144
-supervisor_revision=gain25-v2
-fixed_gain_db=25
-fixed_gains_csv=25,25,25,25
+# AD9361 hardware AGC policy.  Keep the manual branch below for A/B rollback.
+supervisor_revision=gain-slow-attack-v1
+gain_control_mode=slow_attack
+manual_gain_db=25
 
 valid_pid()
 {
@@ -117,14 +118,27 @@ find_ad9361_phy()
     return 1
 }
 
-fixed_gain_matches()
+manual_gain_matches()
 {
     gain_value=${1%% *}
-    [ "$gain_value" = "$fixed_gain_db" ] ||
-        [ "$gain_value" = "$fixed_gain_db.000000" ]
+    [ "$gain_value" = "$manual_gain_db" ] ||
+        [ "$gain_value" = "$manual_gain_db.000000" ]
 }
 
-configure_fixed_rx_gain()
+gain_mode_available()
+{
+    requested_mode=$1
+    available_path=$2
+    [ -z "$available_path" ] && return 0
+    [ -r "$available_path" ] || return 0
+    available_modes=$(cat "$available_path" 2>/dev/null)
+    case " $available_modes " in
+        *" $requested_mode "*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+configure_rx_gain()
 {
     gain_phy=$(find_ad9361_phy) || {
         log_supervisor "ad9361-phy is unavailable"
@@ -133,23 +147,31 @@ configure_fixed_rx_gain()
 
     for gain_channel in 0 1; do
         gain_mode_path="$gain_phy/in_voltage${gain_channel}_gain_control_mode"
-        gain_value_path="$gain_phy/in_voltage${gain_channel}_hardwaregain"
-        if [ ! -w "$gain_mode_path" ] || [ ! -w "$gain_value_path" ]; then
-            log_supervisor "RX${gain_channel} gain attributes are unavailable"
+        gain_available_path="$gain_phy/in_voltage${gain_channel}_gain_control_mode_available"
+        if [ ! -w "$gain_mode_path" ] ||
+           ! gain_mode_available "$gain_control_mode" "$gain_available_path"; then
+            log_supervisor "RX${gain_channel} gain mode=$gain_control_mode is unavailable"
             return 1
         fi
-        printf '%s\n' manual >"$gain_mode_path" || return 1
-        printf '%s\n' "$fixed_gain_db" >"$gain_value_path" || return 1
+        printf '%s\n' "$gain_control_mode" >"$gain_mode_path" || return 1
         gain_mode_readback=$(cat "$gain_mode_path" 2>/dev/null)
-        gain_value_readback=$(cat "$gain_value_path" 2>/dev/null)
-        if [ "$gain_mode_readback" != "manual" ] ||
-           ! fixed_gain_matches "$gain_value_readback"; then
-            log_supervisor "RX${gain_channel} gain verify failed mode=$gain_mode_readback gain=$gain_value_readback"
+        if [ "$gain_mode_readback" != "$gain_control_mode" ]; then
+            log_supervisor "RX${gain_channel} gain verify failed mode=$gain_mode_readback expected=$gain_control_mode"
             return 1
+        fi
+        if [ "$gain_control_mode" = "manual" ]; then
+            gain_value_path="$gain_phy/in_voltage${gain_channel}_hardwaregain"
+            [ -w "$gain_value_path" ] || return 1
+            printf '%s\n' "$manual_gain_db" >"$gain_value_path" || return 1
+            gain_value_readback=$(cat "$gain_value_path" 2>/dev/null)
+            if ! manual_gain_matches "$gain_value_readback"; then
+                log_supervisor "RX${gain_channel} manual gain verify failed gain=$gain_value_readback"
+                return 1
+            fi
         fi
     done
 
-    log_supervisor "fixed RX gain verified mode=manual gain_db=$fixed_gain_db"
+    log_supervisor "RX gain verified mode=$gain_control_mode"
     return 0
 }
 
@@ -375,8 +397,8 @@ run_supervisor()
             continue
         fi
 
-        if ! configure_fixed_rx_gain; then
-            log_supervisor "fixed RX gain configuration failed; retrying"
+        if ! configure_rx_gain; then
+            log_supervisor "RX gain configuration failed; retrying"
             sleep "$retry_delay_seconds"
             continue
         fi
@@ -389,7 +411,7 @@ run_supervisor()
             trace_argument=--no-trace
         fi
 
-        log_supervisor "starting agent=$agent adapter=$adapter trace=$trace_enabled"
+        log_supervisor "starting agent=$agent adapter=$adapter gain_mode=$gain_control_mode trace=$trace_enabled"
         fifo_path="/tmp/ra8p1_sdr_agent.$$.fifo"
         rm -f "$fifo_path"
         if ! mkfifo "$fifo_path"; then
@@ -399,7 +421,7 @@ run_supervisor()
         fi
         pump_agent_log "$fifo_path" &
         log_pump_pid=$!
-        RA8P1_SDR_FIXED_GAINS_DB="$fixed_gains_csv" \
+        RA8P1_SDR_GAIN_MODE="$gain_control_mode" \
         RA8P1_SDR_IDENTITY=pluto-ethaddr-3E70EACC9791 \
         RA8P1_IIO_TUNE_SETTLE_US=1000 \
         RA8P1_IIO_TUNE_DISCARD_SAMPLES=4096 \
